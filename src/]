@@ -1,0 +1,91 @@
+use std::str;
+
+enum AST<S> {
+    Lambda(S, Box<AST<S>>),
+    App(Box<AST<S>>, Box<AST<S>>),
+    Sym(S),
+}
+
+fn sym<S>(s: S) -> AST<S> {
+    AST::Sym(s)
+}
+
+fn lam<S>(input: S, body: AST<S>) -> AST<S> {
+    AST::Lambda(input, Box::new(body))
+}
+
+fn app<S>(func: AST<S>, arg: AST<S>) -> AST<S> {
+    AST::App(Box::new(func), Box::new(arg))
+}
+
+impl<S: AsRef<str> + ToString> ToString for AST<S> {
+    fn to_string(&self) -> String {
+        match self {
+            AST::Lambda(x, exp) => {
+                "(\\".to_string() + &x.to_string() + " -> " + &exp.to_string() + &")".to_string()
+            }
+            AST::App(func, arg) => func.to_string() + " " + &arg.to_string(),
+            AST::Sym(s) => s.to_string(),
+        }
+    }
+}
+
+impl<S: Clone> Clone for AST<S> {
+    fn clone(&self) -> Self {
+        match self {
+            AST::Lambda(x, exp) => AST::Lambda(x.clone(), exp.clone()),
+            AST::App(func, arg) => AST::App(func.clone(), arg.clone()),
+            AST::Sym(s) => AST::Sym(s.clone()),
+        }
+    }
+}
+
+fn subst<S: Clone + PartialEq>(target: &S, val: AST<S>, exp: AST<S>) -> AST<S> {
+    match exp {
+        AST::Lambda(x, inner) => {
+            if x == *target {
+                AST::Lambda(x, inner)
+            } else {
+                lam(x, subst(target, val, *inner))
+            }
+        }
+        AST::App(func, arg) => app(subst(target, val.clone(), *func), subst(target, val, *arg)),
+        AST::Sym(s) => {
+            if s == *sym {
+                val.clone()
+            } else {
+                sym(s)
+            }
+        }
+    }
+}
+
+fn change_symbol_rep<S, T, F>(f: &F, exp: AST<S>) -> AST<T>
+where
+    F: Fn(S) -> T,
+{
+    match exp {
+        AST::Lambda(x, inner) => lam(f(x), change_symbol_rep(f, *inner)),
+        AST::App(func, arg) => app(change_symbol_rep(f, *func), change_symbol_rep(f, *arg)),
+        AST::Sym(x) => sym(f(x)),
+    }
+}
+
+fn eval<S: PartialEq + Clone>(exp: AST<S>) -> Result<AST<S>, String> {
+    match exp {
+        AST::App(func, arg) => match *func {
+            AST::Lambda(sym, body) => Result::Ok(subst(&sym, *arg, *body)),
+            _ => Result::Err("Invalid application!".to_string()),
+        },
+        x => Result::Ok(x),
+    }
+}
+
+fn main() {
+    let exp = app(lam("x", AST::Sym("x")), sym("y"));
+    let result = change_symbol_rep(&|x: &'static str| x.to_string(), exp);
+    match eval(result) {
+        Result::Ok(r) => println!("{}", r.to_string()),
+        Result::Err(e) => println!("{}", e),
+    }
+}
