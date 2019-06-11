@@ -7,6 +7,7 @@ use combine::stream::state::State;
 use combine::stream::{Positioned, Stream};
 use combine::{attempt, between, choice, many1, parser, sep_by, Parser};
 
+/// Represents abstract syntax tree expressions within the language
 enum AST<S> {
     Lambda(S, Box<AST<S>>),
     App(Box<AST<S>>, Box<AST<S>>),
@@ -47,6 +48,16 @@ impl<S: Clone> Clone for AST<S> {
     }
 }
 
+/// Performs substitution over `exp`. Any symbols matching `target`
+/// is swapped out with `val`. This is used to implement lambda
+/// application.
+///
+/// subst x t (f (x y) (z x y)) = f (t y) (z t y)
+///
+/// It does not propogate into lambda terms with an input matching
+/// the target symbol. This allows names to be shadowed under lambdas.
+///
+/// subst x t ((\x -> f x) x) = (\x -> f x) t
 fn subst<S: Clone + PartialEq>(target: &S, val: AST<S>, exp: AST<S>) -> AST<S> {
     match exp {
         AST::Lambda(x, inner) => {
@@ -67,6 +78,9 @@ fn subst<S: Clone + PartialEq>(target: &S, val: AST<S>, exp: AST<S>) -> AST<S> {
     }
 }
 
+/// Allows for the representation of symbols to be changed.
+/// This is useful when hand coding examples or test cases with
+/// `&'staitc str`, but then evaluating with `String`.
 fn change_symbol_rep<S, T, F>(f: &F, exp: AST<S>) -> AST<T>
 where
     F: Fn(S) -> T,
@@ -78,6 +92,7 @@ where
     }
 }
 
+/// Evaluates the given AST expression, potentially failing
 fn eval<S: PartialEq + Clone>(exp: AST<S>) -> Result<AST<S>, String> {
     match exp {
         AST::App(func, arg) => match *func {
@@ -88,7 +103,13 @@ fn eval<S: PartialEq + Clone>(exp: AST<S>) -> Result<AST<S>, String> {
     }
 }
 
-// `impl Parser` can be used to create reusable parsers with zero overhead
+/// expr_ implements the parser for the language.
+/// Grammar:
+/// <expr>   := <appl> | <e>
+/// <appl>   := <e> <expr>
+/// <e>      := <parens> | <lambda> | <symbol>
+/// <parens> := '(' <expr> ')'
+/// <lambda> := '\' <symbol> '->' <expr>
 fn expr_<I>() -> impl Parser<Input = I, Output = AST<String>>
 where
     I: Stream<Item = char>,
@@ -104,6 +125,8 @@ where
 
     //Creates a parser which parses a char and skips any trailing whitespace
     let lex_char = |c| char(c).skip(skip_spaces());
+
+    // lambda := '\' <symbol> '->' <expr>
     let lex_arr = || (char('-'), char('>')).skip(skip_spaces());
     let lambda = || {
         (
@@ -114,9 +137,17 @@ where
         )
             .map(|t| lam(t.1, t.3))
     };
+
+    // parens := '(' <expr> ')'
     let parens = || between(lex_char('('), lex_char(')'), expr());
+
+    // e := <parens> | <lambda> | <symbol>
     let e = || choice((parens(), lambda(), word().map(AST::Sym))).skip(skip_spaces());
+
+    // appl := <e> <expr>
     let appl = (e(), expr()).map(|t| app(t.0, t.1)).skip(skip_spaces());
+
+    // expr := <appl> | <e>
     choice((attempt(appl), e())).skip(skip_spaces())
 }
 
