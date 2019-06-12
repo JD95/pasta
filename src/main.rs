@@ -1,17 +1,16 @@
 use std::str;
-#[macro_use]
 extern crate combine;
-use combine::error::{ParseError, StdParseResult};
-use combine::parser::char::{char, letter, spaces};
-use combine::stream::state::State;
-use combine::stream::{Positioned, Stream};
-use combine::{attempt, between, choice, many1, parser, sep_by, Parser};
+use combine::error::ParseError;
+use combine::parser::char::{char, digit, letter, spaces};
+use combine::stream::Stream;
+use combine::{attempt, between, choice, many1, parser, Parser};
 
 /// Represents abstract syntax tree expressions within the language
 enum AST<S> {
     Lambda(S, Box<AST<S>>),
     App(Box<AST<S>>, Box<AST<S>>),
     Sym(S),
+    Int(i32),
 }
 
 fn sym<S>(s: S) -> AST<S> {
@@ -26,6 +25,10 @@ fn app<S>(func: AST<S>, arg: AST<S>) -> AST<S> {
     AST::App(Box::new(func), Box::new(arg))
 }
 
+fn int<S>(n: i32) -> AST<S> {
+    AST::Int(n)
+}
+
 impl<S: AsRef<str> + ToString> ToString for AST<S> {
     fn to_string(&self) -> String {
         match self {
@@ -34,6 +37,7 @@ impl<S: AsRef<str> + ToString> ToString for AST<S> {
             }
             AST::App(func, arg) => func.to_string() + " " + &arg.to_string(),
             AST::Sym(s) => s.to_string(),
+            AST::Int(i) => i.to_string(),
         }
     }
 }
@@ -44,6 +48,7 @@ impl<S: Clone> Clone for AST<S> {
             AST::Lambda(x, exp) => AST::Lambda(x.clone(), exp.clone()),
             AST::App(func, arg) => AST::App(func.clone(), arg.clone()),
             AST::Sym(s) => AST::Sym(s.clone()),
+            AST::Int(i) => AST::Int(i.clone()),
         }
     }
 }
@@ -75,6 +80,8 @@ fn subst<S: Clone + PartialEq>(target: &S, val: AST<S>, exp: AST<S>) -> AST<S> {
                 sym(s)
             }
         }
+
+        _ => exp,
     }
 }
 
@@ -89,6 +96,7 @@ where
         AST::Lambda(x, inner) => lam(f(x), change_symbol_rep(f, *inner)),
         AST::App(func, arg) => app(change_symbol_rep(f, *func), change_symbol_rep(f, *arg)),
         AST::Sym(x) => sym(f(x)),
+        AST::Int(i) => int(i),
     }
 }
 
@@ -107,15 +115,18 @@ fn eval<S: PartialEq + Clone>(exp: AST<S>) -> Result<AST<S>, String> {
 /// Grammar:
 /// <expr>   := <appl> | <e>
 /// <appl>   := <e> <expr>
-/// <e>      := <parens> | <lambda> | <symbol>
+/// <e>      := <parens> | <lambda> | <symbol> | <int>
 /// <parens> := '(' <expr> ')'
 /// <lambda> := '\' <symbol> '->' <expr>
+/// <int>    := <digit> <int> | <digit>
 fn expr_<I>() -> impl Parser<Input = I, Output = AST<String>>
 where
     I: Stream<Item = char>,
     // Necessary due to rust-lang/rust#24159
     I::Error: ParseError<I::Item, I::Range, I::Position>,
 {
+    let int = || many1(digit());
+
     let word = || many1(letter());
 
     // A parser which skips past whitespace.
@@ -141,8 +152,16 @@ where
     // parens := '(' <expr> ')'
     let parens = || between(lex_char('('), lex_char(')'), expr());
 
-    // e := <parens> | <lambda> | <symbol>
-    let e = || choice((parens(), lambda(), word().map(AST::Sym))).skip(skip_spaces());
+    // e := <parens> | <lambda> | <symbol> | <int>
+    let e = || {
+        choice((
+            parens(),
+            lambda(),
+            word().map(AST::Sym),
+            int().map(|s: String| AST::Int(s.parse::<i32>().unwrap())),
+        ))
+        .skip(skip_spaces())
+    };
 
     // appl := <e> <expr>
     let appl = (e(), expr()).map(|t| app(t.0, t.1)).skip(skip_spaces());
@@ -167,7 +186,7 @@ parser! {
 }
 
 fn main() {
-    let input = "(\\x -> x) y";
+    let input = "(\\x -> x) 5";
     match expr().parse(input) {
         Ok(exp) => match eval(exp.0) {
             Result::Ok(r) => println!("{}", r.to_string()),
