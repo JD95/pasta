@@ -1,3 +1,4 @@
+use std::convert::AsRef;
 use std::str;
 extern crate combine;
 use combine::error::ParseError;
@@ -11,6 +12,7 @@ enum AST<S> {
     App(Box<AST<S>>, Box<AST<S>>),
     Sym(S),
     Int(i32),
+    Add(Box<AST<S>>, Box<AST<S>>),
 }
 
 fn sym<S>(s: S) -> AST<S> {
@@ -29,6 +31,10 @@ fn int<S>(n: i32) -> AST<S> {
     AST::Int(n)
 }
 
+fn add<S>(left: AST<S>, right: AST<S>) -> AST<S> {
+    AST::Add(Box::new(left), Box::new(right))
+}
+
 impl<S: AsRef<str> + ToString> ToString for AST<S> {
     fn to_string(&self) -> String {
         match self {
@@ -38,6 +44,7 @@ impl<S: AsRef<str> + ToString> ToString for AST<S> {
             AST::App(func, arg) => func.to_string() + " " + &arg.to_string(),
             AST::Sym(s) => s.to_string(),
             AST::Int(i) => i.to_string(),
+            AST::Add(x, y) => "add ".to_string() + &x.to_string() + " " + &y.to_string(),
         }
     }
 }
@@ -49,6 +56,7 @@ impl<S: Clone> Clone for AST<S> {
             AST::App(func, arg) => AST::App(func.clone(), arg.clone()),
             AST::Sym(s) => AST::Sym(s.clone()),
             AST::Int(i) => AST::Int(i.clone()),
+            AST::Add(x, y) => AST::Add(x.clone(), y.clone()),
         }
     }
 }
@@ -73,6 +81,7 @@ fn subst<S: Clone + PartialEq>(target: &S, val: AST<S>, exp: AST<S>) -> AST<S> {
             }
         }
         AST::App(func, arg) => app(subst(target, val.clone(), *func), subst(target, val, *arg)),
+        AST::Add(x, y) => add(subst(target, val.clone(), *x), subst(target, val, *y)),
         AST::Sym(s) => {
             if s == *target {
                 val
@@ -80,7 +89,6 @@ fn subst<S: Clone + PartialEq>(target: &S, val: AST<S>, exp: AST<S>) -> AST<S> {
                 sym(s)
             }
         }
-
         _ => exp,
     }
 }
@@ -95,17 +103,36 @@ where
     match exp {
         AST::Lambda(x, inner) => lam(f(x), change_symbol_rep(f, *inner)),
         AST::App(func, arg) => app(change_symbol_rep(f, *func), change_symbol_rep(f, *arg)),
+        AST::Add(x, y) => add(change_symbol_rep(f, *x), change_symbol_rep(f, *y)),
         AST::Sym(x) => sym(f(x)),
         AST::Int(i) => int(i),
     }
 }
 
 /// Evaluates the given AST expression, potentially failing
-fn eval<S: PartialEq + Clone>(exp: AST<S>) -> Result<AST<S>, String> {
+fn eval(exp: AST<String>) -> Result<AST<String>, String> {
+    println!("{}", &exp.to_string());
     match exp {
-        AST::App(func, arg) => match *func {
-            AST::Lambda(sym, body) => Result::Ok(subst(&sym, *arg, *body)),
+        AST::App(func, arg) => match eval(*func) {
+            Result::Ok(AST::Lambda(sym, body)) => eval(subst(&sym, *arg, *body)),
             _ => Result::Err("Invalid application!".to_string()),
+        },
+        AST::Add(x, y) => match eval(*x) {
+            Result::Ok(AST::Int(left)) => match eval(*y) {
+                Result::Ok(AST::Int(right)) => Result::Ok(AST::Int(left + right)),
+                _ => Result::Err("Bad additions".to_string()),
+            },
+            _ => Result::Err("Bad additions".to_string()),
+        },
+        AST::Sym(s) => match s.as_ref() {
+            "add" => Result::Ok(lam(
+                "x".to_string(),
+                lam(
+                    "y".to_string(),
+                    add(sym("x".to_string()), sym("y".to_string())),
+                ),
+            )),
+            _ => Result::Err("undefined symbol".to_string()),
         },
         x => Result::Ok(x),
     }
@@ -115,7 +142,7 @@ fn eval<S: PartialEq + Clone>(exp: AST<S>) -> Result<AST<S>, String> {
 /// Grammar:
 /// <expr>   := <appl> | <e>
 /// <appl>   := <e> <expr>
-/// <e>      := <parens> | <lambda> | <symbol> | <int>
+/// <e>      := <parens> | <lambda> | <math> | <symbol> | <int>
 /// <parens> := '(' <expr> ')'
 /// <lambda> := '\' <symbol> '->' <expr>
 /// <int>    := <digit> <int> | <digit>
@@ -186,7 +213,7 @@ parser! {
 }
 
 fn main() {
-    let input = "(\\x -> x) 5";
+    let input = "(\\x -> add x 10) 5";
     match expr().parse(input) {
         Ok(exp) => match eval(exp.0) {
             Result::Ok(r) => println!("{}", r.to_string()),
