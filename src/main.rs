@@ -1,4 +1,5 @@
 use std::convert::AsRef;
+use std::iter::Iterator;
 use std::str;
 extern crate combine;
 use combine::error::ParseError;
@@ -38,13 +39,11 @@ fn add<S>(left: AST<S>, right: AST<S>) -> AST<S> {
 impl<S: AsRef<str> + ToString> ToString for AST<S> {
     fn to_string(&self) -> String {
         match self {
-            AST::Lambda(x, exp) => {
-                "(\\".to_string() + &x.to_string() + " -> " + &exp.to_string() + &")".to_string()
-            }
-            AST::App(func, arg) => func.to_string() + " " + &arg.to_string(),
+            AST::Lambda(x, exp) => format!("(\\ {} -> {})", &x.to_string(), &exp.to_string()),
+            AST::App(func, arg) => format!("({} {})", &func.to_string(), &arg.to_string()),
             AST::Sym(s) => s.to_string(),
             AST::Int(i) => i.to_string(),
-            AST::Add(x, y) => "add ".to_string() + &x.to_string() + " " + &y.to_string(),
+            AST::Add(x, y) => format!("({} + {})", &x.to_string(), &y.to_string()),
         }
     }
 }
@@ -71,7 +70,7 @@ impl<S: Clone> Clone for AST<S> {
 /// the target symbol. This allows names to be shadowed under lambdas.
 ///
 /// subst x t ((\x -> f x) x) = (\x -> f x) t
-fn subst<S: Clone + PartialEq>(target: &S, val: AST<S>, exp: AST<S>) -> AST<S> {
+fn subst(target: &String, val: AST<String>, exp: AST<String>) -> AST<String> {
     match exp {
         AST::Lambda(x, inner) => {
             if x == *target {
@@ -84,6 +83,7 @@ fn subst<S: Clone + PartialEq>(target: &S, val: AST<S>, exp: AST<S>) -> AST<S> {
         AST::Add(x, y) => add(subst(target, val.clone(), *x), subst(target, val, *y)),
         AST::Sym(s) => {
             if s == *target {
+                println!("subst | {} ~> {}", &target.to_string(), &val.to_string());
                 val
             } else {
                 sym(s)
@@ -111,27 +111,33 @@ where
 
 /// Evaluates the given AST expression, potentially failing
 fn eval(exp: AST<String>) -> Result<AST<String>, String> {
-    println!("{}", &exp.to_string());
+    println!("focus | {}", &exp.to_string());
+    let printResult = |e: Result<AST<String>, String>| {
+        e.map(|r| {
+            println!("eval  | {}", &r.to_string());
+            r
+        })
+    };
     match exp {
-        AST::App(func, arg) => match eval(*func) {
-            Result::Ok(AST::Lambda(sym, body)) => eval(subst(&sym, *arg, *body)),
+        AST::App(func, arg) => eval(*func).and_then(|result| match result {
+            AST::Lambda(sym, body) => eval(subst(&sym, *arg, *body)),
             _ => Result::Err("Invalid application!".to_string()),
-        },
+        }),
         AST::Add(x, y) => match eval(*x) {
             Result::Ok(AST::Int(left)) => match eval(*y) {
-                Result::Ok(AST::Int(right)) => Result::Ok(AST::Int(left + right)),
+                Result::Ok(AST::Int(right)) => printResult(Result::Ok(AST::Int(left + right))),
                 _ => Result::Err("Bad additions".to_string()),
             },
             _ => Result::Err("Bad additions".to_string()),
         },
         AST::Sym(s) => match s.as_ref() {
-            "add" => Result::Ok(lam(
+            "add" => printResult(Result::Ok(lam(
                 "x".to_string(),
                 lam(
                     "y".to_string(),
                     add(sym("x".to_string()), sym("y".to_string())),
                 ),
-            )),
+            ))),
             _ => Result::Err("undefined symbol".to_string()),
         },
         x => Result::Ok(x),
@@ -140,12 +146,12 @@ fn eval(exp: AST<String>) -> Result<AST<String>, String> {
 
 /// expr_ implements the parser for the language.
 /// Grammar:
-/// <expr>   := <appl> | <e>
-/// <appl>   := <e> <expr>
+/// <app>    := <e> | <app> <e>
 /// <e>      := <parens> | <lambda> | <math> | <symbol> | <int>
 /// <parens> := '(' <expr> ')'
 /// <lambda> := '\' <symbol> '->' <expr>
 /// <int>    := <digit> <int> | <digit>
+/// <symbol> := <letter> <symbol> | <letter>
 fn expr_<I>() -> impl Parser<Input = I, Output = AST<String>>
 where
     I: Stream<Item = char>,
@@ -166,6 +172,7 @@ where
 
     // lambda := '\' <symbol> '->' <expr>
     let lex_arr = || (char('-'), char('>')).skip(skip_spaces());
+
     let lambda = || {
         (
             lex_char('\\'),
@@ -190,11 +197,12 @@ where
         .skip(skip_spaces())
     };
 
-    // appl := <e> <expr>
-    let appl = (e(), expr()).map(|t| app(t.0, t.1)).skip(skip_spaces());
-
-    // expr := <appl> | <e>
-    choice((attempt(appl), e())).skip(skip_spaces())
+    // appl := <e> | <expr> <e>
+    many1(e()).map(|v: Vec<AST<String>>| {
+        let mut es = v.into_iter();
+        let head = es.next().unwrap();
+        es.fold(head, |a, b| app(a, b))
+    })
 }
 
 // As this expression parser needs to be able to call itself recursively `impl Parser` can't
@@ -213,12 +221,15 @@ parser! {
 }
 
 fn main() {
-    let input = "(\\x -> add x 10) 5";
+    let input = "(\\x -> add x 10) (add 10 2)";
     match expr().parse(input) {
-        Ok(exp) => match eval(exp.0) {
-            Result::Ok(r) => println!("{}", r.to_string()),
-            Result::Err(e) => println!("Eval Error: {}", e),
-        },
+        Ok(exp) => {
+            println!("{}", &exp.0.to_string());
+            match eval(exp.0) {
+                Result::Ok(r) => println!("{}", r.to_string()),
+                Result::Err(e) => println!("Eval Error: {}", e),
+            }
+        }
         Err(e) => println!("Parse Error: {}", e),
     }
 }
