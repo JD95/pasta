@@ -3,7 +3,7 @@ use std::iter::Iterator;
 use std::str;
 extern crate combine;
 use combine::error::ParseError;
-use combine::parser::char::{char, digit, letter, spaces};
+use combine::parser::char::{char, digit, letter, spaces, string};
 use combine::stream::Stream;
 use combine::{attempt, between, choice, many1, parser, Parser};
 
@@ -112,7 +112,7 @@ where
 /// Evaluates the given AST expression, potentially failing
 fn eval(exp: AST<String>) -> Result<AST<String>, String> {
     println!("focus | {}", &exp.to_string());
-    let printResult = |e: Result<AST<String>, String>| {
+    let print_result = |e: Result<AST<String>, String>| {
         e.map(|r| {
             println!("eval  | {}", &r.to_string());
             r
@@ -125,13 +125,13 @@ fn eval(exp: AST<String>) -> Result<AST<String>, String> {
         }),
         AST::Add(x, y) => match eval(*x) {
             Result::Ok(AST::Int(left)) => match eval(*y) {
-                Result::Ok(AST::Int(right)) => printResult(Result::Ok(AST::Int(left + right))),
+                Result::Ok(AST::Int(right)) => print_result(Result::Ok(AST::Int(left + right))),
                 _ => Result::Err("Bad additions".to_string()),
             },
             _ => Result::Err("Bad additions".to_string()),
         },
         AST::Sym(s) => match s.as_ref() {
-            "add" => printResult(Result::Ok(lam(
+            "add" => print_result(Result::Ok(lam(
                 "x".to_string(),
                 lam(
                     "y".to_string(),
@@ -147,7 +147,7 @@ fn eval(exp: AST<String>) -> Result<AST<String>, String> {
 /// expr_ implements the parser for the language.
 /// Grammar:
 /// <app>    := <e> | <app> <e>
-/// <e>      := <parens> | <lambda> | <math> | <symbol> | <int>
+/// <e>      := <parens> | <lambda> | <symbol> | <int>
 /// <parens> := '(' <expr> ')'
 /// <lambda> := '\' <symbol> '->' <expr>
 /// <int>    := <digit> <int> | <digit>
@@ -171,13 +171,13 @@ where
     let lex_char = |c| char(c).skip(skip_spaces());
 
     // lambda := '\' <symbol> '->' <expr>
-    let lex_arr = || (char('-'), char('>')).skip(skip_spaces());
+    let lex_str = |s| string(s).skip(skip_spaces());
 
     let lambda = || {
         (
             lex_char('\\'),
             word().skip(skip_spaces()),
-            lex_arr(),
+            lex_str("->"),
             expr(),
         )
             .map(|t| lam(t.1, t.3))
@@ -197,7 +197,7 @@ where
         .skip(skip_spaces())
     };
 
-    // appl := <e> | <expr> <e>
+    // app := <e> | <app> <e>
     many1(e()).map(|v: Vec<AST<String>>| {
         let mut es = v.into_iter();
         let head = es.next().unwrap();
