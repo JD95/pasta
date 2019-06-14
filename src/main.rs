@@ -48,7 +48,7 @@ impl<S: AsRef<str> + ToString + Debug> ToString for AST<S> {
                     .map(|x| ", ".to_string() + &x)
                     .fold("".to_string(), |x, y| x + &y);
 
-                format!("({} [{}{}])", s.to_string(), head, rest)
+                format!("(prim_{} [{}{}])", s.to_string(), head, rest)
             }
             AST::Sym(s) => s.to_string(),
             AST::Int(i) => i.to_string(),
@@ -237,6 +237,9 @@ fn predefined_symbols() -> SymTable {
     };
 
     insert_func("add", vec!["x", "y"]);
+    insert_func("sub", vec!["x", "y"]);
+    insert_func("mul", vec!["x", "y"]);
+    insert_func("div", vec!["x", "y"]);
 
     SymTable(table)
 }
@@ -280,6 +283,9 @@ where
 fn eval_primop(s: String, inputs: Vec<AST<String>>, rt: &Runtime) -> Result<AST<String>, String> {
     match s.as_ref() {
         "add" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x + y)),
+        "sub" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x - y)),
+        "mul" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x * y)),
+        "div" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x / y)),
         _ => Err(format!("Undefined primop {}", s)),
     }
 }
@@ -302,7 +308,7 @@ fn eval(exp: AST<String>, rt: &Runtime) -> Result<AST<String>, String> {
 }
 
 fn main() {
-    let input = "(\\x -> add x 10) (add 10 2)";
+    let input = "(\\x -> sub x 10) (add 10 2)";
     match expr().parse(input) {
         Ok(exp) => {
             println!("{}", &exp.0.to_string());
