@@ -250,6 +250,9 @@ fn predefined_symbols() -> SymTable {
     insert_func("lte", vec!["x", "y"]);
     insert_func("gte", vec!["x", "y"]);
     insert_func("if", vec!["x", "y", "z"]);
+    insert_func("and", vec!["x", "y"]);
+    insert_func("or", vec!["x", "y"]);
+    insert_func("not", vec!["x"]);
 
     table.insert("true".to_string(), AST::Bool(true));
     table.insert("false".to_string(), AST::Bool(false));
@@ -281,6 +284,24 @@ fn check_bool(x: AST<String>) -> Result<bool, String> {
             x.to_string()
         )),
     }
+}
+
+fn prim_op<T, P, F>(
+    inputs: Vec<AST<String>>,
+    rt: &Runtime,
+    check: &P,
+    f: F,
+) -> Result<AST<String>, String>
+where
+    F: Fn(T) -> AST<String>,
+    P: Fn(AST<String>) -> Result<T, String>,
+{
+    let mut inputs = inputs.into_iter();
+    let arg1 = inputs.next().ok_or("Not enough args")?;
+
+    let x = eval(arg1, rt).and_then(check)?;
+
+    print_result(Ok(f(x)))
 }
 
 fn prim_bin_op<T, P, F>(
@@ -325,6 +346,9 @@ fn eval_primop(s: String, inputs: Vec<AST<String>>, rt: &Runtime) -> Result<AST<
         "lte" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x <= y)),
         "gte" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x >= y)),
         "if" => prim_if(inputs, rt),
+        "and" => prim_bin_op(inputs, rt, &check_bool, |x, y| AST::Bool(x && y)),
+        "or" => prim_bin_op(inputs, rt, &check_bool, |x, y| AST::Bool(x || y)),
+        "not" => prim_op(inputs, rt, &check_bool, |x| AST::Bool(!x)),
         _ => Err(format!("Undefined primop {}", s)),
     }
 }
@@ -347,7 +371,7 @@ fn eval(exp: AST<String>, rt: &Runtime) -> Result<AST<String>, String> {
 }
 
 fn main() {
-    let input = "(if (eq 1 2) 1 2)";
+    let input = "add 6 (if (not (or (eq 1 2) (eq 2 2))) 6 2)";
     match expr().parse(input) {
         Ok(exp) => {
             println!("{}", &exp.0.to_string());
