@@ -18,6 +18,7 @@ enum AST<S> {
     Lambda(S, Box<AST<S>>),
     Sym(S),
     Int(i32),
+    Bool(bool),
 }
 
 fn sym<S>(s: S) -> AST<S> {
@@ -52,6 +53,7 @@ impl<S: AsRef<str> + ToString + Debug> ToString for AST<S> {
             }
             AST::Sym(s) => s.to_string(),
             AST::Int(i) => i.to_string(),
+            AST::Bool(b) => b.to_string(),
         }
     }
 }
@@ -64,6 +66,7 @@ impl<S: Clone> Clone for AST<S> {
             AST::PrimOp(s, env) => AST::PrimOp(s.clone(), env.clone()),
             AST::Sym(s) => AST::Sym(s.clone()),
             AST::Int(i) => AST::Int(i.clone()),
+            AST::Bool(b) => AST::Bool(b.clone()),
         }
     }
 }
@@ -199,18 +202,19 @@ where
         ),
         AST::Sym(x) => sym(f(x)),
         AST::Int(i) => int(i),
+        AST::Bool(b) => AST::Bool(b),
     }
 }
 
 struct SymTable(pub HashMap<String, AST<String>>);
 
 struct Runtime {
-    symTable: SymTable,
+    sym_table: SymTable,
 }
 
 fn init_runtime() -> Runtime {
     Runtime {
-        symTable: predefined_symbols(),
+        sym_table: predefined_symbols(),
     }
 }
 
@@ -240,6 +244,15 @@ fn predefined_symbols() -> SymTable {
     insert_func("sub", vec!["x", "y"]);
     insert_func("mul", vec!["x", "y"]);
     insert_func("div", vec!["x", "y"]);
+    insert_func("lt", vec!["x", "y"]);
+    insert_func("gt", vec!["x", "y"]);
+    insert_func("eq", vec!["x", "y"]);
+    insert_func("lte", vec!["x", "y"]);
+    insert_func("gte", vec!["x", "y"]);
+    insert_func("if", vec!["x", "y", "z"]);
+
+    table.insert("true".to_string(), AST::Bool(true));
+    table.insert("false".to_string(), AST::Bool(false));
 
     SymTable(table)
 }
@@ -255,6 +268,16 @@ fn check_int(x: AST<String>) -> Result<i32, String> {
         AST::Int(i) => Ok(i),
         _ => Err(format!(
             "Type mismatch, expecting an `int` value but got '{}'",
+            x.to_string()
+        )),
+    }
+}
+
+fn check_bool(x: AST<String>) -> Result<bool, String> {
+    match x {
+        AST::Bool(b) => Ok(b),
+        _ => Err(format!(
+            "Type mismatch, expecting a `bool` value but got '{}'",
             x.to_string()
         )),
     }
@@ -280,12 +303,28 @@ where
     print_result(Ok(f(x, y)))
 }
 
+fn prim_if(inputs: Vec<AST<String>>, rt: &Runtime) -> Result<AST<String>, String> {
+    let mut inputs = inputs.into_iter();
+    let arg1 = inputs.next().ok_or("Not enough args")?;
+    let arg2 = inputs.next().ok_or("Not enough args")?;
+    let arg3 = inputs.next().ok_or("Not enough args")?;
+
+    let b = eval(arg1, rt).and_then(check_bool)?;
+    Ok(if b { arg2 } else { arg3 })
+}
+
 fn eval_primop(s: String, inputs: Vec<AST<String>>, rt: &Runtime) -> Result<AST<String>, String> {
     match s.as_ref() {
         "add" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x + y)),
         "sub" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x - y)),
         "mul" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x * y)),
         "div" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x / y)),
+        "lt" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x < y)),
+        "gt" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x > y)),
+        "eq" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x == y)),
+        "lte" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x <= y)),
+        "gte" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x >= y)),
+        "if" => prim_if(inputs, rt),
         _ => Err(format!("Undefined primop {}", s)),
     }
 }
@@ -299,7 +338,7 @@ fn eval(exp: AST<String>, rt: &Runtime) -> Result<AST<String>, String> {
             _ => Err("Invalid application!".to_string()),
         },
         AST::PrimOp(s, inputs) => eval_primop(s, inputs, rt),
-        AST::Sym(s) => match rt.symTable.0.get(&s) {
+        AST::Sym(s) => match rt.sym_table.0.get(&s) {
             Some(e) => print_result(Ok(e.clone())),
             None => Err("undefined symbol".to_string()),
         },
@@ -308,7 +347,7 @@ fn eval(exp: AST<String>, rt: &Runtime) -> Result<AST<String>, String> {
 }
 
 fn main() {
-    let input = "(\\x -> sub x 10) (add 10 2)";
+    let input = "(if (eq 1 2) 1 2)";
     match expr().parse(input) {
         Ok(exp) => {
             println!("{}", &exp.0.to_string());
