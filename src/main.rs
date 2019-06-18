@@ -8,7 +8,7 @@ extern crate combine;
 use combine::error::ParseError;
 use combine::parser::char::{char, digit, letter, spaces, string};
 use combine::stream::Stream;
-use combine::{between, choice, many1, parser, Parser};
+use combine::{attempt, between, choice, many1, parser, Parser};
 
 /// Represents abstract syntax tree expressions within the language
 #[derive(Debug)]
@@ -18,6 +18,7 @@ enum AST<S> {
     Lambda(S, Box<AST<S>>),
     Sym(S),
     Int(i32),
+    Double(f64),
     Bool(bool),
 }
 
@@ -37,6 +38,10 @@ fn int<S>(n: i32) -> AST<S> {
     AST::Int(n)
 }
 
+fn dble<S>(n: f64) -> AST<S> {
+    AST::Double(n)
+}
+
 impl<S: AsRef<str> + ToString + Debug> ToString for AST<S> {
     fn to_string(&self) -> String {
         match self {
@@ -53,6 +58,7 @@ impl<S: AsRef<str> + ToString + Debug> ToString for AST<S> {
             }
             AST::Sym(s) => s.to_string(),
             AST::Int(i) => i.to_string(),
+            AST::Double(f) => f.to_string(),
             AST::Bool(b) => b.to_string(),
         }
     }
@@ -66,6 +72,7 @@ impl<S: Clone> Clone for AST<S> {
             AST::PrimOp(s, env) => AST::PrimOp(s.clone(), env.clone()),
             AST::Sym(s) => AST::Sym(s.clone()),
             AST::Int(i) => AST::Int(i.clone()),
+            AST::Double(i) => AST::Double(i.clone()),
             AST::Bool(b) => AST::Bool(b.clone()),
         }
     }
@@ -86,6 +93,8 @@ where
     I::Error: ParseError<I::Item, I::Range, I::Position>,
 {
     let int = || many1(digit());
+
+    let float = || (int(), char('.'), int());
 
     let word = || many1(letter());
 
@@ -119,6 +128,9 @@ where
             parens(),
             lambda(),
             word().map(AST::Sym),
+            attempt(
+                float().map(|t| AST::Double((format!("{}.{}", t.0, t.2)).parse::<f64>().unwrap())),
+            ),
             int().map(|s: String| AST::Int(s.parse::<i32>().unwrap())),
         ))
         .skip(skip_spaces())
@@ -202,6 +214,7 @@ where
         ),
         AST::Sym(x) => sym(f(x)),
         AST::Int(i) => int(i),
+        AST::Double(i) => dble(i),
         AST::Bool(b) => AST::Bool(b),
     }
 }
@@ -240,15 +253,26 @@ fn predefined_symbols() -> SymTable {
         )
     };
 
-    insert_func("add", vec!["x", "y"]);
-    insert_func("sub", vec!["x", "y"]);
-    insert_func("mul", vec!["x", "y"]);
-    insert_func("div", vec!["x", "y"]);
-    insert_func("lt", vec!["x", "y"]);
-    insert_func("gt", vec!["x", "y"]);
-    insert_func("eq", vec!["x", "y"]);
-    insert_func("lte", vec!["x", "y"]);
-    insert_func("gte", vec!["x", "y"]);
+    insert_func("intAdd", vec!["x", "y"]);
+    insert_func("intSub", vec!["x", "y"]);
+    insert_func("intMul", vec!["x", "y"]);
+    insert_func("intDiv", vec!["x", "y"]);
+    insert_func("intLt", vec!["x", "y"]);
+    insert_func("intGt", vec!["x", "y"]);
+    insert_func("intEq", vec!["x", "y"]);
+    insert_func("intLte", vec!["x", "y"]);
+    insert_func("intGte", vec!["x", "y"]);
+
+    insert_func("dblAdd", vec!["x", "y"]);
+    insert_func("dblSub", vec!["x", "y"]);
+    insert_func("dblMul", vec!["x", "y"]);
+    insert_func("dblDiv", vec!["x", "y"]);
+    insert_func("dblLt", vec!["x", "y"]);
+    insert_func("dblGt", vec!["x", "y"]);
+    insert_func("dblEq", vec!["x", "y"]);
+    insert_func("dblLte", vec!["x", "y"]);
+    insert_func("dblGte", vec!["x", "y"]);
+
     insert_func("if", vec!["x", "y", "z"]);
     insert_func("and", vec!["x", "y"]);
     insert_func("or", vec!["x", "y"]);
@@ -271,6 +295,16 @@ fn check_int(x: AST<String>) -> Result<i32, String> {
         AST::Int(i) => Ok(i),
         _ => Err(format!(
             "Type mismatch, expecting an `int` value but got '{}'",
+            x.to_string()
+        )),
+    }
+}
+
+fn check_dbl(x: AST<String>) -> Result<f64, String> {
+    match x {
+        AST::Double(d) => Ok(d),
+        _ => Err(format!(
+            "Type mismatch, expecting a 'double' value but got '{}'",
             x.to_string()
         )),
     }
@@ -336,19 +370,34 @@ fn prim_if(inputs: Vec<AST<String>>, rt: &Runtime) -> Result<AST<String>, String
 
 fn eval_primop(s: String, inputs: Vec<AST<String>>, rt: &Runtime) -> Result<AST<String>, String> {
     match s.as_ref() {
-        "add" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x + y)),
-        "sub" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x - y)),
-        "mul" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x * y)),
-        "div" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x / y)),
-        "lt" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x < y)),
-        "gt" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x > y)),
-        "eq" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x == y)),
-        "lte" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x <= y)),
-        "gte" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x >= y)),
+        // Base Int operations
+        "intAdd" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x + y)),
+        "intSub" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x - y)),
+        "intMul" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x * y)),
+        "intDiv" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Int(x / y)),
+        "intLt" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x < y)),
+        "intGt" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x > y)),
+        "intEq" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x == y)),
+        "intLte" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x <= y)),
+        "intGte" => prim_bin_op(inputs, rt, &check_int, |x, y| AST::Bool(x >= y)),
+
+        // Base Double operations
+        "dblAdd" => prim_bin_op(inputs, rt, &check_dbl, |x, y| AST::Double(x + y)),
+        "dblSub" => prim_bin_op(inputs, rt, &check_dbl, |x, y| AST::Double(x - y)),
+        "dblMul" => prim_bin_op(inputs, rt, &check_dbl, |x, y| AST::Double(x * y)),
+        "dblDiv" => prim_bin_op(inputs, rt, &check_dbl, |x, y| AST::Double(x / y)),
+        "dblLt" => prim_bin_op(inputs, rt, &check_dbl, |x, y| AST::Bool(x < y)),
+        "dblGt" => prim_bin_op(inputs, rt, &check_dbl, |x, y| AST::Bool(x > y)),
+        "dblEq" => prim_bin_op(inputs, rt, &check_dbl, |x, y| AST::Bool(x == y)),
+        "dblLte" => prim_bin_op(inputs, rt, &check_dbl, |x, y| AST::Bool(x <= y)),
+        "dblGte" => prim_bin_op(inputs, rt, &check_dbl, |x, y| AST::Bool(x >= y)),
+
+        // Branching and Logic operations
         "if" => prim_if(inputs, rt),
         "and" => prim_bin_op(inputs, rt, &check_bool, |x, y| AST::Bool(x && y)),
         "or" => prim_bin_op(inputs, rt, &check_bool, |x, y| AST::Bool(x || y)),
         "not" => prim_op(inputs, rt, &check_bool, |x| AST::Bool(!x)),
+
         _ => Err(format!("Undefined primop {}", s)),
     }
 }
@@ -371,7 +420,7 @@ fn eval(exp: AST<String>, rt: &Runtime) -> Result<AST<String>, String> {
 }
 
 fn main() {
-    let input = "add 6 (if (not (or (eq 1 2) (eq 2 2))) 6 2)";
+    let input = "dblAdd 0.5 0.5";
     match expr().parse(input) {
         Ok(exp) => {
             println!("{}", &exp.0.to_string());
