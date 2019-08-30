@@ -58,3 +58,5 @@ lam opts (Mu body) = mkMu injExpr $ Lam opts <$> body
 var i = mkMu injExpr (const . Val $ Bound i)
 
 free name = mkMu injExpr (const . Val $ Free name)
+
+inline (Mu x) = mkMu injExpr $ Val . Inline <$> x

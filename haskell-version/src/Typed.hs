@@ -11,12 +11,14 @@ import           Data.Void
 import           Constructors
 
 class TypedExpression ix where
+  type RigName ix :: *
+  type PolName ix :: *
   type ArrowOpts ix :: *
   type TypedExt ix (f :: * -> *) :: * -> *
 
 data Typed ix f a where
-  RArr :: String -> a -> Typed ix f a
-  PArr :: String -> a -> Typed ix f a
+  RArr :: RigName ix -> a -> Typed ix f a
+  PArr :: PolName ix -> a -> Typed ix f a
   TArr :: ArrowOpts ix -> a -> a -> Typed ix f a
   TCon :: String -> Typed ix f a
   Typed :: f a -> Typed ix f a
@@ -37,15 +39,17 @@ printRig RU = ""
 
 data PrintTyped ix f
   = MkPrintTyped
-  { printArrowOpts :: ArrowOpts ix -> String -> String -> String
+  { printRigName :: RigName ix -> String
+  , printPolName :: PolName ix -> String
+  , printArrowOpts :: ArrowOpts ix -> String -> String -> String
   , printTypedInner :: f String -> String
   }
 
 printTyped :: PrintTyped ix f -> Typed ix f String -> String
-printTyped (MkPrintTyped arr inner) = go
+printTyped (MkPrintTyped r p arr inner) = go
  where
-  go (RArr name output      ) = concat ["[", name, " : Rig] -> ", output]
-  go (PArr name output      ) = concat ["[", name, " : Pol] -> ", output]
+  go (RArr name output      ) = concat ["[", r name, " : Rig] -> ", output]
+  go (PArr name output      ) = concat ["[", p name, " : Pol] -> ", output]
   go (TArr opts input output) = concat [arr opts input output, " -> ", output]
   go (TCon  name            ) = name
   go (Typed x               ) = inner x
