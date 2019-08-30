@@ -9,6 +9,7 @@ use combine::error::ParseError;
 use combine::parser::char::{char, digit, letter, spaces, string};
 use combine::stream::Stream;
 use combine::{attempt, between, choice, many1, parser, Parser};
+use std::iter;
 
 /// Represents abstract syntax tree expressions within the language
 #[derive(Debug)]
@@ -417,6 +418,47 @@ fn eval(exp: AST<String>, rt: &Runtime) -> Result<AST<String>, String> {
         },
         x => Ok(x),
     }
+}
+
+fn accum(s: &str) -> String {
+    let groups = s
+        // convert the string into an iterator of indices and chars
+        .char_indices()
+        // map over each char, transforming them into the chunks
+        // like Aaaa, Bbb, D, etc.
+        .map(|(i, c)| {
+            // Create new iterator with the uppercase as the first
+            // element
+            iter::once(c.to_uppercase())
+                // to_uppercase changes the type of iterator,
+                // flatten will make it a char iterator again
+                .flatten()
+                // chain on an iterator for the lower case letters
+                .chain(
+                    // repeat creates an infinite stream of the same
+                    // value
+                    iter::repeat(c.to_lowercase())
+                        // take i which is the position and thus the
+                        // number we need from the infinite iterator
+                        .take(i)
+                        // to_lowercase changes the iterator type so
+                        // flatten will return it to a char iterator
+                        .flatten(),
+                )
+        });
+
+    let tail = groups
+        // clone the iterator since we'll be changing it
+        .clone()
+        // skip the first element so there won't be dashes
+        // in a single char input
+        .skip(1)
+        // map each chunk into a new iterator with '-' prepended
+        // and then chain them all together
+        .flat_map(|group| iter::once('-').chain(group));
+
+    // chain the new tail with an unaltered first chunk
+    groups.take(1).flatten().chain(tail).collect()
 }
 
 fn main() {
