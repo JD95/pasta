@@ -1,34 +1,43 @@
-{-# LANGUAGE FlexibleInstances, FlexibleContexts, StandaloneDeriving, GADTs, TypeFamilies, RankNTypes, DeriveFunctor #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Lib
   ( someFunc
   )
 where
 
-import qualified Data.Map.Strict               as Map
-import           Data.Functor.Const
+import           Control.Monad.State.Strict
+import qualified Data.Map.Strict as Map
 import           Data.Functor.Foldable
-import           Data.Functor.Identity
-import           Data.Void
-import           Numeric.Natural
 
-import           Expr
-import           Typed
-import           Surface
 import           Core
+import           Core.Eval
+import           Core.EvalEnv
+import           Expr
+import           Surface
+import           Typed
 
+test :: IO ()
 test = do
-  let exp = app (lam "x" (lam "y" (free "x"))) (free "thing")
-  putStrLn . cata printSurface $ exp
-  putStrLn . cata printCore . toCore $ exp
+  -- let exp = app (lam "x" (lam "y" (free "x"))) (free "thing")
+  let e = arrow ("a", Inline R0, Inline S, Inline S) (con "Type")
+             (arrow ("x", Inline R0, Inline S, Inline S) (free "a") (free "a"))
+  let ctx = Map.fromList [("thing", (free "thing")), ("dude", free "dude")]
+  putStrLn . cata printSurface $ e
+  putStrLn . cata printCore . toCore $ e
   putStrLn
     . cata printCore
-    . flip
-        eval
-        (Map.fromList [("thing", (free "thing")), ("dude", free "dude")], [])
+    . flip evalState ctx
+    . runEvalEnv
+    . eval
     . toCore
-    $ exp
+    $ e
 
 someFunc :: IO ()
 someFunc = putStrLn "hello"

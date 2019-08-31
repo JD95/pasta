@@ -24,9 +24,13 @@ dependencies:
 - recursion-schemes
 - containers
 - free
+- mtl
+- exceptions
 
 library:
   source-dirs: src
+  ghc-options:
+  - -Wall
 
 executables:
   jelly-exe:
