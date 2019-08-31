@@ -51,12 +51,12 @@ printAbst _ (Free   x) = x
 class Expression ix => ExprConst ix g | g -> ix where
   injExpr :: Expr ix (ExprExt ix (Const Void)) a -> g a
 
-app (Mu func) (Mu input) = mkMu injExpr $ App <$> func <*> input
+app func input = Fix . injExpr $ App func input
 
-lam opts (Mu body) = mkMu injExpr $ Lam opts <$> body
+lam opts body = Fix . injExpr $ Lam opts body
 
-var i = mkMu injExpr (const . Val $ Bound i)
+var i = Fix . injExpr . Val $ Bound i
 
-free name = mkMu injExpr (const . Val $ Free name)
+free name = Fix . injExpr . Val $ Free name
 
-inline (Mu x) = mkMu injExpr $ Val . Inline <$> x
+inline x = Fix . injExpr . Val . Inline $ x

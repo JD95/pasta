@@ -19,8 +19,7 @@ import           Surface
 import           Core
 
 test = do
-  let exp =
-        app (app (lam "x" (lam "y" (free "x"))) (free "thing")) (free "dude")
+  let exp = app (lam "x" (lam "y" (free "x"))) (free "thing")
   putStrLn . cata printSurface $ exp
   putStrLn . cata printCore . toCore $ exp
   putStrLn

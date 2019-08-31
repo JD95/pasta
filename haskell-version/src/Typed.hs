@@ -57,12 +57,12 @@ printTyped (MkPrintTyped r p arr inner) = go
 class TypedExpression ix => TypedConst ix g | g -> ix where
   injTyped :: Typed ix (TypedExt ix (Const Void)) a -> g a
 
-rig name (Mu output) = mkMu injTyped $ RArr name <$> output
+rig name output = Fix . injTyped $ RArr name output
 
-pol name (Mu output) = mkMu injTyped $ PArr name <$> output
+pol name output = Fix . injTyped $ PArr name output
 
-arrow opts (Mu input) (Mu output) =
-  mkMu injTyped $ TArr opts <$> input <*> output
+arrow opts input output =
+  Fix . injTyped $ TArr opts input output
 
-con name = mkMu injTyped $ const (TCon name)
+con name = Fix . injTyped $ TCon name
 

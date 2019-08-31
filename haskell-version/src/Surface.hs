@@ -67,7 +67,7 @@ printSurface = go . unSurfaceE
       }
     }
 
-toCore :: Mu SurfaceE -> Mu CoreE
+toCore :: Fix SurfaceE -> Fix CoreE
 toCore mu = cata (goExpr . unSurfaceE) mu initCtx
  where
 
