@@ -21,11 +21,11 @@ import           Env
 import           Expr
 import           Typed
 
-data Hole (f :: * -> *) a = Hole String
+data Checked (f :: * -> *) a = Hole String
 
 data TypeCheckError
 
-newtype CheckCore a = MkCheckCore { unCheckCore :: Expr Check (Typed Check (Hole (Const Void))) a }
+newtype CheckCore a = MkCheckCore { unCheckCore :: Expr Check (Typed Check (Checked (Const Void))) a }
 
 data Check
 
@@ -40,7 +40,7 @@ instance TypedExpression Check where
                          , Either (Abst Pol) (Fix CheckCore)
                          , Either (Abst Pol) (Fix CheckCore)
                          )
-  type TypedExt Check f = Hole (Const Void)
+  type TypedExt Check f = Checked (Const Void)
 
 instance ExprConst Check CheckCore where
   injExpr = MkCheckCore
