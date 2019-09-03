@@ -20,25 +20,25 @@ eval = para (goExpr . unCoreE)
  where
 
   goExpr (App (_, x) (_, y)) = do
-    y' <- y
+    y'   <- y
     func <- x
     case unCoreE $ unfix func of
       Lam _ body -> pure $ runReader (subst body) (y', 0)
-      _ -> error "Cannot reduce non lambda value!"
+      _          -> error "Cannot reduce non lambda value!"
 
   -- Don't evaluate lambdas
-  goExpr (Lam x (body, _) )     = pure $ lam x body 
+  goExpr (Lam x (body, _)    ) = pure $ lam x body
 
-  goExpr (Val  (Bound  i   ))   = pure $ var i 
-  goExpr (Val  (Inline (_, x))) = x
-  goExpr (Val  (Free   name))   = symLookup name >>= \case
+  goExpr (Val (Bound  i     )) = pure $ var i
+  goExpr (Val (Inline (_, x))) = x
+  goExpr (Val (Free   name  )) = symLookup name >>= \case
     Nothing -> error "Variable was not in context"
     Just x  -> pure x
-  goExpr (Expr x         ) = goType x
+  goExpr (Expr x) = goType x
 
-  goType (RArr _ (_, output)  ) = rig () <$> output
-  goType (PArr _ (_, output)  ) = pol () <$> output
-  goType (TArr opts (_, input) (_, output)) =
-    arrow opts <$> input <*> output
-  goType (TCon  name) = pure $ con name
-  goType (Typed _   ) = undefined
+  goType (RArr _ (_, output)              ) = rig () <$> output
+  goType (PArr _ (_, output)              ) = pol () <$> output
+  goType (TArr opts (_, input) (_, output)) = arrow opts <$> input <*> output
+  goType (TCon  name                      ) = pure $ con name
+  goType (Typed _                         ) = undefined
+

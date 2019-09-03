@@ -8,8 +8,8 @@ module Core.EvalEnv where
 
 import           Control.Monad.State.Strict
 import           Data.Functor.Foldable
-import           Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+import           Data.Map.Strict                ( Map )
+import qualified Data.Map.Strict               as Map
 
 import           Core
 import           Env
@@ -20,4 +20,4 @@ newtype EvalEnv a
   } deriving (Functor, Applicative, Monad, MonadState (Map String (Fix CoreE)))
 
 instance SymLookup String (Fix CoreE) EvalEnv where
-  symLookup key = Map.lookup key <$> get 
+  symLookup key = Map.lookup key <$> get

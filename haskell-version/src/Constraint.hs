@@ -1,6 +1,7 @@
 module Constraint where
 
-data Hole = Hole String
+data F a = EqC a a
 
-data F = ClassC [Hole]
-       | EqC Hole Hole
+data W a = Flat (F a)
+
+(~:) x y = Flat (EqC x y)
