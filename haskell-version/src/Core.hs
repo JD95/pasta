@@ -6,22 +6,23 @@
 
 module Core where
 
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import           Control.Arrow hiding (app)
-import           Control.Comonad.Trans.Cofree (CofreeF(..))
+import           Data.Map.Strict                ( Map )
+import qualified Data.Map.Strict               as Map
+import           Control.Arrow           hiding ( app )
+import           Control.Comonad.Trans.Cofree   ( CofreeF(..) )
 import           Control.Monad.Catch
 import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 import           Data.Functor.Const
 import           Data.Functor.Foldable
-import qualified Data.Map.Strict as Map
+import qualified Data.Map.Strict               as Map
 import           Data.Void
 import           Numeric.Natural
 
 import           Env
 import           Expr
 import           Typed
+import           Subst
 
 data Core
 
@@ -33,17 +34,22 @@ instance TypedExpression Core where
   type RigName Core = ()
   type PolName Core = ()
   type ArrowOpts Core = (Abst Rig, Abst Pol, Abst Pol)
-  type TypedExt Core f = Const Void
+  type TypedExt Core f = f
+
+newtype CoreF ix f a
+  = MkCoreF
+  { unCoreF :: Expr ix (Typed ix f) a
+  } deriving (Functor)
 
 newtype CoreE a
   = MkCoreE
   { unCoreE :: Expr Core (Typed Core (Const Void)) a
   } deriving (Functor)
 
-instance ExprConst Core CoreE where
+instance ExprConst Core (Const Void) CoreE where
   injExpr = MkCoreE
 
-instance TypedConst Core CoreE where
+instance TypedConst Core (Const Void) CoreE where
   injTyped = MkCoreE . Expr
 
 printCore :: CoreE String -> String
@@ -68,3 +74,13 @@ printCore = go . unCoreE
       , printTypedInner = const ""
       }
     }
+
+instance (Functor f) => Subst (CoreF ix f) Natural where
+  depth (MkCoreF (Lam _ _)) n = n + 1
+  depth (MkCoreF (Expr (RArr _ _))) n = n + 1
+  depth (MkCoreF (Expr (PArr _ _))) n = n + 1
+  depth (MkCoreF (Expr (TArr _ _ _))) n = n + 1
+  depth _ n = n
+
+  getKey (MkCoreF (Val (Bound i))) = Just i
+  getKey _ = Nothing

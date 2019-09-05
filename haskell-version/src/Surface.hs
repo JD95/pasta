@@ -36,10 +36,10 @@ newtype SurfaceE a
   { unSurfaceE :: Expr Surface (Typed Surface (Const Void)) a
   } deriving (Functor)
 
-instance ExprConst Surface SurfaceE where
+instance ExprConst Surface (Const Void) SurfaceE where
   injExpr = MkSurfaceE
 
-instance TypedConst Surface SurfaceE where
+instance TypedConst Surface (Const Void) SurfaceE where
   injTyped = MkSurfaceE . Expr
 
 printSurface :: SurfaceE String -> String

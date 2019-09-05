@@ -14,6 +14,7 @@ import           Data.Void
 import           Numeric.Natural
 
 import           Constructors
+import           Subst
 
 data Expr ix f a where
   App :: a -> a -> Expr ix f a
@@ -48,8 +49,8 @@ printAbst f (Inline x) = f x
 printAbst _ (Bound  i) = "%" <> show i
 printAbst _ (Free   x) = x
 
-class Expression ix => ExprConst ix g | g -> ix where
-  injExpr :: Expr ix (ExprExt ix (Const Void)) a -> g a
+class (Functor f, Expression ix) => ExprConst ix f g | ix -> f, g -> ix where
+  injExpr :: Expr ix (ExprExt ix f) a -> g a
 
 app func input = Fix . injExpr $ App func input
 

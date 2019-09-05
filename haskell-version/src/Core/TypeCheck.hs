@@ -7,12 +7,16 @@
 
 module Core.TypeCheck where
 
-import           Data.Void
-import           Data.Functor.Const
 import           Control.Comonad.Cofree
-import           Control.Monad.Reader
 import           Control.Monad.Catch.Pure
+import           Control.Monad.Reader
+import           Data.Functor.Const
 import           Data.Functor.Foldable
+import qualified Data.Map.Merge.Strict         as Map
+import           Data.Map.Strict                ( Map )
+import qualified Data.Map.Strict               as Map
+import           Data.Void
+import           Numeric.Natural
 
 import           Constraint
 import           Core
@@ -48,32 +52,51 @@ instance ExprConst Check CheckCore where
 instance TypedConst Check CheckCore where
   injTyped = MkCheckCore . Expr
 
-newtype Ann = Ann (Fix CoreE)
+newtype Rigs = Rigs (Map String Rig)
+
+instance Semigroup Rigs where
+ (Rigs x) <> (Rigs y) = Rigs $ Map.merge Map.preserveMissing Map.preserveMissing (Map.zipWithMatched (const (<>))) x y
+
+instance Monoid Rigs where
+  mempty = Rigs mempty
+
+data Ctx = Ctx ([W (Fix CheckCore)]) Rigs
+
+instance Semigroup Ctx where
+  (Ctx a b) <> (Ctx c d) = Ctx (a <> c) (b <> d)
+
+instance Monoid Ctx where
+  mempty = Ctx mempty mempty
 
 hole :: String -> Fix CheckCore
 hole = Fix . injTyped . Typed . Hole
 
-genConstraints
-  :: (NameGen m) => Fix CoreE -> m (Fix CheckCore, [W (Fix CheckCore)])
+genConstraints :: (NameGen m) => Fix CoreE -> m (Fix CheckCore, Ctx)
 genConstraints = cata (goExpr . unCoreE)
  where
   goExpr (App x y) = do
-    (xTy, xs) <- x
-    (yTy, ys) <- y
-    inTy      <- hole <$> newName
-    outTy     <- hole <$> newName
+    (xTy, xCtx) <- x
+    (yTy, yCtx) <- y
+    inTy        <- hole <$> newName
+    outTy       <- hole <$> newName
     -- I need some way to generate constraints for the
     -- arrow opts. In other words, how to constrain rig
     -- and pol values?
     --
     -- Rig values need usage counts
     -- Pol values need inital laziness or strictness info from functions
-    funRig    <- Right . hole <$> newName
-    funInPol  <- Right . hole <$> newName
-    funOutPol <- Right . hole <$> newName
-    let opts = (funRig, funInPol, funOutPol)
-    let new  = [yTy ~: inTy, xTy ~: arrow opts inTy outTy]
-    pure $ (outTy, new <> xs <> ys)
+    funRig      <- hole <$> newName
+    funInPol    <- hole <$> newName
+    funOutPol   <- hole <$> newName
+    let opts = (Right funRig, Right funInPol, Right funOutPol)
+    let new =
+          [ yTy ~: inTy
+          , xTy ~: arrow opts inTy outTy
+          , isRig funRig
+          , isPol funInPol
+          , isPol funOutPol
+          ]
+    pure $ (outTy, xCtx <> yCtx <> Ctx new mempty)
   goExpr (Lam _ body) = error "genConstraints lam not implemented"
   goExpr (Val  _    ) = error "genConstraints val not implemented"
   goExpr (Expr x    ) = goType x
@@ -82,10 +105,11 @@ genConstraints = cata (goExpr . unCoreE)
   goType (PArr _ _  ) = error "genConstraints pol not implemented"
   goType (TArr _ _ _) = error "genConstraints arr not implemented"
   goType (TCon  _   ) = error "genConstraints con not implemented"
+  goType (Type  _   ) = error "genConstraints type not implemented"
   goType (Typed _   ) = undefined
 
 solveConstraints :: MonadThrow m => [W (Fix CheckCore)] -> m ()
 solveConstraints = undefined
 
-check :: MonadThrow m => Fix CoreE -> m (Cofree CoreE Ann)
+check :: MonadThrow m => Fix CoreE -> m (Cofree CoreE Ctx)
 check = undefined
