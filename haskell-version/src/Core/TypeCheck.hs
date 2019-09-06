@@ -34,7 +34,7 @@ data Checked a = Hole String deriving (Functor)
 
 data TypeCheckError
 
-type CheckCore = Summed '[ Expr Check, Typed Check, Checked]
+type CheckE = Summed '[ Expr Check, Typed Check, Checked]
 
 data Check
 
@@ -44,9 +44,9 @@ instance Expression Check where
 instance TypedExpression Check where
   type RigName Check = RigName Core
   type PolName Check = RigName Core
-  type ArrowOpts Check = ( Either (Abst Rig) (Fix CheckCore)
-                         , Either (Abst Pol) (Fix CheckCore)
-                         , Either (Abst Pol) (Fix CheckCore)
+  type ArrowOpts Check = ( Either (Abst Rig) (Fix CheckE)
+                         , Either (Abst Pol) (Fix CheckE)
+                         , Either (Abst Pol) (Fix CheckE)
                          )
 
 
@@ -58,7 +58,7 @@ instance Semigroup Rigs where
 instance Monoid Rigs where
   mempty = Rigs mempty
 
-data Ctx = Ctx ([W (Fix CheckCore)]) Rigs
+data Ctx = Ctx ([W (Fix CheckE)]) Rigs
 
 instance Semigroup Ctx where
   (Ctx a b) <> (Ctx c d) = Ctx (a <> c) (b <> d)
@@ -66,10 +66,10 @@ instance Semigroup Ctx where
 instance Monoid Ctx where
   mempty = Ctx mempty mempty
 
-hole :: String -> Fix CheckCore
+hole :: String -> Fix CheckE
 hole = Fix . inj . Hole
 
-genConstraints :: (NameGen m) => Fix CoreE -> m (Fix CheckCore, Ctx)
+genConstraints :: (NameGen m) => Fix CoreE -> m (Fix CheckE, Ctx)
 genConstraints = cata go
  where
   go (Here layer) =
@@ -113,7 +113,7 @@ genConstraints = cata go
 
   go _ = undefined
 
-solveConstraints :: MonadThrow m => [W (Fix CheckCore)] -> m ()
+solveConstraints :: MonadThrow m => [W (Fix CheckE)] -> m ()
 solveConstraints = undefined
 
 check :: MonadThrow m => Fix CoreE -> m (Cofree CoreE Ctx)

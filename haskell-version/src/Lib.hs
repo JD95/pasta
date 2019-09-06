@@ -28,15 +28,22 @@ import           Display
 
 test :: IO ()
 test = do
-  -- let exp = app (lam "x" (lam "y" (free "x"))) (free "thing")
-  let (ExprBuilder appS lamS varS freeS _) = exprBuilder (Proxy @Surface)
-  let (TypeBuilder rig pol arrow con t)    = typeBuilder (Proxy @Surface)
-  let (e :: Fix SurfaceE) = arrow
-        ("a", Inline R0, Inline S, Inline S)
-        (con "Type")
-        (arrow ("x", Inline R0, Inline S, Inline S) (freeS "a") (freeS "a"))
-  let (ExprBuilder _ _ _ free _) = exprBuilder (Proxy @Core)
-  let ctx = Map.fromList [("thing", (free "thing")), ("dude", free "dude")]
+  let se = exprBuilder (Proxy @Surface)
+  let st = typeBuilder (Proxy @Surface)
+  let
+    (e :: Fix SurfaceE) = mkArrow
+      st
+      ("a", Inline R0, Inline S, Inline S)
+      (mkCon st "Type")
+      (mkArrow st
+               ("x", Inline R0, Inline S, Inline S)
+               (mkFree se "a")
+               (mkFree se "a")
+      )
+  let ce = exprBuilder (Proxy @Core)
+  let
+    ctx =
+      Map.fromList [("thing", (mkFree ce "thing")), ("dude", mkFree ce "dude")]
   putStrLn . cata display $ e
   putStrLn . cata display . toCore $ e
   putStrLn . cata display . flip evalState ctx . runEvalEnv . eval . toCore $ e
