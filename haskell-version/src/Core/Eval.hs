@@ -16,21 +16,21 @@ import           Env
 import           Expr
 import           Typed
 
-class Functor f => Eval f where
-  eval :: (SymLookup String (Fix f) m) => f (Fix f, m (Fix f)) -> m (Fix f)
+class Functor f => Eval f a where
+  eval :: (SymLookup String a m) => f (f a, m (f a)) -> m (f a)
 
-instance (Eval f) => Eval (Expr Core f) where
+instance (Eval f (Fix (Expr Core f))) => Eval (Expr Core f) (Fix (Expr Core f)) where
   eval (App (_, x) (_, y)) = do
      y'   <- y
      func <- x
-     case unfix func of
-       Lam _ body -> pure $ subst y' (0 :: Natural) body
+     case func of
+       Lam _ body -> pure . unfix $ subst (Fix y') (0 :: Natural) body
        _          -> error "Cannot reduce non lambda value!"
 
   -- Don't evaluate lambdas
-  eval (Lam x (body, _)    ) = pure $ lam x body
+  eval (Lam x (body, _)    ) = pure $ Lam x (Fix body)
 
-  eval (Val (Bound  i     )) = pure $ var i
+  eval (Val (Bound  i     )) = pure $ Val $ Bound i
   eval (Val (Inline (_, x))) = x
   eval (Val (Free   name  )) = symLookup name >>= \case
     Nothing -> error "Variable was not in context"
