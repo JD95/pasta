@@ -2,52 +2,45 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Surface where
 
-import qualified Data.Map.Strict               as Map
-import           Data.Functor.Foldable
-import           Data.Functor.Const
-import           Data.Void
-import           Data.Monoid
-import           Numeric.Natural
 import           Control.Arrow                  ( first
                                                 , second
                                                 )
+import           Data.Functor.Const
+import           Data.Functor.Foldable
+import qualified Data.Map.Strict               as Map
+import           Data.Monoid
+import           Data.Proxy
+import           Data.Void
+import           Numeric.Natural
 
 import           Core
 import           Expr
 import           Typed
+import           Display
+import           Summable
 
 data Surface
 
 instance Expression Surface where
   type LamOpts Surface = String
-  type ExprExt Surface f = Typed Surface f
 
 instance TypedExpression Surface where
   type RigName Surface = String
   type PolName Surface = String
   type ArrowOpts Surface = (String, Abst Rig, Abst Pol, Abst Pol)
-  type TypedExt Surface f = Const Void
 
-newtype SurfaceE a
-  = MkSurfaceE
-  { unSurfaceE :: Expr Surface (Typed Surface (Const Void)) a
-  } deriving (Functor)
+type SurfaceE = Summed '[ Expr Surface, Typed Surface ]
 
-instance ExprConst Surface (Const Void) SurfaceE where
-  injExpr = MkSurfaceE
+instance Display (Expr Surface String) where
+  display = printExpr $ MkPrintExpr { printLamOpts   = const }
 
-instance TypedConst Surface (Const Void) SurfaceE where
-  injTyped = MkSurfaceE . Expr
-
-printSurface :: SurfaceE String -> String
-printSurface = go . unSurfaceE
- where
-  go = printExpr $ MkPrintExpr
-    { printLamOpts   = const
-    , printExprInner = printTyped $ MkPrintTyped
+instance Display (Typed Surface String) where
+  display = printTyped $ MkPrintTyped
       { printRigName    = id
       , printPolName    = id
       , printArrowOpts  = \(name, rig, inPol, outPol) input _ -> concat
@@ -63,30 +56,36 @@ printSurface = go . unSurfaceE
         , printAbst printPol outPol
         , "]"
         ]
-      , printTypedInner = const ""
       }
-    }
 
-toCore :: Fix SurfaceE -> Fix CoreE
-toCore mu = cata (goExpr . unSurfaceE) mu initCtx
- where
+instance ToCore SurfaceE where
 
-  initCtx = (Map.empty, 0)
+  toCore mu = cata (go) mu initCtx
+   where
 
-  goExpr (App x    y    ) = app <$> x <*> y
-  goExpr (Lam name body ) = lam () . body . pushName name
-  goExpr (Val (Bound  i)) = pure $ var i
-  goExpr (Val (Inline x)) = inline <$> x
-  goExpr (Val (Free   x)) = \(tbl, depth) -> case Map.lookup x tbl of
-    Nothing -> free x
-    Just n  -> var (depth - n - 1)
-  goExpr (Expr x) = goType x
+    initCtx = (Map.empty, 0)
 
-  goType (RArr name output) = rig () . output . pushName name
-  goType (PArr name output) = pol () . output . pushName name
-  goType (TArr (name, a, b, c) input output) =
-    arrow (a, b, c) <$> input <*> (output . pushName name)
-  goType (TCon  name) = pure $ con name
-  goType (Typed _   ) = undefined
+    pushName name (tbl, depth) = (Map.insert name depth tbl, depth + 1)
 
-  pushName name (tbl, depth) = (Map.insert name depth tbl, depth + 1)
+    go (Here layer) =
+      let (ExprBuilder app lam var free inline) = exprBuilder (Proxy @Core)
+      in  case layer of
+            App x    y     -> app <$> x <*> y
+            Lam name body  -> lam () . body . pushName name
+            Val (Bound  i) -> pure $ var i
+            Val (Inline x) -> inline <$> x
+            Val (Free   x) -> \(tbl, depth) -> case Map.lookup x tbl of
+              Nothing -> free x
+              Just n  -> var (depth - n - 1)
+
+    go (There (Here layer)) =
+      let (TypeBuilder rig pol arrow con t_) = typeBuilder (Proxy @Core)
+      in  case layer of
+            RArr name output -> rig () . output . pushName name
+            PArr name output -> pol () . output . pushName name
+            TArr (name, a, b, c) input output ->
+              arrow (a, b, c) <$> input <*> (output . pushName name)
+            TCon name -> pure $ con name
+            Type n    -> pure $ t_ n
+
+    go _ = undefined

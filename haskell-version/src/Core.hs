@@ -1,8 +1,10 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleContexts, StandaloneDeriving, GADTs, TypeFamilies, RankNTypes, DeriveFunctor #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Core where
 
@@ -23,41 +25,26 @@ import           Env
 import           Expr
 import           Typed
 import           Subst
+import           Display
+import           Summable
 
 data Core
 
 instance Expression Core where
   type LamOpts Core = ()
-  type ExprExt Core f = Typed Core f
 
 instance TypedExpression Core where
   type RigName Core = ()
   type PolName Core = ()
   type ArrowOpts Core = (Abst Rig, Abst Pol, Abst Pol)
-  type TypedExt Core f = f
 
-newtype CoreF ix f a
-  = MkCoreF
-  { unCoreF :: Expr ix (Typed ix f) a
-  } deriving (Functor)
+type CoreE = Summed '[ Expr Core, Typed Core ]
 
-newtype CoreE a
-  = MkCoreE
-  { unCoreE :: Expr Core (Typed Core (Const Void)) a
-  } deriving (Functor)
+instance Display (Expr Core String) where
+  display = printExpr $ MkPrintExpr { printLamOpts   = \_ _ -> "_" }
 
-instance ExprConst Core (Const Void) CoreE where
-  injExpr = MkCoreE
-
-instance TypedConst Core (Const Void) CoreE where
-  injTyped = MkCoreE . Expr
-
-printCore :: CoreE String -> String
-printCore = go . unCoreE
- where
-  go = printExpr $ MkPrintExpr
-    { printLamOpts   = \_ _ -> "_"
-    , printExprInner = printTyped $ MkPrintTyped
+instance Display (Typed Core String) where
+  display =  printTyped $ MkPrintTyped
       { printRigName    = const ""
       , printPolName    = const ""
       , printArrowOpts  = \(rig, inPol, outPol) input _ -> concat
@@ -71,16 +58,7 @@ printCore = go . unCoreE
         , printAbst printPol outPol
         , "]"
         ]
-      , printTypedInner = const ""
       }
-    }
 
-instance (Functor f) => Subst (CoreF ix f) Natural where
-  depth (MkCoreF (Lam _ _)) n = n + 1
-  depth (MkCoreF (Expr (RArr _ _))) n = n + 1
-  depth (MkCoreF (Expr (PArr _ _))) n = n + 1
-  depth (MkCoreF (Expr (TArr _ _ _))) n = n + 1
-  depth _ n = n
-
-  getKey (MkCoreF (Val (Bound i))) = Just i
-  getKey _ = Nothing
+class ToCore f where
+  toCore :: Fix f -> Fix CoreE

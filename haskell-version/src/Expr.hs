@@ -1,9 +1,12 @@
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs, TypeFamilies, RankNTypes, DeriveFunctor #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Expr where
 
@@ -12,52 +15,62 @@ import           Data.Functor.Foldable
 import           Data.Functor.Identity
 import           Data.Void
 import           Numeric.Natural
+import           Data.Proxy
 
 import           Constructors
 import           Subst
+import           Summable
 
-data Expr ix f a where
-  App :: a -> a -> Expr ix f a
-  Lam :: LamOpts ix -> a -> Expr ix f a
-  Val :: Abst a -> Expr ix f a
-  Expr :: f a -> Expr ix f a
+data Expr ix a where
+  App :: a -> a -> Expr ix a
+  Lam :: LamOpts ix -> a -> Expr ix a
+  Val :: Abst a -> Expr ix a
 
-deriving instance (Functor f) => Functor (Expr ix f)
+deriving instance Functor (Expr ix)
 
 class Expression ix where
   type LamOpts ix :: *
-  type ExprExt ix (f :: * -> *) :: * -> *
 
 data Abst a = Inline a | Bound Natural | Free String deriving (Show, Functor)
 
-data PrintExpr ix f
+data PrintExpr ix
   = MkPrintExpr
   { printLamOpts :: LamOpts ix -> String -> String
-  , printExprInner :: f String -> String
   }
 
-printExpr :: PrintExpr ix f -> Expr ix f String -> String
-printExpr (MkPrintExpr lam inner) = go
+data ExprBuilder ix xs
+  = ExprBuilder
+  { mkApp :: Fix (Summed xs) -> Fix (Summed xs) -> Fix (Summed xs)
+  , mkLam :: LamOpts ix -> Fix (Summed xs) -> Fix (Summed xs)
+  , mkVar :: Natural -> Fix (Summed xs)
+  , mkFree :: String -> Fix (Summed xs)
+  , mkInline :: Fix (Summed xs) -> Fix (Summed xs)
+  }
+
+exprBuilder :: (Expression ix, Expr ix :<: xs) => Proxy ix -> ExprBuilder ix xs
+exprBuilder (_ :: Proxy ix) = ExprBuilder
+  { mkApp    = \func input -> Fix . inj $ App @_ @ix func input
+  , mkLam    = \opts body -> Fix . inj $ Lam @ix opts body
+  , mkVar    = \i -> Fix . inj . Val @_ @ix $ Bound i
+  , mkFree   = \name -> Fix . inj . Val @_ @ix $ Free name
+  , mkInline = \x -> Fix . inj . Val @_ @ix $ Inline x
+  }
+
+printExpr :: PrintExpr ix -> Expr ix String -> String
+printExpr (MkPrintExpr lam) = go
  where
   go (App func input) = func <> " " <> input
   go (Lam name body ) = concat ["(\\", lam name body, " -> ", body, ")"]
-  go (Val  x        ) = printAbst id x
-  go (Expr x        ) = inner x
+  go (Val x         ) = printAbst id x
 
 printAbst :: (a -> String) -> Abst a -> String
 printAbst f (Inline x) = f x
 printAbst _ (Bound  i) = "%" <> show i
 printAbst _ (Free   x) = x
 
-class (Functor f, Expression ix) => ExprConst ix f g | ix -> f, g -> ix where
-  injExpr :: Expr ix (ExprExt ix f) a -> g a
+instance Subst (Expr ix) Natural where
+  depth (Lam _ _) n = n + 1
+  depth _ n = n
 
-app func input = Fix . injExpr $ App func input
-
-lam opts body = Fix . injExpr $ Lam opts body
-
-var i = Fix . injExpr . Val $ Bound i
-
-free name = Fix . injExpr . Val $ Free name
-
-inline x = Fix . injExpr . Val . Inline $ x
+  getKey (Val (Bound i)) = Just i
+  getKey _ = Nothing

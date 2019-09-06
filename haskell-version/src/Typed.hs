@@ -1,6 +1,11 @@
-{-# LANGUAGE FlexibleInstances, FlexibleContexts, StandaloneDeriving, GADTs, TypeFamilies, RankNTypes, DeriveFunctor #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts, GADTs, TypeFamilies, RankNTypes, DeriveFunctor #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Typed where
 
@@ -8,24 +13,25 @@ import           Data.Functor.Foldable
 import           Data.Functor.Const
 import           Data.Void
 import           Numeric.Natural
+import           Data.Proxy
 
 import           Constructors
+import           Summable
+import           Subst
 
 class TypedExpression ix where
   type RigName ix :: *
   type PolName ix :: *
   type ArrowOpts ix :: *
-  type TypedExt ix (f :: * -> *) :: * -> *
 
-data Typed ix f a where
-  RArr :: RigName ix -> a -> Typed ix f a
-  PArr :: PolName ix -> a -> Typed ix f a
-  TArr :: ArrowOpts ix -> a -> a -> Typed ix f a
-  TCon :: String -> Typed ix f a
-  Type :: Natural -> Typed ix f a
-  Typed :: f a -> Typed ix f a
+data Typed ix a where
+  RArr :: RigName ix -> a -> Typed ix a
+  PArr :: PolName ix -> a -> Typed ix a
+  TArr :: ArrowOpts ix -> a -> a -> Typed ix a
+  TCon :: String -> Typed ix a
+  Type :: Natural -> Typed ix a
 
-deriving instance (Functor f) => Functor (Typed ix f)
+deriving instance Functor (Typed ix)
 
 data Pol = S | L deriving (Show, Eq)
 data Rig = R0 | R1 | RU deriving (Show, Eq)
@@ -49,34 +55,45 @@ printRig R0 = "0"
 printRig R1 = "1"
 printRig RU = ""
 
-data PrintTyped ix f
+data PrintTyped ix
   = MkPrintTyped
   { printRigName :: RigName ix -> String
   , printPolName :: PolName ix -> String
   , printArrowOpts :: ArrowOpts ix -> String -> String -> String
-  , printTypedInner :: f String -> String
   }
 
-printTyped :: PrintTyped ix f -> Typed ix f String -> String
-printTyped (MkPrintTyped r p arr inner) = go
+printTyped :: PrintTyped ix -> Typed ix String -> String
+printTyped (MkPrintTyped r p arr) = go
  where
   go (RArr name output      ) = concat ["[", r name, " : Rig] -> ", output]
   go (PArr name output      ) = concat ["[", p name, " : Pol] -> ", output]
   go (TArr opts input output) = concat [arr opts input output, " -> ", output]
-  go (TCon  name            ) = name
-  go (Type  n               ) = "Type " <> show n
-  go (Typed x               ) = inner x
+  go (TCon name             ) = name
+  go (Type n                ) = "Type " <> show n
 
-class TypedExpression ix => TypedConst ix f g | ix -> f, g -> ix where
-  injTyped :: Typed ix (TypedExt ix f) a -> g a
+data TypeBuilder ix xs
+  = TypeBuilder
+  { mkRig :: RigName ix -> Fix (Summed xs) -> Fix (Summed xs)
+  , mkPol :: PolName ix -> Fix (Summed xs) -> Fix (Summed xs)
+  , mkArrow :: ArrowOpts ix -> Fix (Summed xs) -> Fix (Summed xs) -> Fix (Summed xs)
+  , mkCon :: String -> Fix (Summed xs)
+  , mkT :: Natural -> Fix (Summed xs)
+  }
 
-rig name output = Fix . injTyped $ RArr name output
+typeBuilder
+  :: (TypedExpression ix, (Typed ix :<: xs)) => Proxy ix -> TypeBuilder ix xs
+typeBuilder (_ :: Proxy ix) = TypeBuilder
+  { mkRig   = \name output -> Fix $ inj $ RArr @ix name output
+  , mkPol   = \name output -> Fix . inj $ PArr @ix name output
+  , mkArrow = \opts input output -> Fix . inj $ TArr @ix opts input output
+  , mkCon   = \name -> Fix . inj $ TCon @ix name
+  , mkT     = \n -> Fix . inj $ Type @ix n
+  }
 
-pol name output = Fix . injTyped $ PArr name output
+instance Subst (Typed ix) Natural where
+  depth (RArr _ _) n = n + 1
+  depth (PArr _ _) n = n + 1
+  depth (TArr _ _ _) n = n + 1
+  depth _ n = n
 
-arrow opts input output = Fix . injTyped $ TArr opts input output
-
-con name = Fix . injTyped $ TCon name
-
-t_ n = Fix . injTyped $ Type n
-
+  getKey _ = Nothing
