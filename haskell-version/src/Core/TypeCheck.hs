@@ -135,6 +135,29 @@ genConstraints = cata go
 
   go _ = undefined
 
+data UnifyException = CantUnify deriving Show
+
+instance Exception UnifyException
+
+class Monad m => Unify m where
+  addSubst :: String -> Fix CheckE -> m ()
+
+unify :: (Unify m, MonadThrow m) => Fix CheckE -> Fix CheckE -> m (Fix CheckE)
+unify = cata go
+ where
+  go (Here layer) = case layer of
+    Val (Bound i) -> \case
+      Fix (Here (Val (Bound j))) ->
+        if i == j then pure $ mkVar cke i else throwM CantUnify
+  go (There (Here layer)) = case layer of
+    _ -> undefined
+  go (There (There (Here layer))) = case layer of
+    Hole s -> \y -> do
+      addSubst s y
+      pure y
+
+  go _ = undefined
+
 solveConstraints :: MonadThrow m => Ctx -> m ()
 solveConstraints (Ctx ws rs) = error "solveConstraints not implemented"
 
