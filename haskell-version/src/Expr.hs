@@ -38,23 +38,31 @@ data PrintExpr ix
   { printLamOpts :: LamOpts ix -> String -> String
   }
 
-data ExprBuilder ix xs
-  = ExprBuilder
-  { mkApp :: Fix (Summed xs) -> Fix (Summed xs) -> Fix (Summed xs)
-  , mkLam :: LamOpts ix -> Fix (Summed xs) -> Fix (Summed xs)
-  , mkVar :: Natural -> Fix (Summed xs)
-  , mkFree :: String -> Fix (Summed xs)
-  , mkInline :: Fix (Summed xs) -> Fix (Summed xs)
-  }
+mkApp
+  :: (Injectable (Expr ix) xs)
+  => Proxy ix
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+mkApp = \(_ :: Proxy ix) func input -> Fix . inj $ App @_ @ix func input
 
-exprBuilder :: (Expression ix, Expr ix :<: xs) => Proxy ix -> ExprBuilder ix xs
-exprBuilder (_ :: Proxy ix) = ExprBuilder
-  { mkApp    = \func input -> Fix . inj $ App @_ @ix func input
-  , mkLam    = \opts body -> Fix . inj $ Lam @ix opts body
-  , mkVar    = \i -> Fix . inj . Val @_ @ix $ Bound i
-  , mkFree   = \name -> Fix . inj . Val @_ @ix $ Free name
-  , mkInline = \x -> Fix . inj . Val @_ @ix $ Inline x
-  }
+mkLam
+  :: (Injectable (Expr ix) xs)
+  => Proxy ix
+  -> LamOpts ix
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+mkLam = \(_ :: Proxy ix) opts body -> Fix . inj $ Lam @ix opts body
+
+mkVar :: (Injectable (Expr ix) xs) => Proxy ix -> Natural -> Fix (Summed xs)
+mkVar = \(_ :: Proxy ix) i -> Fix . inj . Val @_ @ix $ Bound i
+
+mkFree :: (Injectable (Expr ix) xs) => Proxy ix -> String -> Fix (Summed xs)
+mkFree = \(_ :: Proxy ix) name -> Fix . inj . Val @_ @ix $ Free name
+
+mkInline
+  :: (Injectable (Expr ix) xs) => Proxy ix -> Fix (Summed xs) -> Fix (Summed xs)
+mkInline = \(_ :: Proxy ix) x -> Fix . inj . Val @_ @ix $ Inline x
 
 printExpr :: PrintExpr ix -> Expr ix String -> String
 printExpr (MkPrintExpr lam) = go

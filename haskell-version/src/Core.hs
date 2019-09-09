@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleContexts, StandaloneDeriving, GADTs, TypeFamilies, RankNTypes, DeriveFunctor #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Core where
 
@@ -19,6 +20,7 @@ import           Data.Functor.Const
 import           Data.Functor.Foldable
 import qualified Data.Map.Strict               as Map
 import           Data.Void
+import           Data.Proxy
 import           Numeric.Natural
 
 import           Env
@@ -62,3 +64,5 @@ instance Display (Typed Core String) where
 
 class ToCore f where
   toCore :: Fix f -> Fix CoreE
+
+ce = Proxy @Core

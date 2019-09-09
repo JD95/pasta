@@ -28,19 +28,16 @@ import           Display
 
 test :: IO ()
 test = do
-  let se = exprBuilder (Proxy @Surface)
-  let st = typeBuilder (Proxy @Surface)
   let
     (e :: Fix SurfaceE) = mkArrow
-      st
+      se
       ("a", Inline R0, Inline S, Inline S)
-      (mkCon st "Type")
-      (mkArrow st
+      (mkCon se "Type")
+      (mkArrow se
                ("x", Inline R0, Inline S, Inline S)
                (mkFree se "a")
                (mkFree se "a")
       )
-  let ce = exprBuilder (Proxy @Core)
   let
     ctx =
       Map.fromList [("thing", (mkFree ce "thing")), ("dude", mkFree ce "dude")]

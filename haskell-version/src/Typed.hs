@@ -71,24 +71,37 @@ printTyped (MkPrintTyped r p arr) = go
   go (TCon name             ) = name
   go (Type n                ) = "Type " <> show n
 
-data TypeBuilder ix xs
-  = TypeBuilder
-  { mkRig :: RigName ix -> Fix (Summed xs) -> Fix (Summed xs)
-  , mkPol :: PolName ix -> Fix (Summed xs) -> Fix (Summed xs)
-  , mkArrow :: ArrowOpts ix -> Fix (Summed xs) -> Fix (Summed xs) -> Fix (Summed xs)
-  , mkCon :: String -> Fix (Summed xs)
-  , mkT :: Natural -> Fix (Summed xs)
-  }
+mkRig
+  :: (Injectable (Typed ix) xs)
+  => Proxy ix
+  -> RigName ix
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+mkRig = \(_ :: Proxy ix) name output -> Fix $ inj $ RArr @ix name output
 
-typeBuilder
-  :: (TypedExpression ix, (Typed ix :<: xs)) => Proxy ix -> TypeBuilder ix xs
-typeBuilder (_ :: Proxy ix) = TypeBuilder
-  { mkRig   = \name output -> Fix $ inj $ RArr @ix name output
-  , mkPol   = \name output -> Fix . inj $ PArr @ix name output
-  , mkArrow = \opts input output -> Fix . inj $ TArr @ix opts input output
-  , mkCon   = \name -> Fix . inj $ TCon @ix name
-  , mkT     = \n -> Fix . inj $ Type @ix n
-  }
+mkPol
+  :: (Injectable (Typed ix) xs)
+  => Proxy ix
+  -> PolName ix
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+mkPol = \(_ :: Proxy ix) name output -> Fix . inj $ PArr @ix name output
+
+mkArrow
+  :: (Injectable (Typed ix) xs)
+  => Proxy ix
+  -> ArrowOpts ix
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+mkArrow =
+  \(_ :: Proxy ix) opts input output -> Fix . inj $ TArr @ix opts input output
+
+mkCon :: (Injectable (Typed ix) xs) => Proxy ix -> String -> Fix (Summed xs)
+mkCon = \(_ :: Proxy ix) name -> Fix . inj $ TCon @ix name
+
+mkT :: (Injectable (Typed ix) xs) => Proxy ix -> Natural -> Fix (Summed xs)
+mkT = \(_ :: Proxy ix) n -> Fix . inj $ Type @ix n
 
 instance Subst (Typed ix) Natural where
   depth (RArr _ _) n = n + 1

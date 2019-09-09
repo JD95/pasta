@@ -4,6 +4,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Surface where
 
@@ -16,6 +17,7 @@ import qualified Data.Map.Strict               as Map
 import           Data.Monoid
 import           Data.Proxy
 import           Data.Void
+import           Data.Proxy
 import           Numeric.Natural
 
 import           Core
@@ -68,24 +70,24 @@ instance ToCore SurfaceE where
     pushName name (tbl, depth) = (Map.insert name depth tbl, depth + 1)
 
     go (Here layer) =
-      let (ExprBuilder app lam var free inline) = exprBuilder (Proxy @Core)
-      in  case layer of
-            App x    y     -> app <$> x <*> y
-            Lam name body  -> lam () . body . pushName name
-            Val (Bound  i) -> pure $ var i
-            Val (Inline x) -> inline <$> x
+      case layer of
+            App x    y     -> mkApp ce <$> x <*> y
+            Lam name body  -> mkLam ce  () . body . pushName name
+            Val (Bound  i) -> pure $ mkVar ce i
+            Val (Inline x) -> mkInline ce <$> x
             Val (Free   x) -> \(tbl, depth) -> case Map.lookup x tbl of
-              Nothing -> free x
-              Just n  -> var (depth - n - 1)
+              Nothing -> mkFree ce x
+              Just n  -> mkVar ce (depth - n - 1)
 
     go (There (Here layer)) =
-      let (TypeBuilder rig pol arrow con t_) = typeBuilder (Proxy @Core)
-      in  case layer of
-            RArr name output -> rig () . output . pushName name
-            PArr name output -> pol () . output . pushName name
+      case layer of
+            RArr name output -> mkRig ce () . output . pushName name
+            PArr name output -> mkPol ce () . output . pushName name
             TArr (name, a, b, c) input output ->
-              arrow (a, b, c) <$> input <*> (output . pushName name)
-            TCon name -> pure $ con name
-            Type n    -> pure $ t_ n
+              mkArrow ce (a, b, c) <$> input <*> (output . pushName name)
+            TCon name -> pure $ mkCon ce name
+            Type n    -> pure $ mkT ce n
 
     go _ = undefined
+
+se = Proxy @Surface
