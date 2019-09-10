@@ -139,27 +139,26 @@ data UnifyException = CantUnify deriving Show
 
 instance Exception UnifyException
 
-class Monad m => Unify m where
-  addSubst :: String -> Fix CheckE -> m ()
+newtype Fill = MkFill { unFill :: String }
 
-unify :: (Unify m, MonadThrow m) => Fix CheckE -> Fix CheckE -> m (Fix CheckE)
-unify = cata go
- where
-  go (Here layer) = case layer of
-    Val (Bound i) -> \case
-      Fix (Here (Val (Bound j))) ->
-        if i == j then pure $ mkVar cke i else throwM CantUnify
-  go (There (Here layer)) = case layer of
-    _ -> undefined
-  go (There (There (Here layer))) = case layer of
-    Hole s -> \y -> do
-      addSubst s y
-      pure y
+class (Functor f) => Unify f where
+  unify :: (MonadThrow m) => f a -> f a -> m (Either Fill [(a, a)])
 
-  go _ = undefined
+instance Unify (Expr Check) where
+  unify (Val (Bound i))(Val (Bound j)) = if i == j then pure . pure $ [] else throwM CantUnify
+
+instance Unify (Typed Check) where
+  unify (RArr _ x)(RArr _ y) = pure . pure $ [(x,y)]
+
+instance Unify (Checked) where
+  unify (Hole s) _ = pure $ Left (MkFill s)
 
 solveConstraints :: MonadThrow m => Ctx -> m ()
-solveConstraints (Ctx ws rs) = error "solveConstraints not implemented"
+solveConstraints (Ctx (Flat (EqC (Fix x) (Fix y)) : ws) rs) = case (x, y) of
+  (Here a, Here b) -> do
+    unify a b >>= \case
+      Left  fill -> error "subst during constraint solving not implemented"
+      Right more -> _
 
 toCheck :: Fix CoreE -> Fix CheckE
 toCheck = cata go
