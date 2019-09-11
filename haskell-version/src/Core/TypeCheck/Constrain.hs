@@ -11,30 +11,19 @@
 
 module Core.TypeCheck.Constrain where
 
-import           Data.Functor.Identity
-import           Data.Bifunctor
-import           Control.Comonad.Cofree
-import           Control.Monad.Catch.Pure
-import           Control.Monad.Reader
 import           Control.Monad.State.Strict
-import           Data.Functor.Const
 import           Data.Functor.Foldable
 import qualified Data.Map.Merge.Strict         as Map
 import           Data.Map.Strict                ( Map )
 import qualified Data.Map.Strict               as Map
-import           Data.Void
-import           Data.Proxy
-import           Numeric.Natural
 
 import           Constraint
 import           Core
-import           Subst
 import           Env
 import           Expr
 import           Typed
 import           Summable
 import           Core.TypeCheck.Check
-import           Core.TypeCheck.Unify
 
 newtype Rigs = Rigs (Map String Rig)
 
