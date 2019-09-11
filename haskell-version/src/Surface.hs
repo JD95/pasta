@@ -84,7 +84,7 @@ instance ToCore SurfaceE where
             RArr name output -> mkRig ce () . output . pushName name
             PArr name output -> mkPol ce () . output . pushName name
             TArr (name, a, b, c) input output ->
-              mkArrow ce (a, b, c) <$> input <*> (output . pushName name)
+              mkArrow ce (a, b) <$> input <*> (output . pushName name)
             TCon name -> pure $ mkCon ce name
             Type n    -> pure $ mkT ce n
 

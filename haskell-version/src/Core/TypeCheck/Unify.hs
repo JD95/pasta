@@ -32,6 +32,10 @@ instance Unify (Expr Check) (Expr Check) where
 
 instance Unify (Typed Check) (Typed Check) where
   unify (RArr _ x)(RArr _ y) = pure . pure $ [(x,y)]
+  unify (TArr _ a c)(TArr _ b d) = pure . pure $ [(a,b), (c,d)]
+  unify (TCon x)(TCon y) = if x == y
+    then pure (Right [])
+    else error "Mismatched Types"
 
 instance Unify Checked (Expr Check) where
   unify (Hole s) _ = pure $ Left (MkFill s)

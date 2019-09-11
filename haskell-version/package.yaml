@@ -26,6 +26,7 @@ dependencies:
 - free
 - mtl
 - exceptions
+- microlens-platform
 
 library:
   source-dirs: src

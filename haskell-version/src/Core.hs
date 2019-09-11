@@ -38,7 +38,7 @@ instance Expression Core where
 instance TypedExpression Core where
   type RigName Core = ()
   type PolName Core = ()
-  type ArrowOpts Core = (Abst Rig, Abst Pol, Abst Pol)
+  type ArrowOpts Core = (Abst Rig, Abst Pol)
 
 type CoreE = Summed '[ Expr Core, Typed Core ]
 
@@ -49,16 +49,13 @@ instance Display (Typed Core String) where
   display =  printTyped $ MkPrintTyped
       { printRigName    = const ""
       , printPolName    = const ""
-      , printArrowOpts  = \(rig, inPol, outPol) input _ -> concat
-        [ "["
-        , input
-        , ", "
+      , printArrowOpts  = \(rig, inPol) input _ -> concat
+        [ "("
         , printAbst printRig rig
-        , ", "
         , printAbst printPol inPol
-        , ", "
-        , printAbst printPol outPol
-        , "]"
+        , " "
+        , input
+        , ")"
         ]
       }
 

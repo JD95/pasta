@@ -11,6 +11,7 @@
 
 module Core.TypeCheck.Solve where
 
+import           Lens.Micro.Platform
 import           Data.Bifunctor
 import           Control.Monad.Catch.Pure
 import           Control.Monad.State.Strict
@@ -28,7 +29,7 @@ import           Core.TypeCheck.Constrain
 
 solveConstraints :: (MonadState Ctx m, MonadThrow m) => m ()
 solveConstraints = do
-  state (\(Ctx (w : ws) rs) -> (w, Ctx ws rs)) >>= \case
+  state (\(Ctx (w : ws) rs bs) -> (w, Ctx ws rs bs)) >>= \case
     Flat (EqC x y) -> applyUnify [(x, y)]
  where
 
@@ -55,7 +56,7 @@ solveConstraints = do
       Left fill -> do
         let b' = Fix . inj $ b
         -- Apply the substitution to all constraints
-        modify (\(Ctx ws rs) -> Ctx ((fmap . fmap) (subst b' fill) ws) rs)
+        modify $ \c -> c & constraints %~ (fmap . fmap) (subst b' fill)
         -- Apply the subst to rest of unification nodes and continue solving
         let f = Fix . (fmap (subst b' fill) . unfix)
         applyUnify (bimap f f <$> rest)
@@ -71,9 +72,9 @@ toCheck = cata go
     App x y        -> mkApp cke x y
     Lam x body     -> mkLam cke x body
   go (There (Here layer)) = case layer of
-    RArr x y           -> mkRig cke x y
-    PArr x y           -> mkPol cke x y
-    TArr (a, b, c) x y -> mkArrow cke (Left a, Left b, Left c) x y
-    TCon x             -> mkCon cke x
-    Type n             -> mkT cke n
+    RArr x y        -> mkRig cke x y
+    PArr x y        -> mkPol cke x y
+    TArr (a, b) x y -> mkArrow cke (Left a, Left b) x y
+    TCon x          -> mkCon cke x
+    Type n          -> mkT cke n
   go _ = undefined
