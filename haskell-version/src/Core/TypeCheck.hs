@@ -159,6 +159,9 @@ instance Unify Checked (Expr Check) where
 instance Unify Checked (Typed Check) where
   unify (Hole s) _ = pure $ Left (MkFill s)
 
+instance Unify Checked Checked where
+  unify (Hole s) _ = pure $ Left (MkFill s)
+
 instance Subst (Expr ix) Fill where
   depth = flip const
 
@@ -176,10 +179,28 @@ instance Subst Checked Fill where
 solveConstraints :: (MonadState Ctx m, MonadThrow m) => m ()
 solveConstraints = do
   state (\(Ctx (w : ws) rs) -> (w, Ctx ws rs)) >>= \case
-    Flat (EqC x y) -> runUnify [(x, y)]
+    Flat (EqC x y) -> applyUnify [(x, y)]
  where
 
-  applyUnify a b rest = do
+  applyUnify
+    :: (MonadState Ctx m, MonadThrow m) => [(Fix CheckE, Fix CheckE)] -> m ()
+  applyUnify []                      = pure ()
+  applyUnify ((Fix x, Fix y) : rest) = case (x, y) of
+    -- Valid Cases
+    (Here a, Here b) -> runUnify a b rest
+    (There (Here a), There (Here b)) -> runUnify a b rest
+    (There (There (Here a)), Here b) -> runUnify a b rest
+    (There (There (Here a)), There (There (Here b))) -> runUnify a b rest
+    (There (There (Here a)), There (Here b)) -> runUnify a b rest
+    (Here a, There (There (Here b))) -> runUnify b a rest
+    (There (Here a), There (There (Here b))) -> runUnify b a rest
+
+    -- Invalid Cases
+    (Here _, There (Here _)) -> error "Can't Unify an expr with a type term"
+    (There (Here _), Here _) -> error "Can't Unify a type with an expr term"
+    _ -> error "Invalid Unify"
+
+  runUnify a b rest = do
     unify a b >>= \case
       Left fill -> do
         let b' = Fix . inj $ b
@@ -187,19 +208,10 @@ solveConstraints = do
         modify (\(Ctx ws rs) -> Ctx ((fmap . fmap) (subst b' fill) ws) rs)
         -- Apply the subst to rest of unification nodes and continue solving
         let f = Fix . (fmap (subst b' fill) . unfix)
-        runUnify (bimap f f <$> rest)
-      Right more -> runUnify more *> runUnify rest
+        applyUnify (bimap f f <$> rest)
+      Right more -> applyUnify more *> applyUnify rest
 
 
-  runUnify
-    :: (MonadState Ctx m, MonadThrow m) => [(Fix CheckE, Fix CheckE)] -> m ()
-  runUnify []                      = pure ()
-  runUnify ((Fix x, Fix y) : rest) = case (x, y) of
-    (Here  a               , Here b                ) -> applyUnify a b rest
-    (There (There (Here a)), Here b                ) -> applyUnify a b rest
-    (There (There (Here a)), There (Here b)        ) -> applyUnify a b rest
-    (Here  b               , There (There (Here a))) -> error "Foo"
-    (There (Here b)        , There (There (Here a))) -> error "Foo"
 
 toCheck :: Fix CoreE -> Fix CheckE
 toCheck = cata go
