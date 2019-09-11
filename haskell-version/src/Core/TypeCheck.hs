@@ -10,6 +10,7 @@
 
 module Core.TypeCheck where
 
+import           Data.Bifunctor
 import           Control.Comonad.Cofree
 import           Control.Monad.Catch.Pure
 import           Control.Monad.Reader
@@ -139,7 +140,7 @@ data UnifyException = CantUnify deriving Show
 
 instance Exception UnifyException
 
-newtype Fill = MkFill { unFill :: String }
+newtype Fill = MkFill { unFill :: String } deriving (Eq)
 
 class (Functor f) => Unify f where
   unify :: (MonadThrow m) => f a -> f a -> m (Either Fill [(a, a)])
@@ -153,12 +154,41 @@ instance Unify (Typed Check) where
 instance Unify (Checked) where
   unify (Hole s) _ = pure $ Left (MkFill s)
 
-solveConstraints :: MonadThrow m => Ctx -> m ()
-solveConstraints (Ctx (Flat (EqC (Fix x) (Fix y)) : ws) rs) = case (x, y) of
-  (Here a, Here b) -> do
-    unify a b >>= \case
-      Left  fill -> error "subst during constraint solving not implemented"
-      Right more -> _
+instance Subst (Expr ix) Fill where
+  depth = flip const
+
+  getKey = const Nothing
+
+instance Subst (Typed ix) Fill where
+  depth = flip const
+  getKey = const Nothing
+
+instance Subst Checked Fill where
+  depth _ n = n
+
+  getKey (Hole s) = Just (MkFill s)
+  getKey _ = Nothing
+
+
+solveConstraints :: (MonadState Ctx m, MonadThrow m) => m ()
+solveConstraints = do
+  get >>= \case
+    (Ctx (Flat (EqC x y) : ws) rs) -> runUnify [(x, y)]
+ where
+  runUnify
+    :: (MonadState Ctx m, MonadThrow m) => [(Fix CheckE, Fix CheckE)] -> m ()
+  runUnify []                      = pure ()
+  runUnify ((Fix x, Fix y) : rest) = case (x, y) of
+    (Here a, Here b) -> do
+      unify a b >>= \case
+        Left fill -> do
+          let b' = Fix . inj $ b
+          -- Apply the substitution to all constraints
+          modify (\(Ctx ws rs) -> Ctx ((fmap . fmap) (subst b' fill) ws) rs)
+          -- Apply the subst to rest of unification nodes and continue solving
+          let f = Fix . (fmap (subst b' fill) . unfix)
+          runUnify (bimap f f <$> rest)
+        Right more -> runUnify more *> runUnify rest
 
 toCheck :: Fix CoreE -> Fix CheckE
 toCheck = cata go
