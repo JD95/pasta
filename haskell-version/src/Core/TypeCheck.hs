@@ -6,10 +6,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Core.TypeCheck where
 
+import           Data.Functor.Identity
 import           Data.Bifunctor
 import           Control.Comonad.Cofree
 import           Control.Monad.Catch.Pure
@@ -142,16 +144,19 @@ instance Exception UnifyException
 
 newtype Fill = MkFill { unFill :: String } deriving (Eq)
 
-class (Functor f) => Unify f where
-  unify :: (MonadThrow m) => f a -> f a -> m (Either Fill [(a, a)])
+class (Functor f, Functor g) => Unify f g where
+  unify :: (MonadThrow m) => f a -> g a -> m (Either Fill [(a, a)])
 
-instance Unify (Expr Check) where
+instance Unify (Expr Check) (Expr Check) where
   unify (Val (Bound i))(Val (Bound j)) = if i == j then pure . pure $ [] else throwM CantUnify
 
-instance Unify (Typed Check) where
+instance Unify (Typed Check) (Typed Check) where
   unify (RArr _ x)(RArr _ y) = pure . pure $ [(x,y)]
 
-instance Unify (Checked) where
+instance Unify Checked (Expr Check) where
+  unify (Hole s) _ = pure $ Left (MkFill s)
+
+instance Unify Checked (Typed Check) where
   unify (Hole s) _ = pure $ Left (MkFill s)
 
 instance Subst (Expr ix) Fill where
@@ -167,28 +172,34 @@ instance Subst Checked Fill where
   depth _ n = n
 
   getKey (Hole s) = Just (MkFill s)
-  getKey _ = Nothing
-
 
 solveConstraints :: (MonadState Ctx m, MonadThrow m) => m ()
 solveConstraints = do
-  get >>= \case
-    (Ctx (Flat (EqC x y) : ws) rs) -> runUnify [(x, y)]
+  state (\(Ctx (w : ws) rs) -> (w, Ctx ws rs)) >>= \case
+    Flat (EqC x y) -> runUnify [(x, y)]
  where
+
+  applyUnify a b rest = do
+    unify a b >>= \case
+      Left fill -> do
+        let b' = Fix . inj $ b
+        -- Apply the substitution to all constraints
+        modify (\(Ctx ws rs) -> Ctx ((fmap . fmap) (subst b' fill) ws) rs)
+        -- Apply the subst to rest of unification nodes and continue solving
+        let f = Fix . (fmap (subst b' fill) . unfix)
+        runUnify (bimap f f <$> rest)
+      Right more -> runUnify more *> runUnify rest
+
+
   runUnify
     :: (MonadState Ctx m, MonadThrow m) => [(Fix CheckE, Fix CheckE)] -> m ()
   runUnify []                      = pure ()
   runUnify ((Fix x, Fix y) : rest) = case (x, y) of
-    (Here a, Here b) -> do
-      unify a b >>= \case
-        Left fill -> do
-          let b' = Fix . inj $ b
-          -- Apply the substitution to all constraints
-          modify (\(Ctx ws rs) -> Ctx ((fmap . fmap) (subst b' fill) ws) rs)
-          -- Apply the subst to rest of unification nodes and continue solving
-          let f = Fix . (fmap (subst b' fill) . unfix)
-          runUnify (bimap f f <$> rest)
-        Right more -> runUnify more *> runUnify rest
+    (Here  a               , Here b                ) -> applyUnify a b rest
+    (There (There (Here a)), Here b                ) -> applyUnify a b rest
+    (There (There (Here a)), There (Here b)        ) -> applyUnify a b rest
+    (Here  b               , There (There (Here a))) -> error "Foo"
+    (There (Here b)        , There (There (Here a))) -> error "Foo"
 
 toCheck :: Fix CoreE -> Fix CheckE
 toCheck = cata go
@@ -207,8 +218,14 @@ toCheck = cata go
     Type n             -> mkT cke n
   go _ = undefined
 
-check :: (MonadThrow m) => Fix CoreE -> Fix CoreE -> m ()
-check e goal = do
+check :: Fix CoreE -> Fix CoreE -> Either SomeException ()
+check e goal =
   let (ty, (Ctx ws rs, _)) =
         runState (genConstraints e) (Ctx [] mempty, initNames)
-  solveConstraints (Ctx (ty ~: toCheck goal : ws) rs)
+  in  runIdentity $ runCatchT $ evalStateT solveConstraints
+                                           (Ctx (ty ~: toCheck goal : ws) rs)
+
+testCheck = do
+  let (e :: Fix CoreE) = mkVar ce 0
+  let (t :: Fix CoreE) = mkCon ce "Thing"
+  print $ check e t
