@@ -11,6 +11,8 @@
 
 module Core.TypeCheck.Solve where
 
+import           Control.Monad
+import           Prelude                 hiding ( log )
 import           Lens.Micro.Platform
 import           Data.Bifunctor
 import           Control.Monad.Catch.Pure
@@ -19,22 +21,26 @@ import           Data.Functor.Foldable
 
 import           Constraint
 import           Core
+import           Display
 import           Subst
 import           Expr
+import           Env
 import           Typed
 import           Summable
 import           Core.TypeCheck.Check
 import           Core.TypeCheck.Unify
 import           Core.TypeCheck.Constrain
 
-solveConstraints :: (MonadState Ctx m, MonadThrow m) => m ()
+solveConstraints :: (Logging m, MonadState Ctx m, MonadThrow m) => m ()
 solveConstraints = do
   state (\(Ctx (w : ws) rs bs) -> (w, Ctx ws rs bs)) >>= \case
     Flat (EqC x y) -> applyUnify [(x, y)]
  where
 
   applyUnify
-    :: (MonadState Ctx m, MonadThrow m) => [(Fix CheckE, Fix CheckE)] -> m ()
+    :: (Logging m, MonadState Ctx m, MonadThrow m)
+    => [(Fix CheckE, Fix CheckE)]
+    -> m ()
   applyUnify []                      = pure ()
   applyUnify ((Fix x, Fix y) : rest) = case (x, y) of
     -- Valid Cases
@@ -52,15 +58,26 @@ solveConstraints = do
     _ -> error "Invalid Unify"
 
   runUnify a b rest = do
+    log $ "Unifying: " <> displayF a <> " and " <> displayF b
     unify a b >>= \case
       Left fill -> do
         let b' = Fix . inj $ b
         -- Apply the substitution to all constraints
-        modify $ \c -> c & constraints %~ (fmap . fmap) (subst b' fill)
+        modify $ constraints %~ (fmap . fmap) (subst b' fill)
+
+        st <- get
+        log $ "Constraints: "
+        mapM_ log $ displayF <$> (st ^. constraints)
+
         -- Apply the subst to rest of unification nodes and continue solving
         let f = Fix . (fmap (subst b' fill) . unfix)
         applyUnify (bimap f f <$> rest)
-      Right more -> applyUnify more *> applyUnify rest
+      Right more -> do
+        applyUnify more
+        st <- get
+        log $ "Constraints: "
+        mapM_ log $ displayF <$> (st ^. constraints)
+        applyUnify rest
 
 toCheck :: Fix CoreE -> Fix CheckE
 toCheck = cata go

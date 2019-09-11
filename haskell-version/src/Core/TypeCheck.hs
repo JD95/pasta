@@ -21,10 +21,19 @@ import           Constraint
 import           Core
 import           Display
 import           Expr
+import           Env
 import           Typed
 import           Core.TypeCheck.Constrain
 import           Core.TypeCheck.Solve
 import           Core.TypeCheck.Check
+
+newtype SolveM a
+  = SolveM
+  { runSolve :: StateT Ctx (CatchT IO) a
+  } deriving (Functor, Applicative, Monad, MonadState Ctx, MonadThrow, MonadIO)
+
+instance Logging SolveM where
+  log = liftIO . putStrLn
 
 check :: Fix CoreE -> Fix CoreE -> IO (Either SomeException ())
 check e goal = do
@@ -34,8 +43,8 @@ check e goal = do
     cs =
       (st ^. ctx) & constraints .~ [hole "a" ~: hole "b", hole "b" ~: hole "c"]
   putStrLn "Constraints:"
-  mapM_ (putStrLn . display . fmap (cata display)) $ cs ^. constraints
-  runCatchT $ evalStateT solveConstraints (cs)
+  mapM_ (putStrLn . displayF) $ cs ^. constraints
+  runCatchT $ evalStateT (runSolve solveConstraints) (cs)
 
 testCheck = do
   let (e :: Fix CoreE) = mkLam ce () (mkVar ce 0)

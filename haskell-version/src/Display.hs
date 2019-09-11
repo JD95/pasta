@@ -6,6 +6,8 @@
 
 module Display where
 
+import           Data.Functor.Foldable
+
 import           Summable
 
 class Display a where
@@ -21,3 +23,9 @@ instance (Display a) => Display (Summed '[] a) where
 
 instance Display String where
   display = id
+
+displayF
+  :: (Functor f, Functor g, Display (f String), Display (g String))
+  => f (Fix g)
+  -> String
+displayF = display . fmap (cata display)
