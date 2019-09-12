@@ -25,6 +25,7 @@ import           Core
 import           Env
 import           Expr
 import           Typed
+import           Subst
 import           Summable
 import           Core.TypeCheck.Check
 
@@ -86,7 +87,11 @@ instance Monad m => ConstraintGen (StateT ConstraintST m) where
     st <- get
     pure $ st ^? ctx . bindings . ix (fromIntegral n)
 
-initNames = go (zipWith (\l n -> l : show n) (cycle ['a' .. 'z']) (join $ replicate 26 <$> [1 ..]))
+initNames = go
+  (zipWith (\l n -> l : show n)
+           (cycle ['a' .. 'z'])
+           (join $ replicate 26 <$> [1 ..])
+  )
   where go (x : xs) = Next x (go xs)
 
 initConstraintST = ConstraintST mempty initNames

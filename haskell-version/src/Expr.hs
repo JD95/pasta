@@ -77,8 +77,8 @@ printAbst _ (Bound  i) = "%" <> show i
 printAbst _ (Free   x) = x
 
 instance Subst (Expr ix) Natural where
-  depth (Lam _ _) n = n + 1
-  depth _ n = n
+  depth (Lam a body) n = Lam a (n + 1, body)
+  depth f n = (,) n <$> f
 
   getKey (Val (Bound i)) = Just i
   getKey _ = Nothing

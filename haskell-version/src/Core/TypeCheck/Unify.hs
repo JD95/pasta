@@ -14,28 +14,40 @@ module Core.TypeCheck.Unify where
 import           Control.Monad.Catch.Pure
 
 import           Core.TypeCheck.Check
-import           Subst
+import           Display
+import           Env
 import           Expr
+import           Subst
 import           Typed
 
 data UnifyException = CantUnify deriving Show
 
 instance Exception UnifyException
 
-newtype Fill = MkFill { unFill :: String } deriving (Eq)
+data Fill = MkFill { unFill :: String } deriving (Eq)
+
+data SubUnify  = SubEq | SubArr
+
+data SubTerm a = SubTerm SubUnify a a deriving Functor
+
+instance Display (SubTerm String) where
+  display (SubTerm _ x y) = x <> " ~ " <> y
 
 class (Functor f, Functor g) => Unify f g where
-  unify :: (MonadThrow m) => f a -> g a -> m (Either Fill [(a, a)])
+  unify :: (NameGen m, MonadThrow m) => f a -> g a -> m (Either Fill [SubTerm a])
 
 instance Unify (Expr Check) (Expr Check) where
-  unify (Val (Bound i))(Val (Bound j)) = if i == j then pure . pure $ [] else throwM CantUnify
+  unify (Val (Bound i))(Val (Bound j)) =
+    if i == j then pure . pure $ [] else throwM CantUnify
+  unify _ _ = throwM CantUnify
 
 instance Unify (Typed Check) (Typed Check) where
-  unify (RArr _ x)(RArr _ y) = pure . pure $ [(x,y)]
-  unify (TArr _ a c)(TArr _ b d) = pure . pure $ [(a,b), (c,d)]
+  unify (RArr _ x)(RArr _ y) = pure . pure $ [SubTerm SubEq x y]
+  unify (TArr _ a c)(TArr _ b d) = pure . pure $ [SubTerm SubEq a b, SubTerm SubArr c d]
   unify (TCon x)(TCon y) = if x == y
     then pure (Right [])
     else error "Mismatched Types"
+  unify _ _ = throwM CantUnify
 
 instance Unify Checked (Expr Check) where
   unify (Hole s) _ = pure $ Left (MkFill s)
@@ -47,15 +59,15 @@ instance Unify Checked Checked where
   unify (Hole s) _ = pure $ Left (MkFill s)
 
 instance Subst (Expr ix) Fill where
-  depth = flip const
+  depth f n = (,) n <$> f
 
   getKey = const Nothing
 
 instance Subst (Typed ix) Fill where
-  depth = flip const
+  depth f n = (,) n <$> f
   getKey = const Nothing
 
 instance Subst Checked Fill where
-  depth _ n = n
+  depth f n = (,) n <$> f
 
   getKey (Hole s) = Just (MkFill s)

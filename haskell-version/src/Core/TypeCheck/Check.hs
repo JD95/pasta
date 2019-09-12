@@ -13,10 +13,12 @@ module Core.TypeCheck.Check where
 
 import           Data.Functor.Foldable
 import           Data.Proxy
+import           Numeric.Natural
 
 import           Core
 import           Display
 import           Expr
+import           Subst
 import           Summable
 import           Typed
 
@@ -63,3 +65,8 @@ cke = Proxy @Check
 
 hole :: String -> Fix CheckE
 hole = Fix . inj . Hole
+
+instance Subst Checked Natural where
+  depth f n = (,) n <$> f
+  getKey = const Nothing
+
