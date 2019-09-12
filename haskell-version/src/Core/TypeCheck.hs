@@ -12,20 +12,17 @@
 module Core.TypeCheck where
 
 import           Lens.Micro.Platform
-import           Data.Functor.Identity
 import           Control.Monad.Catch.Pure
 import           Control.Monad.State.Strict
 import           Data.Functor.Foldable
 
 import           Constraint
 import           Core
-import           Display
 import           Expr
 import           Env
 import           Typed
 import           Core.TypeCheck.Constrain
 import           Core.TypeCheck.Solve
-import           Core.TypeCheck.Check
 
 newtype SolveM a
   = SolveM
@@ -41,8 +38,10 @@ check e goal = do
   let cs       = (st ^. ctx) & constraints %~ (:) (ty ~: toCheck goal)
   runCatchT $ evalStateT (runSolve solveConstraints) cs
 
+testCheck :: IO ()
 testCheck = do
-  let (e :: Fix CoreE) = mkLam ce () (mkVar ce 0)
+  let (e :: Fix CoreE) = mkLam ce () (mkLam ce () (mkVar ce 1))
   let (t :: Fix CoreE) =
-        mkArrow ce (Inline R0, Inline L) (mkCon ce "Thing") (mkCon ce "Thing")
+        mkArrow ce (Inline R0, Inline L) (mkCon ce "Thing") $
+          mkArrow ce (Inline R0, Inline L) (mkCon ce "Foo") (mkCon ce "Thing")
   print =<< check e t

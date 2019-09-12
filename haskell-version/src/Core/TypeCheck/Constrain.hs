@@ -103,8 +103,8 @@ genConstraints = cata go
  where
   go (Here layer) = case layer of
 
-    (Val (Bound _)) -> do
-      lookupBinding 0 >>= \case
+    (Val (Bound i)) -> do
+      lookupBinding i >>= \case
         Just term -> pure term
         Nothing   -> error "Binding has no binder!"
     (Val (Free   name)) -> pure $ undefined
