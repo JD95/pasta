@@ -33,15 +33,24 @@ import           Core.TypeCheck.Constrain
 
 solveConstraints :: (Logging m, MonadState Ctx m, MonadThrow m) => m ()
 solveConstraints = do
-  state (\(Ctx (w : ws) rs bs) -> (w, Ctx ws rs bs)) >>= \case
-    Flat (EqC x y) -> applyUnify [(x, y)]
+  st <- get
+  let w = st ^? constraints . _head
+  case w of
+    Just w' -> do
+      modify $ constraints %~ tail
+      case w' of
+        Flat (EqC x y) -> do
+          applyUnify [(x, y)]
+          solveConstraints
+        _ -> undefined
+    Nothing -> log "All constraints solved!" 
  where
 
   applyUnify
     :: (Logging m, MonadState Ctx m, MonadThrow m)
     => [(Fix CheckE, Fix CheckE)]
     -> m ()
-  applyUnify []                      = pure ()
+  applyUnify []                      = pure () 
   applyUnify ((Fix x, Fix y) : rest) = case (x, y) of
     -- Valid Cases
     (Here a, Here b) -> runUnify a b rest
@@ -60,23 +69,27 @@ solveConstraints = do
   runUnify a b rest = do
     log $ "Unifying: " <> displayF a <> " and " <> displayF b
     unify a b >>= \case
-      Left fill -> do
+      Left (MkFill f) -> do
         let b' = Fix . inj $ b
+        log $ "Filling hole: " <> f <> " with " <> cata display b'
         -- Apply the substitution to all constraints
-        modify $ constraints %~ (fmap . fmap) (subst b' fill)
+        modify $ constraints %~ (fmap . fmap) (subst b' (MkFill f))
 
         st <- get
-        log $ "Constraints: "
+        log $ "Constraints After Fill: "
         mapM_ log $ displayF <$> (st ^. constraints)
 
         -- Apply the subst to rest of unification nodes and continue solving
-        let f = Fix . (fmap (subst b' fill) . unfix)
-        applyUnify (bimap f f <$> rest)
+        let sub = subst b' (MkFill f)
+        let rest' = (bimap sub sub <$> rest) 
+
+        log $ "Sub terms to unify:"
+        mapM_ log $ (show . bimap (cata display) (cata display)) <$> rest'
+
+        applyUnify rest'
+
       Right more -> do
         applyUnify more
-        st <- get
-        log $ "Constraints: "
-        mapM_ log $ displayF <$> (st ^. constraints)
         applyUnify rest
 
 toCheck :: Fix CoreE -> Fix CheckE

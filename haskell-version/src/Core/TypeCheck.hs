@@ -38,16 +38,11 @@ instance Logging SolveM where
 check :: Fix CoreE -> Fix CoreE -> IO (Either SomeException ())
 check e goal = do
   let (ty, st) = runState (genConstraints e) initConstraintST
-  -- let cs       = (st ^. ctx) & constraints %~ (:) (ty ~: toCheck goal)
-  let
-    cs =
-      (st ^. ctx) & constraints .~ [hole "a" ~: hole "b", hole "b" ~: hole "c"]
-  putStrLn "Constraints:"
-  mapM_ (putStrLn . displayF) $ cs ^. constraints
-  runCatchT $ evalStateT (runSolve solveConstraints) (cs)
+  let cs       = (st ^. ctx) & constraints %~ (:) (ty ~: toCheck goal)
+  runCatchT $ evalStateT (runSolve solveConstraints) cs
 
 testCheck = do
   let (e :: Fix CoreE) = mkLam ce () (mkVar ce 0)
   let (t :: Fix CoreE) =
-        mkArrow ce (Inline R0, Inline L) (mkCon ce "Foo") (mkCon ce "Thing")
+        mkArrow ce (Inline R0, Inline L) (mkCon ce "Thing") (mkCon ce "Thing")
   print =<< check e t
