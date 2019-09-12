@@ -40,8 +40,8 @@ check e goal = do
 
 testCheck :: IO ()
 testCheck = do
-  let (e :: Fix CoreE) = mkLam ce () (mkLam ce () (mkVar ce 1))
+  let (e :: Fix CoreE) = mkLam ce () (mkLam ce () (mkVar ce 0))
   let (t :: Fix CoreE) =
-        mkArrow ce (Inline R0, Inline L) (mkCon ce "Thing") $
-          mkArrow ce (Inline R0, Inline L) (mkCon ce "Foo") (mkCon ce "Thing")
+        mkArrow ce (Inline R0, Inline L) (mkCon ce "Type") $
+          mkArrow ce (Inline R0, Inline L) (mkVar ce 0) (mkVar ce 1)
   print =<< check e t
