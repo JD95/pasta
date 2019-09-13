@@ -42,7 +42,7 @@ solveConstraints = do
       modify $ ctx . constraints %~ tail
       case w' of
         Flat (EqC x y) -> do
-          applyUnify [SubTerm SubEq x y]
+          applyUnify [(x, y)]
           solveConstraints
         _ -> undefined
     Nothing -> log "All constraints solved!"
@@ -50,19 +50,10 @@ solveConstraints = do
 
   applyUnify
     :: (Logging m, MonadState ConstraintST m, MonadThrow m, NameGen m)
-    => [SubTerm (Fix CheckE)]
+    => [(Fix CheckE, Fix CheckE)]
     -> m ()
-  applyUnify []                            = pure ()
-  applyUnify ((SubTerm SubArr x y) : rest) = do
-    dep <- hole <$> newName
-    log
-      $  "Applying hole "
-      <> cata display dep
-      <> " to expression "
-      <> cata display y
-    let y' = subst dep (0 :: Natural) y
-    applyUnify (SubTerm SubEq x y' : rest)
-  applyUnify ((SubTerm SubEq (Fix x) (Fix y)) : rest) = case (x, y) of
+  applyUnify []                      = pure ()
+  applyUnify ((Fix x, Fix y) : rest) = case (x, y) of
     -- Valid Cases
     (Here a, Here b) -> runUnify a b rest
     (There (Here a), There (Here b)) -> runUnify a b rest
@@ -90,7 +81,7 @@ solveConstraints = do
        )
     => f (Fix CheckE)
     -> g (Fix CheckE)
-    -> [SubTerm (Fix CheckE)]
+    -> [(Fix CheckE, Fix CheckE)]
     -> m ()
   runUnify a b rest = do
     log $ "Unifying: " <> displayF a <> " and " <> displayF b
@@ -110,13 +101,28 @@ solveConstraints = do
         let rest' = (fmap sub <$> rest)
 
         log $ "Sub terms to unify:"
-        mapM_ log $ (display . fmap (cata display)) <$> rest'
+        mapM_ (log . show) $ bimap (cata display) (cata display) <$> rest'
 
         applyUnify rest'
 
       Right more -> do
-        applyUnify more
+        applyUnify =<< mapM reduceSubTerm more
         applyUnify rest
+
+  reduceSubTerm
+    :: (Logging m, NameGen m)
+    => SubTerm (Fix CheckE)
+    -> m (Fix CheckE, Fix CheckE)
+  reduceSubTerm (SubTerm SubEq  x y) = pure (x, y)
+  reduceSubTerm (SubTerm SubArr x y) = do
+    dep <- hole <$> newName
+    log
+      $  "Applying hole "
+      <> cata display dep
+      <> " to expression "
+      <> cata display y
+    let y' = subst dep (0 :: Natural) y
+    pure (x, y')
 
 toCheck :: Fix CoreE -> Fix CheckE
 toCheck = cata go
