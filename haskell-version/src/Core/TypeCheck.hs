@@ -17,20 +17,24 @@ import           Control.Monad.State.Strict
 import           Data.Functor.Foldable
 import qualified Data.Map.Strict as Map
 import           Data.Map.Strict (Map)
+import           Numeric.Natural
 
 import           Constraint
 import           Core
+import           Display
 import           Expr
 import           Env
+import           Subst
 import           Typed
+import           Core.TypeCheck.Check
 import           Core.TypeCheck.Constrain
 import           Core.TypeCheck.Solve
 import           Core.TypeCheck.Check
 
 newtype SolveM a
   = SolveM
-  { runSolve :: StateT Ctx (CatchT IO) a
-  } deriving (Functor, Applicative, Monad, MonadState Ctx, MonadThrow, MonadIO)
+  { runSolve :: StateT ConstraintST (CatchT IO) a
+  } deriving (Functor, Applicative, Monad, MonadState ConstraintST, MonadThrow, MonadIO, NameGen)
 
 instance Logging SolveM where
   log = liftIO . putStrLn
@@ -50,3 +54,7 @@ testCheck = do
         mkArrow ce (Inline R0, Inline L) (mkCon ce "Type") $
           mkArrow ce (Inline R0, Inline L) (mkVar ce 0) (mkVar ce 1)
   print =<< check tbl e t
+foo = cata display $ subst
+  (hole "a")
+  (0 :: Natural)
+  (mkArrow cke (Left $ Inline R0, Left $ Inline L) (mkVar cke 0) (mkVar cke 1))

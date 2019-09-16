@@ -104,9 +104,9 @@ mkT :: (Injectable (Typed ix) xs) => Proxy ix -> Natural -> Fix (Summed xs)
 mkT = \(_ :: Proxy ix) n -> Fix . inj $ Type @ix n
 
 instance Subst (Typed ix) Natural where
-  depth (RArr _ _) n = n + 1
-  depth (PArr _ _) n = n + 1
-  depth (TArr _ _ _) n = n + 1
-  depth _ n = n
+  depth (RArr a o) n = RArr a (n + 1, o)
+  depth (PArr a o) n = PArr a (n + 1, o)
+  depth (TArr a i o) n = TArr a (n, i) (n + 1, o)
+  depth f n = (,) n <$> f
 
   getKey _ = Nothing

@@ -13,10 +13,12 @@ module Core.TypeCheck.Check where
 
 import           Data.Functor.Foldable
 import           Data.Proxy
+import           Numeric.Natural
 
 import           Core
 import           Display
 import           Expr
+import           Subst
 import           Summable
 import           Typed
 
@@ -80,3 +82,7 @@ toCheck = cata go
     TCon x          -> mkCon cke x
     Type n          -> mkT cke n
   go _ = undefined
+
+instance Subst Checked Natural where
+  depth f n = (,) n <$> f
+  getKey = const Nothing
