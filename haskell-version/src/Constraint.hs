@@ -15,7 +15,7 @@ data F a
 
 instance Display a => Display (F a) where
   display (EqC x y) = display x <> " ~ " <> display y
-  display _ = undefined
+  display _ = "" 
 
 data W a = Flat (F a) deriving (Functor)
 

@@ -44,7 +44,7 @@ solveConstraints = do
         Flat (EqC x y) -> do
           applyUnify [(x, y)]
           solveConstraints
-        _ -> undefined
+        _ -> solveConstraints 
     Nothing -> log "All constraints solved!"
  where
 

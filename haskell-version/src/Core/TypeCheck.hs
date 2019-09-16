@@ -42,17 +42,15 @@ instance Logging SolveM where
 check :: Map String (Fix CoreE) -> Fix CoreE -> Fix CoreE -> IO (Either SomeException ())
 check tbl e goal = do
   let (ty, st) = runState (genConstraints tbl e) initConstraintST
-  let cs       = (st ^. ctx) & constraints %~ (:) (ty ~: toCheck goal)
+  let cs       = st & ctx .  constraints %~ (:) (ty ~: toCheck goal)
   runCatchT $ evalStateT (runSolve solveConstraints) cs
 
 testCheck :: IO ()
 testCheck = do
   let tbl = Map.fromList $
-        [ ("x", mkCon ce "Thing")]
-  let (e :: Fix CoreE) = mkLam ce () (mkLam ce () (mkVar ce 0))
-  let (t :: Fix CoreE) =
-        mkArrow ce (Inline R0, Inline L) (mkCon ce "Type") $
-          mkArrow ce (Inline R0, Inline L) (mkVar ce 0) (mkVar ce 1)
+        [ ("x", mkCon ce "Foo")]
+  let (e :: Fix CoreE) = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
+  let (t :: Fix CoreE) = mkCon ce "Thing"
   print =<< check tbl e t
 foo = cata display $ subst
   (hole "a")

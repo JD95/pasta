@@ -134,8 +134,8 @@ genConstraints tbl = cata go
       outTy  <- hole <$> newName
       let opts = (Right funRig, Right funPol)
       require $ funTy ~: mkArrow cke opts inTy outTy
-      require $ isRig funRig
-      require $ isPol funPol
+      -- require $ isRig funRig
+      -- require $ isPol funPol
       pure outTy
 
   go (There (Here layer)) = case layer of
