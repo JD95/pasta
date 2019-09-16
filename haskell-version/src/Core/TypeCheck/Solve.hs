@@ -15,10 +15,12 @@ import           Control.Monad
 import           Prelude                 hiding ( log )
 import           Lens.Micro.Platform
 import           Data.Bifunctor
-import           Control.Monad.Catch.Pure
-import           Control.Monad.State.Strict
 import           Data.Functor.Foldable
 import           Numeric.Natural
+import           Polysemy
+import           Polysemy.Error
+import           Polysemy.State
+import           Control.Exception              ( SomeException )
 
 import           Constraint
 import           Core
@@ -33,7 +35,8 @@ import           Core.TypeCheck.Unify
 import           Core.TypeCheck.Constrain
 
 solveConstraints
-  :: (Logging m, MonadState ConstraintST m, MonadThrow m, NameGen m) => m ()
+  :: (Members '[Logging, State ConstraintST, Error UnifyException, NameGen] r)
+  => Sem r ()
 solveConstraints = do
   st <- get
   let w = st ^? ctx . constraints . _head
@@ -44,14 +47,14 @@ solveConstraints = do
         Flat (EqC x y) -> do
           applyUnify [(x, y)]
           solveConstraints
-        _ -> solveConstraints 
+        _ -> solveConstraints
     Nothing -> log "All constraints solved!"
  where
 
   applyUnify
-    :: (Logging m, MonadState ConstraintST m, MonadThrow m, NameGen m)
+    :: (Members '[Logging, State ConstraintST, Error UnifyException, NameGen] r)
     => [(Fix CheckE, Fix CheckE)]
-    -> m ()
+    -> Sem r ()
   applyUnify []                      = pure ()
   applyUnify ((Fix x, Fix y) : rest) = case (x, y) of
     -- Valid Cases
@@ -73,16 +76,13 @@ solveConstraints = do
        , Display (g String)
        , g :<: '[Expr Check, Typed Check, Checked]
        , f :<: '[Expr Check, Typed Check, Checked]
-       , Logging m
-       , MonadState ConstraintST m
-       , MonadThrow m
+       , Members '[Logging, State ConstraintST, Error UnifyException, NameGen] r
        , Unify f g
-       , NameGen m
        )
     => f (Fix CheckE)
     -> g (Fix CheckE)
     -> [(Fix CheckE, Fix CheckE)]
-    -> m ()
+    -> Sem r ()
   runUnify a b rest = do
     log $ "Unifying: " <> displayF a <> " and " <> displayF b
     unify a b >>= \case
@@ -110,9 +110,9 @@ solveConstraints = do
         applyUnify rest
 
   reduceSubTerm
-    :: (Logging m, NameGen m)
+    :: (Members '[Logging, NameGen] r)
     => SubTerm (Fix CheckE)
-    -> m (Fix CheckE, Fix CheckE)
+    -> Sem r (Fix CheckE, Fix CheckE)
   reduceSubTerm (SubTerm SubEq  x y) = pure (x, y)
   reduceSubTerm (SubTerm SubArr x y) = do
     dep <- hole <$> newName

@@ -11,7 +11,12 @@
 
 module Core.TypeCheck.Unify where
 
-import           Control.Monad.Catch.Pure
+import           Control.Exception              ( SomeException
+                                                , Exception
+                                                )
+
+import           Polysemy
+import           Polysemy.Error
 
 import           Core.TypeCheck.Check
 import           Display
@@ -34,12 +39,12 @@ instance Display (SubTerm String) where
   display (SubTerm _ x y) = x <> " ~ " <> y
 
 class (Functor f, Functor g) => Unify f g where
-  unify :: (NameGen m, MonadThrow m) => f a -> g a -> m (Either Fill [SubTerm a])
+  unify :: (Members '[NameGen, Error UnifyException] r) => f a -> g a -> Sem r (Either Fill [SubTerm a])
 
 instance Unify (Expr Check) (Expr Check) where
   unify (Val (Bound i))(Val (Bound j)) =
-    if i == j then pure . pure $ [] else throwM CantUnify
-  unify _ _ = throwM CantUnify
+    if i == j then pure . pure $ [] else throw CantUnify
+  unify _ _ = throw CantUnify
 
 instance Unify (Typed Check) (Typed Check) where
   unify (RArr _ x)(RArr _ y) = pure . pure $ [SubTerm SubEq x y]
@@ -47,7 +52,7 @@ instance Unify (Typed Check) (Typed Check) where
   unify (TCon x)(TCon y) = if x == y
     then pure (Right [])
     else error "Mismatched Types"
-  unify _ _ = throwM CantUnify
+  unify _ _ = throw CantUnify
 
 instance Unify Checked (Expr Check) where
   unify (Hole s) _ = pure $ Left (MkFill s)

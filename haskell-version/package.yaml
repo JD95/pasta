@@ -27,11 +27,14 @@ dependencies:
 - mtl
 - exceptions
 - microlens-platform
+- polysemy
+- polysemy-plugin
 
 library:
   source-dirs: src
   ghc-options:
   - -Wall
+  - -fplugin=Polysemy.Plugin
 
 executables:
   jelly-exe:

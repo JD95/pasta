@@ -1,28 +1,32 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE PolyKinds #-}
 
 module Env where
 
-import           Control.Monad.IO.Class
-import           Data.Functor.Foldable
-import           Data.Functor.Identity
-import           Control.Monad.Catch.Pure
-import           Control.Monad.Reader
-import           Control.Monad.State.Strict
-import           Data.Map.Strict                ( Map )
+import           Polysemy
 
-newtype Env s r e a = Env { runEnv :: StateT s (ReaderT r (CatchT Identity)) a }
+data SymLookup key val m a where
+  SymLookup :: key -> SymLookup key val m (Maybe val)
 
-class Monad m => Log m where
-  info :: String -> m ()
+makeSem ''SymLookup
 
-class Monad m => SymLookup key val m where
-  symLookup :: key -> m (Maybe val)
+data SymAlter key val m a where
+  SymAlter  :: key -> (Maybe val -> Maybe val) -> SymAlter key val m ()
 
-class Monad m => SymAlter key val m where
-  symAlter  :: key -> (Maybe val -> Maybe val) -> m ()
+makeSem ''SymAlter
 
-class Monad m => NameGen m where
-  newName :: m String
+data NameGen m a where
+  NewName :: NameGen m String
 
-class Monad m => Logging m where
-  log :: String -> m ()
+makeSem ''NameGen
+
+data Logging m a where
+  Log :: String -> Logging m ()
+
+makeSem ''Logging

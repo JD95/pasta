@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts, StandaloneDeriving, GADTs, TypeFamilies, RankNTypes, DeriveFunctor #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -13,12 +14,16 @@
 module Core.TypeCheck.Constrain where
 
 import           Lens.Micro.Platform
-import           Control.Monad.State.Strict
 import           Data.Functor.Foldable
 import qualified Data.Map.Merge.Strict         as Map
 import           Data.Map.Strict                ( Map )
 import qualified Data.Map.Strict               as Map
 import           Numeric.Natural
+import           Polysemy
+import           Polysemy.Error
+import           Polysemy.State
+import           Control.Exception
+import           Control.Monad
 
 import           Constraint
 import           Core
@@ -65,27 +70,39 @@ data ConstraintST = ConstraintST
 
 makeLenses ''ConstraintST
 
-class Monad m => ConstraintGen m where
-  require :: W (Fix CheckE) -> m ()
-  usage :: String -> Rig -> m ()
-  withBinding :: Fix CheckE -> m a -> m a
-  lookupBinding :: Natural -> m (Maybe (Fix CheckE))
+data ConstraintGen m a where
+  Require :: W (Fix CheckE) -> ConstraintGen m ()
+  Usage :: String -> Rig -> ConstraintGen m ()
+  WithBinding :: Fix CheckE -> m a -> ConstraintGen m a
+  LookupBinding :: Natural -> ConstraintGen m (Maybe (Fix CheckE))
 
-instance Monad m => ConstraintGen (StateT ConstraintST m) where
-  require w = modify $ \st -> st & ctx . constraints %~ ((:) w)
-  usage s r = modify $ \st ->
-    let f Nothing = Just r
-        f (Just r') = Just (r <> r')
-    in st & ctx . rigs %~ (Rigs . Map.alter f s . unRigs)
-  withBinding x action = do
+makeSem ''ConstraintGen
+
+runConstraintGenAsST
+  :: (Member (State ConstraintST) r) => Sem (ConstraintGen ': r) a -> Sem r a
+runConstraintGenAsST = interpretH $ \case
+  Require w -> do
+    modify $ \st -> st & ctx . constraints %~ ((:) w)
+    pureT ()
+  Usage s r -> do
+    modify $ \st ->
+      let f Nothing   = Just r
+          f (Just r') = Just (r <> r')
+      in  st & ctx . rigs %~ (Rigs . Map.alter f s . unRigs)
+    pureT ()
+  WithBinding x action -> do
+    action' <- runT action
+
+    let runIt = raise . runConstraintGenAsST
     stOld <- get
-    modify $ \st -> st & ctx . bindings %~ (:) x
-    result <- action
-    modify $ \st -> st & ctx . bindings .~ (stOld ^. ctx . bindings)
+    modify $ ctx . bindings %~ (:) x
+    result <- runIt action'
+    modify $ ctx . bindings .~ (stOld ^. ctx . bindings)
     pure result
-  lookupBinding n = do
+
+  LookupBinding n -> do
     st <- get
-    pure $ st ^? ctx . bindings . ix (fromIntegral n)
+    pureT $ st ^? ctx . bindings . ix (fromIntegral n)
 
 initNames = go
   (zipWith (\l n -> l : show n)
@@ -96,14 +113,20 @@ initNames = go
 
 initConstraintST = ConstraintST mempty initNames
 
-instance Monad m => NameGen (StateT ConstraintST m) where
-  newName = do
+runNameGenAsState
+  :: (Member (State ConstraintST) r) => Sem (NameGen ': r) a -> Sem r a
+runNameGenAsState = interpret $ \case
+  NewName -> do
     st <- get
     let (next, rest) = st ^. names & popName
     put (st & names .~ rest)
     pure next
 
-genConstraints :: (ConstraintGen m, NameGen m) => (Map String (Fix CoreE)) -> Fix CoreE -> m (Fix CheckE)
+genConstraints
+  :: (Members '[ConstraintGen, NameGen, Error SomeException] r)
+  => (Map String (Fix CoreE))
+  -> Fix CoreE
+  -> Sem r (Fix CheckE)
 genConstraints tbl = cata go
  where
   go (Here layer) = case layer of
@@ -112,13 +135,12 @@ genConstraints tbl = cata go
       lookupBinding i >>= \case
         Just term -> pure term
         Nothing   -> error "Binding has no binder!"
-    (Val (Free   name)) ->
-      case Map.lookup name tbl of
-        Just result -> pure (toCheck result)
-        Nothing -> error "Undefined Symbol"
-    (Val (Inline x   )) -> x
+    (Val (Free name)) -> case Map.lookup name tbl of
+      Just result -> pure (toCheck result)
+      Nothing     -> error "Undefined Symbol"
+    (Val (Inline x)) -> x
 
-    (Lam _ body       ) -> do
+    (Lam _ body    ) -> do
       inTy   <- hole <$> newName
       funRig <- hole <$> newName
       funPol <- hole <$> newName
