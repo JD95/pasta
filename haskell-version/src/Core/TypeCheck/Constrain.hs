@@ -98,8 +98,8 @@ instance Monad m => NameGen (StateT ConstraintST m) where
     put (st & names .~ rest)
     pure next
 
-genConstraints :: (ConstraintGen m, NameGen m) => Fix CoreE -> m (Fix CheckE)
-genConstraints = cata go
+genConstraints :: (ConstraintGen m, NameGen m) => (Map String (Fix CoreE)) -> Fix CoreE -> m (Fix CheckE)
+genConstraints tbl = cata go
  where
   go (Here layer) = case layer of
 
@@ -107,7 +107,10 @@ genConstraints = cata go
       lookupBinding i >>= \case
         Just term -> pure term
         Nothing   -> error "Binding has no binder!"
-    (Val (Free   name)) -> pure $ undefined
+    (Val (Free   name)) ->
+      case Map.lookup name tbl of
+        Just result -> pure (toCheck result)
+        Nothing -> error "Undefined Symbol"
     (Val (Inline x   )) -> x
 
     (Lam _ body       ) -> do

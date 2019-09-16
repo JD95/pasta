@@ -91,20 +91,3 @@ solveConstraints = do
       Right more -> do
         applyUnify more
         applyUnify rest
-
-toCheck :: Fix CoreE -> Fix CheckE
-toCheck = cata go
- where
-  go (Here layer) = case layer of
-    Val (Bound  i) -> mkVar cke i
-    Val (Free   x) -> mkFree cke x
-    Val (Inline x) -> mkInline cke x
-    App x y        -> mkApp cke x y
-    Lam x body     -> mkLam cke x body
-  go (There (Here layer)) = case layer of
-    RArr x y        -> mkRig cke x y
-    PArr x y        -> mkPol cke x y
-    TArr (a, b) x y -> mkArrow cke (Left a, Left b) x y
-    TCon x          -> mkCon cke x
-    Type n          -> mkT cke n
-  go _ = undefined

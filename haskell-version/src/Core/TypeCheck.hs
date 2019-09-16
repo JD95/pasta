@@ -15,6 +15,8 @@ import           Lens.Micro.Platform
 import           Control.Monad.Catch.Pure
 import           Control.Monad.State.Strict
 import           Data.Functor.Foldable
+import qualified Data.Map.Strict as Map
+import           Data.Map.Strict (Map)
 
 import           Constraint
 import           Core
@@ -23,6 +25,7 @@ import           Env
 import           Typed
 import           Core.TypeCheck.Constrain
 import           Core.TypeCheck.Solve
+import           Core.TypeCheck.Check
 
 newtype SolveM a
   = SolveM
@@ -32,16 +35,18 @@ newtype SolveM a
 instance Logging SolveM where
   log = liftIO . putStrLn
 
-check :: Fix CoreE -> Fix CoreE -> IO (Either SomeException ())
-check e goal = do
-  let (ty, st) = runState (genConstraints e) initConstraintST
+check :: Map String (Fix CoreE) -> Fix CoreE -> Fix CoreE -> IO (Either SomeException ())
+check tbl e goal = do
+  let (ty, st) = runState (genConstraints tbl e) initConstraintST
   let cs       = (st ^. ctx) & constraints %~ (:) (ty ~: toCheck goal)
   runCatchT $ evalStateT (runSolve solveConstraints) cs
 
 testCheck :: IO ()
 testCheck = do
+  let tbl = Map.fromList $
+        [ ("x", mkCon ce "Thing")]
   let (e :: Fix CoreE) = mkLam ce () (mkLam ce () (mkVar ce 0))
   let (t :: Fix CoreE) =
         mkArrow ce (Inline R0, Inline L) (mkCon ce "Type") $
           mkArrow ce (Inline R0, Inline L) (mkVar ce 0) (mkVar ce 1)
-  print =<< check e t
+  print =<< check tbl e t
