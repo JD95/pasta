@@ -30,6 +30,7 @@ import           Typed
 import           Core.TypeCheck.Check
 import           Core.TypeCheck.Constrain
 import           Core.TypeCheck.Solve
+import           Core.TypeCheck.SubstTable
 import           Core.TypeCheck.Check
 import           Core.TypeCheck.Unify
 
@@ -79,6 +80,7 @@ check tbl e goal = do
   runM
     . runError
     . runLoggingIO
+    . evalState (MkSubstTable @Fill @(Fix CheckE) mempty)
     . evalState cs
     . runNameGenAsState
     $ solveConstraints
@@ -86,7 +88,7 @@ check tbl e goal = do
 
 testCheck :: IO ()
 testCheck = do
-  let tbl              = Map.fromList $ [("x", mkCon ce "Foo")]
+  let tbl              = Map.fromList $ [("x", mkCon ce "Thing")]
   let (e :: Fix CoreE) = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
   let (t :: Fix CoreE) = mkCon ce "Thing"
   print =<< check tbl e t
