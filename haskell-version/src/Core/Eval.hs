@@ -10,6 +10,7 @@ module Core.Eval where
 import           Data.Functor.Foldable
 import           Numeric.Natural
 import           Data.Proxy
+import           Polysemy
 
 import           Core
 import           Subst
@@ -18,11 +19,10 @@ import           Expr
 import           Typed
 import           Summable
 
-eval :: (SymLookup String (Fix CoreE) m) => Fix CoreE -> m (Fix CoreE)
-eval = para go
- where
-
-  go (Here layer) = case layer of
+eval
+  :: (Member (SymLookup String (Fix CoreE)) r) => Fix CoreE -> Sem r (Fix CoreE)
+eval = para $ \case
+  (Here layer) -> case layer of
     (App (_, x) (_, y)) -> do
       y'   <- y
       func <- x
@@ -39,11 +39,11 @@ eval = para go
       Nothing -> error "Variable was not in context"
       Just x  -> pure x
 
-  go (There (Here layer)) = case layer of
+  (There (Here layer)) -> case layer of
     (RArr _ (_, output)              ) -> mkRig ce () <$> output
     (PArr _ (_, output)              ) -> mkPol ce () <$> output
     (TArr opts (_, input) (_, output)) -> mkArrow ce opts <$> input <*> output
     (TCon name                       ) -> pure $ mkCon ce name
     (Type n                          ) -> pure $ mkT ce n
 
-  go _ = undefined
+  _ -> undefined

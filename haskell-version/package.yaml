@@ -24,7 +24,6 @@ dependencies:
 - recursion-schemes
 - containers
 - free
-- mtl
 - exceptions
 - microlens-platform
 - polysemy

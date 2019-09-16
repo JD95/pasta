@@ -78,32 +78,6 @@ data ConstraintGen m a where
 
 makeSem ''ConstraintGen
 
-runConstraintGenAsST
-  :: (Member (State ConstraintST) r) => Sem (ConstraintGen ': r) a -> Sem r a
-runConstraintGenAsST = interpretH $ \case
-  Require w -> do
-    modify $ \st -> st & ctx . constraints %~ ((:) w)
-    pureT ()
-  Usage s r -> do
-    modify $ \st ->
-      let f Nothing   = Just r
-          f (Just r') = Just (r <> r')
-      in  st & ctx . rigs %~ (Rigs . Map.alter f s . unRigs)
-    pureT ()
-  WithBinding x action -> do
-    action' <- runT action
-
-    let runIt = raise . runConstraintGenAsST
-    stOld <- get
-    modify $ ctx . bindings %~ (:) x
-    result <- runIt action'
-    modify $ ctx . bindings .~ (stOld ^. ctx . bindings)
-    pure result
-
-  LookupBinding n -> do
-    st <- get
-    pureT $ st ^? ctx . bindings . ix (fromIntegral n)
-
 initNames = go
   (zipWith (\l n -> l : show n)
            (cycle ['a' .. 'z'])
@@ -123,7 +97,7 @@ runNameGenAsState = interpret $ \case
     pure next
 
 genConstraints
-  :: (Members '[ConstraintGen, NameGen, Error SomeException] r)
+  :: (Members '[ConstraintGen, NameGen] r)
   => (Map String (Fix CoreE))
   -> Fix CoreE
   -> Sem r (Fix CheckE)

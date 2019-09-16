@@ -13,10 +13,11 @@ module Lib
   )
 where
 
-import           Control.Monad.State.Strict
 import qualified Data.Map.Strict               as Map
 import           Data.Functor.Foldable
 import           Data.Proxy
+import           Polysemy
+import           Polysemy.State
 
 import           Core
 import           Core.Eval
@@ -43,7 +44,14 @@ test = do
       Map.fromList [("thing", (mkFree ce "thing")), ("dude", mkFree ce "dude")]
   putStrLn . cata display $ e
   putStrLn . cata display . toCore $ e
-  putStrLn . cata display . flip evalState ctx . runEvalEnv . eval . toCore $ e
+  putStrLn
+    . cata display
+    . run
+    . evalState @(Map.Map String (Fix CoreE)) ctx
+    . runSymLookupState @String @(Fix CoreE)
+    . eval
+    . toCore
+    $ e
 
 someFunc :: IO ()
 someFunc = putStrLn "hello"
