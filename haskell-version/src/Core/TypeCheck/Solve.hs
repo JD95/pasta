@@ -18,13 +18,10 @@ import           Data.Bifunctor
 import           Data.Functor.Foldable
 import           Numeric.Natural
 import           Polysemy
-import           Polysemy.Reader
 import           Polysemy.Error
 import           Polysemy.State
-import           Control.Exception              ( SomeException )
 
 import           Constraint
-import           Core
 import           Core.TypeCheck.Check
 import           Core.TypeCheck.Constrain
 import           Core.TypeCheck.SubstTable
@@ -57,12 +54,13 @@ solveConstraints = do
         _ -> solveConstraints
     Nothing -> log "All constraints solved!"
 
-rewriteHole :: (Member (State SubstTbl) r) => Fix CheckE -> Sem r (Fix CheckE)
-rewriteHole (Fix (There (There (Here (Hole s))))) = do
+attemptRewrite
+  :: (Member (State SubstTbl) r) => Fix CheckE -> Sem r (Fix CheckE)
+attemptRewrite (Fix (There (There (Here (Hole s))))) = do
   lookupSubst (MkFill s) <$> get >>= \case
     Just e  -> pure e
     Nothing -> pure $ hole s
-rewriteHole other = pure other
+attemptRewrite other = pure other
 
 applyUnify
   :: ( Members
@@ -73,8 +71,8 @@ applyUnify
   -> Sem r ()
 applyUnify []                = pure ()
 applyUnify ((x', y') : rest) = do
-  Fix x <- rewriteHole x'
-  Fix y <- rewriteHole y'
+  Fix x <- attemptRewrite x'
+  Fix y <- attemptRewrite y'
 
   case (x, y) of
     -- Valid Cases

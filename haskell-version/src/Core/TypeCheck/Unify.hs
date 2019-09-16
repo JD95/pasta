@@ -11,16 +11,11 @@
 
 module Core.TypeCheck.Unify where
 
-import           Control.Exception              ( SomeException
-                                                , Exception
-                                                )
-import           Data.Functor.Foldable          ( Fix )
+import           Control.Exception              ( Exception )
 import           Polysemy
 import           Polysemy.Error
-import           Polysemy.State
 
 import           Core.TypeCheck.Check
-import           Core.TypeCheck.SubstTable
 import           Display
 import           Env
 import           Expr

@@ -31,7 +31,6 @@ import           Core.TypeCheck.Check
 import           Core.TypeCheck.Constrain
 import           Core.TypeCheck.Solve
 import           Core.TypeCheck.SubstTable
-import           Core.TypeCheck.Check
 import           Core.TypeCheck.Unify
 
 runConstraintGenAsST
@@ -84,7 +83,6 @@ check tbl e goal = do
     . evalState cs
     . runNameGenAsState
     $ solveConstraints
-  -- runCatchT $ evalStateT (runSolve solveConstraints) cs
 
 testCheck :: IO ()
 testCheck = do
@@ -92,6 +90,7 @@ testCheck = do
   let (e :: Fix CoreE) = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
   let (t :: Fix CoreE) = mkCon ce "Thing"
   print =<< check tbl e t
+
 foo = cata display $ subst
   (hole "a")
   (0 :: Natural)

@@ -20,9 +20,7 @@ import           Data.Map.Strict                ( Map )
 import qualified Data.Map.Strict               as Map
 import           Numeric.Natural
 import           Polysemy
-import           Polysemy.Error
 import           Polysemy.State
-import           Control.Exception
 import           Control.Monad
 
 import           Constraint
@@ -30,7 +28,6 @@ import           Core
 import           Env
 import           Expr
 import           Typed
-import           Subst
 import           Summable
 import           Core.TypeCheck.Check
 
@@ -78,13 +75,17 @@ data ConstraintGen m a where
 
 makeSem ''ConstraintGen
 
+initNames :: Names
 initNames = go
-  (zipWith (\l n -> l : show n)
+  (zipWith (\l n -> l : show @Natural n)
            (cycle ['a' .. 'z'])
            (join $ replicate 26 <$> [1 ..])
   )
-  where go (x : xs) = Next x (go xs)
+ where
+  go (x : xs) = Next x (go xs)
+  go []       = undefined
 
+initConstraintST :: ConstraintST
 initConstraintST = ConstraintST mempty initNames
 
 runNameGenAsState
