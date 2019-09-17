@@ -17,11 +17,14 @@ main = defaultMain =<< tests
 
 
 tests :: IO TestTree
-tests = testGroup "Tests" . pure <$> unitTests
+tests = testGroup "Tests" <$> sequence [unitTests]
 
 unitTests :: IO TestTree
-unitTests = testSpec "Unit Tests" $ do
-  describe "Type Checking" $ do
+unitTests = testGroup "Unit Tests" <$> sequence [ typeCheckingTests ]
+
+typeCheckingTests :: IO TestTree
+typeCheckingTests = testSpec "Type Checking" $ do
+  describe "check" $ do
 
       it "Accepts Free Variables in Context" $ do
         let tbl              = Map.fromList [("x", mkCon ce "Thing")] 
