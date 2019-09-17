@@ -9,24 +9,11 @@
 
 module Core where
 
-import           Data.Map.Strict                ( Map )
-import qualified Data.Map.Strict               as Map
-import           Control.Arrow           hiding ( app )
-import           Control.Comonad.Trans.Cofree   ( CofreeF(..) )
-import           Control.Monad.Catch
-import           Control.Monad.Reader
-import           Control.Monad.State.Strict
-import           Data.Functor.Const
 import           Data.Functor.Foldable
-import qualified Data.Map.Strict               as Map
-import           Data.Void
 import           Data.Proxy
-import           Numeric.Natural
 
-import           Env
 import           Expr
 import           Typed
-import           Subst
 import           Display
 import           Summable
 
@@ -62,4 +49,5 @@ instance Display (Typed Core String) where
 class ToCore f where
   toCore :: Fix f -> Fix CoreE
 
+ce :: Proxy Core
 ce = Proxy @Core

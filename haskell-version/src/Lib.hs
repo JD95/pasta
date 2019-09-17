@@ -15,7 +15,6 @@ where
 
 import qualified Data.Map.Strict               as Map
 import           Data.Functor.Foldable
-import           Data.Proxy
 import           Polysemy
 import           Polysemy.State
 

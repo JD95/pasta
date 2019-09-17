@@ -7,7 +7,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Core.TypeCheck.Solve where
 
@@ -37,16 +36,16 @@ type SubstTbl = SubstTable Fill (Fix CheckE)
 
 solveConstraints
   :: ( Members
-         '[State SubstTbl, Logging, State ConstraintST, Error UnifyException, NameGen]
+         '[State SubstTbl, Logging, State Ctx, Error UnifyException, NameGen]
          r
      )
   => Sem r ()
 solveConstraints = do
-  st <- get
-  let w = st ^? ctx . constraints . _head
+  st <- get @Ctx
+  let w = st ^? constraints . _head
   case w of
     Just w' -> do
-      modify $ ctx . constraints %~ tail
+      modify @Ctx $ constraints %~ tail
       case w' of
         Flat (EqC x y) -> do
           applyUnify [(x, y)]
@@ -64,7 +63,7 @@ attemptRewrite other = pure other
 
 applyUnify
   :: ( Members
-         '[Logging, State SubstTbl, State ConstraintST, Error UnifyException, NameGen]
+         '[Logging, State SubstTbl, State Ctx, Error UnifyException, NameGen]
          r
      )
   => [(Fix CheckE, Fix CheckE)]
@@ -96,7 +95,7 @@ runUnify
      , g :<: '[Expr Check, Typed Check, Checked]
      , f :<: '[Expr Check, Typed Check, Checked]
      , Members
-         '[Logging, State SubstTbl, State ConstraintST, Error UnifyException, NameGen]
+         '[Logging, State SubstTbl, State Ctx, Error UnifyException, NameGen]
          r
      , Unify f g
      )

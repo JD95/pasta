@@ -60,13 +60,6 @@ data Names = Next String Names
 popName :: Names -> (String, Names)
 popName (Next n ns) = (n, ns)
 
-data ConstraintST = ConstraintST
-  { _ctx :: Ctx
-  , _names :: Names
-  }
-
-makeLenses ''ConstraintST
-
 data ConstraintGen m a where
   Require :: W (Fix CheckE) -> ConstraintGen m ()
   Usage :: String -> Rig -> ConstraintGen m ()
@@ -74,28 +67,6 @@ data ConstraintGen m a where
   LookupBinding :: Natural -> ConstraintGen m (Maybe (Fix CheckE))
 
 makeSem ''ConstraintGen
-
-initNames :: Names
-initNames = go
-  (zipWith (\l n -> l : show @Natural n)
-           (cycle ['a' .. 'z'])
-           (join $ replicate 26 <$> [1 ..])
-  )
- where
-  go (x : xs) = Next x (go xs)
-  go []       = undefined
-
-initConstraintST :: ConstraintST
-initConstraintST = ConstraintST mempty initNames
-
-runNameGenAsState
-  :: (Member (State ConstraintST) r) => Sem (NameGen ': r) a -> Sem r a
-runNameGenAsState = interpret $ \case
-  NewName -> do
-    st <- get
-    let (next, rest) = st ^. names & popName
-    put (st & names .~ rest)
-    pure next
 
 genConstraints
   :: (Members '[ConstraintGen, NameGen] r)

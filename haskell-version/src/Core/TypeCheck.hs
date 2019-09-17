@@ -11,6 +11,7 @@
 
 module Core.TypeCheck where
 
+import Control.Monad
 import           Lens.Micro.Platform
 import           Data.Functor.Foldable   hiding ( embed )
 import qualified Data.Map.Strict               as Map
@@ -33,31 +34,50 @@ import           Core.TypeCheck.Solve
 import           Core.TypeCheck.SubstTable
 import           Core.TypeCheck.Unify
 
+initNames :: Names
+initNames = go
+  (zipWith (\l n -> l : show @Natural n)
+           (cycle ['a' .. 'z'])
+           (join $ replicate 26 <$> [1 ..])
+  )
+ where
+  go (x : xs) = Next x (go xs)
+  go []       = undefined
+
+runNameGenAsState
+  :: Sem (NameGen ': r) a -> Sem (State Names ': r) a
+runNameGenAsState = reinterpret $ \case
+  NewName -> do
+    st <- get
+    let (next, rest) = popName st
+    put rest
+    pure next
+
 runConstraintGenAsST
-  :: (Member (State ConstraintST) r) => Sem (ConstraintGen ': r) a -> Sem r a
+  :: (Member (State Ctx) r ) => Sem (ConstraintGen ': r) a -> Sem r a
 runConstraintGenAsST = interpretH $ \case
   Require w -> do
-    modify $ \st -> st & ctx . constraints %~ ((:) w)
+    modify $ \st -> st & constraints %~ ((:) w)
     pureT ()
   Usage s r -> do
     modify $ \st ->
       let f Nothing   = Just r
           f (Just r') = Just (r <> r')
-      in  st & ctx . rigs %~ (Rigs . Map.alter f s . unRigs)
+      in  st & rigs %~ (Rigs . Map.alter f s . unRigs)
     pureT ()
   WithBinding x action -> do
     action' <- runT action
 
     let runIt = raise . runConstraintGenAsST
     stOld <- get
-    modify $ ctx . bindings %~ (:) x
+    modify $ bindings %~ (:) x
     result <- runIt action'
-    modify $ ctx . bindings .~ (stOld ^. ctx . bindings)
+    modify $ bindings .~ (stOld ^. bindings)
     pure result
 
   LookupBinding n -> do
     st <- get
-    pureT $ st ^? ctx . bindings . ix (fromIntegral n)
+    pureT $ st ^? bindings . ix (fromIntegral n)
 
 runLoggingIO :: (Member (Embed IO) r) => Sem (Logging ': r) a -> Sem r a
 runLoggingIO = interpret $ \case
@@ -69,18 +89,20 @@ check
   -> Fix CoreE
   -> IO (Either UnifyException ())
 check tbl e goal = do
-  let (st, ty) =
+  let (ns, (ctx, ty)) =
         run
-          . runState initConstraintST
+          . runState @Names initNames
           . runNameGenAsState
+          . runState @Ctx mempty
           . runConstraintGenAsST
           $ genConstraints tbl e
-  let cs = st & ctx . constraints %~ (:) (ty ~: toCheck goal)
+  let cs = ctx & constraints %~ (:) (ty ~: toCheck goal)
   runM
     . runError
     . runLoggingIO
     . evalState (MkSubstTable @Fill @(Fix CheckE) mempty)
     . evalState cs
+    . evalState @Names ns
     . runNameGenAsState
     $ solveConstraints
 
