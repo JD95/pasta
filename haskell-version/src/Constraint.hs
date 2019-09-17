@@ -22,9 +22,14 @@ data W a = Flat (F a) deriving (Functor)
 instance (Display a) => Display (W a) where
   display (Flat f) = display f
 
+(~:) :: a -> a -> W a
 (~:) x y = Flat (EqC x y)
 
+isRig :: a -> W a
 isRig = Flat . IsRig
+
+isPol :: a -> W a
 isPol = Flat . IsPol
 
+(<:) :: a -> Natural -> W a
 (<:) x n = Flat (InUni x n)

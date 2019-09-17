@@ -61,6 +61,7 @@ instance TypedExpression Check where
                          , Either (Abst Pol) (Fix CheckE)
                          )
 
+cke :: Proxy Check
 cke = Proxy @Check
 
 hole :: String -> Fix CheckE

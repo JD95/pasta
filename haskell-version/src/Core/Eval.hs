@@ -9,7 +9,6 @@ module Core.Eval where
 
 import           Data.Functor.Foldable
 import           Numeric.Natural
-import           Data.Proxy
 import           Polysemy
 
 import           Core

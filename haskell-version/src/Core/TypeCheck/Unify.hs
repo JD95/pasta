@@ -48,7 +48,7 @@ instance Unify (Typed Check) (Typed Check) where
   unify (TArr _ a c)(TArr _ b d) = pure . pure $ [SubTerm SubEq a b, SubTerm SubArr c d]
   unify (TCon x)(TCon y) = if x == y
     then pure (Right [])
-    else error "Mismatched Types"
+    else throw CantUnify
   unify _ _ = throw CantUnify
 
 instance Unify Checked (Expr Check) where

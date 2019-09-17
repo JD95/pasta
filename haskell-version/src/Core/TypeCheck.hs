@@ -23,10 +23,8 @@ import           Polysemy.Error
 
 import           Constraint
 import           Core
-import           Display
 import           Expr
 import           Env
-import           Subst
 import           Typed
 import           Core.TypeCheck.Check
 import           Core.TypeCheck.Constrain
@@ -54,7 +52,7 @@ runNameGenAsState = reinterpret $ \case
     pure next
 
 runConstraintGenAsST
-  :: (Member (State Ctx) r ) => Sem (ConstraintGen ': r) a -> Sem r a
+  :: (Member (State Ctx) r) => Sem (ConstraintGen ': r) a -> Sem r a
 runConstraintGenAsST = interpretH $ \case
   Require w -> do
     modify $ \st -> st & constraints %~ ((:) w)
@@ -79,16 +77,21 @@ runConstraintGenAsST = interpretH $ \case
     st <- get
     pureT $ st ^? bindings . ix (fromIntegral n)
 
+runNoLogging :: Sem (Logging ': r) a -> Sem r a
+runNoLogging = interpret $ \case
+  Log _ -> pure ()
+
 runLoggingIO :: (Member (Embed IO) r) => Sem (Logging ': r) a -> Sem r a
 runLoggingIO = interpret $ \case
   Log s -> embed $ putStrLn s
 
 check
-  :: Map String (Fix CoreE)
+  :: (forall a. Sem (Logging ': r) a -> Sem r a)
+  -> Map String (Fix CoreE)
   -> Fix CoreE
   -> Fix CoreE
-  -> IO (Either UnifyException ())
-check tbl e goal = do
+  -> Sem r (Either UnifyException ())
+check logInterp tbl e goal = do
   let (ns, (ctx, ty)) =
         run
           . runState @Names initNames
@@ -97,9 +100,8 @@ check tbl e goal = do
           . runConstraintGenAsST
           $ genConstraints tbl e
   let cs = ctx & constraints %~ (:) (ty ~: toCheck goal)
-  runM
+  logInterp
     . runError
-    . runLoggingIO
     . evalState (MkSubstTable @Fill @(Fix CheckE) mempty)
     . evalState cs
     . evalState @Names ns
@@ -111,9 +113,4 @@ testCheck = do
   let tbl              = Map.fromList $ [("x", mkCon ce "Thing")]
   let (e :: Fix CoreE) = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
   let (t :: Fix CoreE) = mkCon ce "Thing"
-  print =<< check tbl e t
-
-foo = cata display $ subst
-  (hole "a")
-  (0 :: Natural)
-  (mkArrow cke (Left $ Inline R0, Left $ Inline L) (mkVar cke 0) (mkVar cke 1))
+  print =<< runM (check runLoggingIO tbl e t)

@@ -20,8 +20,6 @@ import           Data.Map.Strict                ( Map )
 import qualified Data.Map.Strict               as Map
 import           Numeric.Natural
 import           Polysemy
-import           Polysemy.State
-import           Control.Monad
 
 import           Constraint
 import           Core

@@ -10,14 +10,10 @@
 
 module Expr where
 
-import           Data.Functor.Const
 import           Data.Functor.Foldable
-import           Data.Functor.Identity
-import           Data.Void
 import           Numeric.Natural
 import           Data.Proxy
 
-import           Constructors
 import           Subst
 import           Summable
 

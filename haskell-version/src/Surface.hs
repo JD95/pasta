@@ -8,17 +8,9 @@
 
 module Surface where
 
-import           Control.Arrow                  ( first
-                                                , second
-                                                )
-import           Data.Functor.Const
 import           Data.Functor.Foldable
 import qualified Data.Map.Strict               as Map
-import           Data.Monoid
 import           Data.Proxy
-import           Data.Void
-import           Data.Proxy
-import           Numeric.Natural
 
 import           Core
 import           Expr
@@ -34,7 +26,7 @@ instance Expression Surface where
 instance TypedExpression Surface where
   type RigName Surface = String
   type PolName Surface = String
-  type ArrowOpts Surface = (String, Abst Rig, Abst Pol, Abst Pol)
+  type ArrowOpts Surface = (String, Abst Rig, Abst Pol)
 
 type SurfaceE = Summed '[ Expr Surface, Typed Surface ]
 
@@ -45,18 +37,15 @@ instance Display (Typed Surface String) where
   display = printTyped $ MkPrintTyped
       { printRigName    = id
       , printPolName    = id
-      , printArrowOpts  = \(name, rig, inPol, outPol) input _ -> concat
-        [ "["
+      , printArrowOpts  = \(name, rig, inPol) input _ -> concat
+        [ "("
+        , printAbst printRig rig
+        , printAbst printPol inPol
+        , " "
         , name
         , " : "
         , input
-        , ", "
-        , printAbst printRig rig
-        , ", "
-        , printAbst printPol inPol
-        , ", "
-        , printAbst printPol outPol
-        , "]"
+        , ")"
         ]
       }
 
@@ -83,11 +72,12 @@ instance ToCore SurfaceE where
       case layer of
             RArr name output -> mkRig ce () . output . pushName name
             PArr name output -> mkPol ce () . output . pushName name
-            TArr (name, a, b, c) input output ->
+            TArr (name, a, b) input output ->
               mkArrow ce (a, b) <$> input <*> (output . pushName name)
             TCon name -> pure $ mkCon ce name
             Type n    -> pure $ mkT ce n
 
     go _ = undefined
 
+se :: Proxy Surface
 se = Proxy @Surface

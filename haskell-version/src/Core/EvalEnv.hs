@@ -9,13 +9,11 @@
 
 module Core.EvalEnv where
 
-import           Data.Functor.Foldable
 import           Data.Map.Strict                ( Map )
 import qualified Data.Map.Strict               as Map
 import           Polysemy
 import           Polysemy.State
 
-import           Core
 import           Env
 
 runSymLookupState

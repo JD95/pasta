@@ -26,15 +26,15 @@ import           Surface
 import           Typed
 import           Display
 
-test :: IO ()
-test = do
+someFunc :: IO ()
+someFunc = do
   let
     (e :: Fix SurfaceE) = mkArrow
       se
-      ("a", Inline R0, Inline S, Inline S)
+      ("a", Inline R0, Inline S)
       (mkCon se "Type")
       (mkArrow se
-               ("x", Inline R0, Inline S, Inline S)
+               ("x", Inline R0, Inline S)
                (mkFree se "a")
                (mkFree se "a")
       )
@@ -51,6 +51,3 @@ test = do
     . eval
     . toCore
     $ e
-
-someFunc :: IO ()
-someFunc = putStrLn "hello"

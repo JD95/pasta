@@ -33,6 +33,7 @@ library:
   source-dirs: src
   ghc-options:
   - -Wall
+  - -Werror
   - -fplugin=Polysemy.Plugin
 
 executables:
@@ -56,3 +57,5 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - jelly
+    - tasty
+    - tasty-hspec

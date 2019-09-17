@@ -10,12 +10,9 @@
 module Typed where
 
 import           Data.Functor.Foldable
-import           Data.Functor.Const
-import           Data.Void
 import           Numeric.Natural
 import           Data.Proxy
 
-import           Constructors
 import           Summable
 import           Subst
 
