@@ -11,12 +11,13 @@
 
 module Core.TypeCheck where
 
-import Control.Monad
+import           Control.Monad
 import           Lens.Micro.Platform
 import           Data.Functor.Foldable   hiding ( embed )
 import qualified Data.Map.Strict               as Map
 import           Data.Map.Strict                ( Map )
 import           Numeric.Natural
+import           Control.Exception              ( SomeException(..) )
 import           Polysemy
 import           Polysemy.State
 import           Polysemy.Error
@@ -42,8 +43,7 @@ initNames = go
   go (x : xs) = Next x (go xs)
   go []       = undefined
 
-runNameGenAsState
-  :: Sem (NameGen ': r) a -> Sem (State Names ': r) a
+runNameGenAsState :: Sem (NameGen ': r) a -> Sem (State Names ': r) a
 runNameGenAsState = reinterpret $ \case
   NewName -> do
     st <- get
@@ -86,22 +86,23 @@ runLoggingIO = interpret $ \case
   Log s -> embed $ putStrLn s
 
 check
-  :: (forall a. Sem (Logging ': r) a -> Sem r a)
+  :: (Members '[Error SomeException] r)
+  => (forall a . Sem (Logging ': r) a -> Sem r a)
   -> Map String (Fix CoreE)
   -> Fix CoreE
   -> Fix CoreE
-  -> Sem r (Either UnifyException ())
+  -> Sem r ()
 check logInterp tbl e goal = do
-  let (ns, (ctx, ty)) =
-        run
-          . runState @Names initNames
-          . runNameGenAsState
-          . runState @Ctx mempty
-          . runConstraintGenAsST
-          $ genConstraints tbl e
+  (ns, (ctx, ty)) <-
+    runState @Names initNames
+    . runNameGenAsState
+    . runState @Ctx mempty
+    . mapError @ConstrainError SomeException
+    . runConstraintGenAsST
+    $ genConstraints tbl e
   let cs = ctx & constraints %~ (:) (ty ~: toCheck goal)
   logInterp
-    . runError
+    . mapError @UnifyException SomeException
     . evalState (MkSubstTable @Fill @(Fix CheckE) mempty)
     . evalState cs
     . evalState @Names ns
@@ -113,4 +114,4 @@ testCheck = do
   let tbl              = Map.fromList $ [("x", mkCon ce "Thing")]
   let (e :: Fix CoreE) = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
   let (t :: Fix CoreE) = mkCon ce "Thing"
-  print =<< runM (check runLoggingIO tbl e t)
+  print =<< (runM . runError @SomeException $ (check runLoggingIO tbl e t))

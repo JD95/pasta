@@ -13,6 +13,7 @@
 
 module Core.TypeCheck.Constrain where
 
+import           Control.Exception              ( Exception(..) )
 import           Lens.Micro.Platform
 import           Data.Functor.Foldable
 import qualified Data.Map.Merge.Strict         as Map
@@ -20,6 +21,7 @@ import           Data.Map.Strict                ( Map )
 import qualified Data.Map.Strict               as Map
 import           Numeric.Natural
 import           Polysemy
+import           Polysemy.Error
 
 import           Constraint
 import           Core
@@ -66,8 +68,14 @@ data ConstraintGen m a where
 
 makeSem ''ConstraintGen
 
+data ConstrainError
+  = UndefinedSymbol String
+    deriving (Eq, Show)
+
+instance Exception ConstrainError
+
 genConstraints
-  :: (Members '[ConstraintGen, NameGen] r)
+  :: (Members '[ConstraintGen, NameGen, Error ConstrainError] r)
   => (Map String (Fix CoreE))
   -> Fix CoreE
   -> Sem r (Fix CheckE)
@@ -81,7 +89,7 @@ genConstraints tbl = cata go
         Nothing   -> error "Binding has no binder!"
     (Val (Free name)) -> case Map.lookup name tbl of
       Just result -> pure (toCheck result)
-      Nothing     -> error "Undefined Symbol"
+      Nothing     -> throw $ UndefinedSymbol name
     (Val (Inline x)) -> x
 
     (Lam _ body    ) -> do
