@@ -33,51 +33,60 @@ typeCheckingTests = testSpec "Type Checking" $ do
     let shouldReject = either (const True) (const False)
     let runCheck     = run . runError @SomeException
 
-    it "Accepts Free Variables in Context" $ do
-      let tbl = Map.fromList [("x", mkCon ce "Thing")]
-      let e   = mkFree ce "x"
-      let t   = mkCon ce "Thing"
-      shouldAccept . runCheck $ check runNoLogging tbl e t
+    describe "free variables" $ do
 
-    it "Rejects Free Variables not in Context" $ do
-      let tbl = mempty
-      let e   = mkFree ce "x"
-      let t   = (mkCon ce "Thing")
-      shouldReject . runCheck $ check runNoLogging tbl e t
+      it "accept if in context" $ do
+        let tbl = Map.fromList [("x", mkCon ce "Thing")]
+        let e   = mkFree ce "x"
+        let t   = mkCon ce "Thing"
+        shouldAccept . runCheck $ check runNoLogging tbl e t
 
-    it "Accepts Lambdas" $ do
-      let tbl = mempty
-      let e   = mkLam ce () (mkVar ce 0)
-      let
-        t =
-          mkArrow ce (Inline R1, Inline L) (mkCon ce "Thing") (mkCon ce "Thing")
-      shouldAccept . runCheck $ check runNoLogging tbl e t
+      it "reject if not in context" $ do
+        let tbl = mempty
+        let e   = mkFree ce "x"
+        let t   = (mkCon ce "Thing")
+        shouldReject . runCheck $ check runNoLogging tbl e t
 
-    it "Rejects Inconsistent Input Use" $ do
-      let tbl = Map.fromList
-            [ ( "f"
-              , mkArrow'
-                ce
-                [ ((Inline RU, Inline S), mkCon ce "Thing")
-                , ((Inline RU, Inline S), mkCon ce "Foo")
-                ]
-                (mkCon ce "Thing")
-              )
-            ]
-      let e = mkLam ce () $ mkApp' ce (mkFree ce "f") [mkVar ce 0, mkVar ce 0]
-      let
-        t =
-          mkArrow ce (Inline RU, Inline S) (mkCon ce "Thing") (mkCon ce "Thing")
-      shouldReject . runCheck $ check runNoLogging tbl e t
+    describe "lambdas" $ do
+      it "accept valid lambda" $ do
+        let tbl = mempty
+        let e   = mkLam ce () (mkVar ce 0)
+        let
+          t = mkArrow ce
+                      (Inline R1, Inline L)
+                      (mkCon ce "Thing")
+                      (mkCon ce "Thing")
+        shouldAccept . runCheck $ check runNoLogging tbl e t
 
-    it "Accepts Valid Application" $ do
-      let tbl = Map.fromList [("x", mkCon ce "Thing")]
-      let e = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
-      let t   = mkCon ce "Thing"
-      shouldAccept . runCheck $ check runNoLogging tbl e t
+      it "reject inconsistent input use" $ do
+        let tbl = Map.fromList
+              [ ( "f"
+                , mkArrow'
+                  ce
+                  [ ((Inline RU, Inline S), mkCon ce "Thing")
+                  , ((Inline RU, Inline S), mkCon ce "Foo")
+                  ]
+                  (mkCon ce "Thing")
+                )
+              ]
+        let e =
+              mkLam ce () $ mkApp' ce (mkFree ce "f") [mkVar ce 0, mkVar ce 0]
+        let
+          t = mkArrow ce
+                      (Inline RU, Inline S)
+                      (mkCon ce "Thing")
+                      (mkCon ce "Thing")
+        shouldReject . runCheck $ check runNoLogging tbl e t
 
-    it "Rejects Invalid Application" $ do
-      let tbl = Map.fromList [("x", mkCon ce "Foo")]
-      let e = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
-      let t   = mkCon ce "Thing"
-      shouldReject . runCheck $ check runNoLogging tbl e t
+    describe "application" $ do
+      it "accept matching input" $ do
+        let tbl = Map.fromList [("x", mkCon ce "Thing")]
+        let e = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
+        let t   = mkCon ce "Thing"
+        shouldAccept . runCheck $ check runNoLogging tbl e t
+
+      it "reject mismatched input" $ do
+        let tbl = Map.fromList [("x", mkCon ce "Foo")]
+        let e = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
+        let t   = mkCon ce "Thing"
+        shouldReject . runCheck $ check runNoLogging tbl e t
