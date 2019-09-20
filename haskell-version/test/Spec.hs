@@ -53,6 +53,29 @@ typeCheckingTests = testSpec "Type Checking" $ do
           mkArrow ce (Inline R1, Inline L) (mkCon ce "Thing") (mkCon ce "Thing")
       shouldAccept . runCheck $ check runNoLogging tbl e t
 
+    it "Rejects Inconsistent Input Use" $ do
+      let
+        tbl = Map.fromList
+          [ ( "f"
+            , mkArrow
+              ce
+              (Inline RU, Inline S)
+              (mkCon ce "Thing")
+              (mkArrow ce
+                       (Inline RU, Inline S)
+                       (mkCon ce "Foo")
+                       (mkCon ce "Thing")
+              )
+            )
+          ]
+      let
+        e = mkLam ce ()
+          $ mkApp ce (mkApp ce (mkFree ce "f") (mkVar ce 0)) (mkVar ce 0)
+      let
+        t =
+          mkArrow ce (Inline RU, Inline S) (mkCon ce "Thing") (mkCon ce "Thing")
+      shouldReject . runCheck $ check runNoLogging tbl e t
+
     it "Accepts Valid Application" $ do
       let tbl = Map.fromList [("x", mkCon ce "Thing")]
       let e = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
