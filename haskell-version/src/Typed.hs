@@ -94,6 +94,16 @@ mkArrow
 mkArrow =
   \(_ :: Proxy ix) opts input output -> Fix . inj $ TArr @ix opts input output
 
+mkArrow'
+  :: (Injectable (Typed ix) xs)
+  => Proxy ix
+  -> [(ArrowOpts ix, Fix (Summed xs))]
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+mkArrow' (_ :: Proxy ix) [] out = out
+mkArrow' (p :: Proxy ix) ((opts, input) : xs) out =
+  Fix . inj $ TArr @ix opts input (mkArrow' p xs out)
+
 mkCon :: (Injectable (Typed ix) xs) => Proxy ix -> String -> Fix (Summed xs)
 mkCon = \(_ :: Proxy ix) name -> Fix . inj $ TCon @ix name
 

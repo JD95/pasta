@@ -42,6 +42,16 @@ mkApp
   -> Fix (Summed xs)
 mkApp = \(_ :: Proxy ix) func input -> Fix . inj $ App @_ @ix func input
 
+mkApp'
+  :: (Injectable (Expr ix) xs)
+  => Proxy ix
+  -> Fix (Summed xs)
+  -> [Fix (Summed xs)]
+  -> Fix (Summed xs)
+mkApp' (_ :: Proxy ix) func [] = func
+mkApp' (p :: Proxy ix) func (x : xs) =
+  mkApp' p (Fix . inj $ App @_ @ix func x) xs
+
 mkLam
   :: (Injectable (Expr ix) xs)
   => Proxy ix
