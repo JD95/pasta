@@ -26,7 +26,7 @@ unitTests :: IO TestTree
 unitTests = testGroup "Unit Tests" <$> sequence [typeCheckingTests]
 
 typeCheckingTests :: IO TestTree
-typeCheckingTests = testSpec "Type Checking" $ do
+typeCheckingTests = testSpec "Type Checking" . parallel $ do
   describe "check" $ do
 
     let shouldAccept = either (const False) (const True)
@@ -48,6 +48,7 @@ typeCheckingTests = testSpec "Type Checking" $ do
         shouldReject . runCheck $ check runNoLogging tbl e t
 
     describe "lambdas" $ do
+
       it "accept valid lambda" $ do
         let tbl = mempty
         let e   = mkLam ce () (mkVar ce 0)
@@ -79,6 +80,7 @@ typeCheckingTests = testSpec "Type Checking" $ do
         shouldReject . runCheck $ check runNoLogging tbl e t
 
     describe "application" $ do
+
       it "accept matching input" $ do
         let tbl = Map.fromList [("x", mkCon ce "Thing")]
         let e = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
