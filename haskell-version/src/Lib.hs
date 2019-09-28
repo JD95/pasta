@@ -26,6 +26,9 @@ import           Surface
 import           Typed
 import           Display
 
+test :: Fix  SurfaceE
+test = mkList se [mkFree se "x"]
+
 someFunc :: IO ()
 someFunc = do
   let

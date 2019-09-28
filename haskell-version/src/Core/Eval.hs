@@ -37,6 +37,9 @@ eval = para $ \case
     (Val (Free   name  )) -> symLookup name >>= \case
       Nothing -> error "Variable was not in context"
       Just x  -> pure x
+    (List xs) -> do
+      xs' <- sequence . fmap snd $ xs
+      pure $ mkList ce xs' 
 
   (There (Here layer)) -> case layer of
     (RArr _ (_, output)              ) -> mkRig ce () <$> output

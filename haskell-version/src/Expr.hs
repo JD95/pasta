@@ -10,6 +10,7 @@
 
 module Expr where
 
+import  Data.List
 import           Data.Functor.Foldable
 import           Numeric.Natural
 import           Data.Proxy
@@ -21,6 +22,8 @@ data Expr ix a where
   App :: a -> a -> Expr ix a
   Lam :: LamOpts ix -> a -> Expr ix a
   Val :: Abst a -> Expr ix a
+  List :: [a] -> Expr ix a
+  
 
 deriving instance Functor (Expr ix)
 
@@ -70,12 +73,19 @@ mkInline
   :: (Injectable (Expr ix) xs) => Proxy ix -> Fix (Summed xs) -> Fix (Summed xs)
 mkInline = \(_ :: Proxy ix) x -> Fix . inj . Val @_ @ix $ Inline x
 
+mkList
+  :: (Injectable (Expr ix) xs) => Proxy ix -> [Fix (Summed xs)] -> Fix (Summed xs)
+mkList = \(_ :: Proxy ix) xs -> Fix . inj $ List @_ @ix xs 
+
 printExpr :: PrintExpr ix -> Expr ix String -> String
 printExpr (MkPrintExpr lam) = go
  where
   go (App func input) = func <> " " <> input
   go (Lam name body ) = concat ["(\\", lam name body, " -> ", body, ")"]
   go (Val x         ) = printAbst id x
+  go (List []) = "[]" 
+  go (List [x]) = "[" <> x <> "]" 
+  go (List xs) = "[" <> foldl' (\str (x,y) -> str <> x <> ", " <> y) "" (zip xs (tail xs)) <> "]" 
 
 printAbst :: (a -> String) -> Abst a -> String
 printAbst f (Inline x) = f x
