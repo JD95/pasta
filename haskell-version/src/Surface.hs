@@ -70,6 +70,8 @@ instance ToCore SurfaceE where
             List xs -> do
               xs' <- sequence xs
               pure $ mkList ce xs'
+            Inj i x -> mkInj ce i <$> x 
+            Proj i -> pure $ mkProj ce i
 
     go (There (Here layer)) =
       case layer of

@@ -23,7 +23,8 @@ data Expr ix a where
   Lam :: LamOpts ix -> a -> Expr ix a
   Val :: Abst a -> Expr ix a
   List :: [a] -> Expr ix a
-  
+  Inj :: Natural -> a -> Expr ix a
+  Proj :: Natural -> Expr ix a
 
 deriving instance Functor (Expr ix)
 
@@ -77,6 +78,14 @@ mkList
   :: (Injectable (Expr ix) xs) => Proxy ix -> [Fix (Summed xs)] -> Fix (Summed xs)
 mkList = \(_ :: Proxy ix) xs -> Fix . inj $ List @_ @ix xs 
 
+mkInj
+  :: (Injectable (Expr ix) xs) => Proxy ix -> Natural -> Fix (Summed xs) -> Fix (Summed xs)
+mkInj = \(_ :: Proxy ix) i x -> Fix . inj $ Inj @_ @ix i x 
+  
+mkProj
+  :: (Injectable (Expr ix) xs) => Proxy ix -> Natural -> Fix (Summed xs)
+mkProj = \(_ :: Proxy ix) x -> Fix . inj $ Proj @ix x 
+
 printExpr :: PrintExpr ix -> Expr ix String -> String
 printExpr (MkPrintExpr lam) = go
  where
@@ -86,6 +95,8 @@ printExpr (MkPrintExpr lam) = go
   go (List []) = "[]" 
   go (List [x]) = "[" <> x <> "]" 
   go (List xs) = "[" <> foldl' (\str (x,y) -> str <> x <> ", " <> y) "" (zip xs (tail xs)) <> "]" 
+  go (Inj i x) = "Inj " <> show i <> " " <> x
+  go (Proj i) = "@ " <> show i
 
 printAbst :: (a -> String) -> Abst a -> String
 printAbst f (Inline x) = f x

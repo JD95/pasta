@@ -27,6 +27,12 @@ eval = para $ \case
       func <- x
       case unfix func of
         (Here (Lam _ body)) -> pure $ subst y' (0 :: Natural) body
+        (Here (Proj i)) -> case unfix y' of
+          (Here (List xs)) ->
+            if fromIntegral i < length xs
+              then pure $ xs !! fromIntegral i
+              else error "Index out of bounds!"
+          _ -> error "@ must be used with a list!"
         _                   -> error "Cannot reduce non lambda value!"
 
     -- Don't evaluate lambdas
@@ -40,6 +46,8 @@ eval = para $ \case
     (List xs) -> do
       xs' <- sequence . fmap snd $ xs
       pure $ mkList ce xs' 
+    (Inj i x) -> mkInj ce i <$> snd x
+    (Proj i) -> pure $ mkProj ce i 
 
   (There (Here layer)) -> case layer of
     (RArr _ (_, output)              ) -> mkRig ce () <$> output
