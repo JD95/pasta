@@ -48,6 +48,15 @@ eval = para $ \case
       pure $ mkList ce xs' 
     (Inj i x) -> mkInj ce i <$> snd x
     (Proj i) -> pure $ mkProj ce i 
+    (Case x xs) -> do
+      x' <- snd x
+      case unfix x' of
+        (Here (Inj i val)) ->
+          case caseLookup ce i xs of
+            Nothing -> error "Unmatched Pattern!"
+            Just (_, body) -> pure $ subst val (0 :: Natural) (fst body)
+        _ -> error "Value under case is not a sum type"
+        
 
   (There (Here layer)) -> case layer of
     (RArr _ (_, output)              ) -> mkRig ce () <$> output

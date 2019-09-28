@@ -6,6 +6,7 @@
 
 module Display where
 
+import Data.List
 import           Data.Functor.Foldable
 
 import           Summable
@@ -29,3 +30,8 @@ displayF
   => f (Fix g)
   -> String
 displayF = display . fmap (cata display)
+
+sepBy :: String -> [String] -> String
+sepBy _ [] = ""
+sepBy _ [x] = x
+sepBy s xs = foldl' (\str (x,y) -> str <> x <> s <> y) "" (zip xs (tail xs))

@@ -21,6 +21,7 @@ data Core
 
 instance Expression Core where
   type LamOpts Core = ()
+  type CaseOpts Core = ()
 
 instance TypedExpression Core where
   type RigName Core = ()
@@ -30,7 +31,10 @@ instance TypedExpression Core where
 type CoreE = Summed '[ Expr Core, Typed Core ]
 
 instance Display (Expr Core String) where
-  display = printExpr $ MkPrintExpr { printLamOpts   = \_ _ -> "_" }
+  display = printExpr $ MkPrintExpr
+    { printLamOpts   = \_ _ -> "_"
+    , printCaseOpts = const "_"
+    }
 
 instance Display (Typed Core String) where
   display =  printTyped $ MkPrintTyped
