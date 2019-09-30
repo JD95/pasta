@@ -2,7 +2,6 @@
 {-# LANGUAGE TypeApplications #-}
 
 import           Control.Exception
-import           Data.Functor.Foldable
 import qualified Data.Map.Strict               as Map
 import           Polysemy
 import           Polysemy.Error
@@ -14,10 +13,12 @@ import           Expr
 import           Typed
 import           Core.TypeCheck
 
+import           Stats
 
 main :: IO ()
-main = defaultMain =<< tests
-
+main =
+  defaultMainWithIngredients (consoleStatsReporter : defaultIngredients)
+    =<< tests
 
 tests :: IO TestTree
 tests = testGroup "Tests" <$> sequence [unitTests]
@@ -44,7 +45,7 @@ typeCheckingTests = testSpec "Type Checking" . parallel $ do
       it "reject if not in context" $ do
         let tbl = mempty
         let e   = mkFree ce "x"
-        let t   = (mkCon ce "Thing")
+        let t   = mkCon ce "Thing"
         shouldReject . runCheck $ check runNoLogging tbl e t
 
     describe "lambdas" $ do
