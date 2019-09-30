@@ -10,10 +10,12 @@
 
 module Expr where
 
+import  Data.List
 import           Data.Functor.Foldable
 import           Numeric.Natural
 import           Data.Proxy
 
+import Display
 import           Subst
 import           Summable
 
@@ -21,18 +23,25 @@ data Expr ix a where
   App :: a -> a -> Expr ix a
   Lam :: LamOpts ix -> a -> Expr ix a
   Val :: Abst a -> Expr ix a
+  List :: [a] -> Expr ix a
+  Inj :: Natural -> a -> Expr ix a
+  Proj :: Natural -> Expr ix a
+  Case :: a -> [(Natural, CaseOpts ix, a)] -> Expr ix a
 
 deriving instance Functor (Expr ix)
 
 class Expression ix where
   type LamOpts ix :: *
+  type CaseOpts ix :: *
+
+caseLookup :: Proxy ix -> Natural -> [(Natural, CaseOpts ix, a)] -> Maybe (CaseOpts ix, a)
+caseLookup _ _ [] = Nothing
+caseLookup p n ((m, c, v):xs) =
+  if n == m
+    then Just (c,v)
+    else caseLookup p n xs
 
 data Abst a = Inline a | Bound Natural | Free String deriving (Show, Functor)
-
-data PrintExpr ix
-  = MkPrintExpr
-  { printLamOpts :: LamOpts ix -> String -> String
-  }
 
 mkApp
   :: (Injectable (Expr ix) xs)
@@ -70,12 +79,40 @@ mkInline
   :: (Injectable (Expr ix) xs) => Proxy ix -> Fix (Summed xs) -> Fix (Summed xs)
 mkInline = \(_ :: Proxy ix) x -> Fix . inj . Val @_ @ix $ Inline x
 
+mkList
+  :: (Injectable (Expr ix) xs) => Proxy ix -> [Fix (Summed xs)] -> Fix (Summed xs)
+mkList = \(_ :: Proxy ix) xs -> Fix . inj $ List @_ @ix xs 
+
+mkInj
+  :: (Injectable (Expr ix) xs) => Proxy ix -> Natural -> Fix (Summed xs) -> Fix (Summed xs)
+mkInj = \(_ :: Proxy ix) i x -> Fix . inj $ Inj @_ @ix i x 
+  
+mkProj
+  :: (Injectable (Expr ix) xs) => Proxy ix -> Natural -> Fix (Summed xs)
+mkProj = \(_ :: Proxy ix) x -> Fix . inj $ Proj @ix x 
+
+mkCase
+  :: (Injectable (Expr ix) xs) => Proxy ix -> Fix (Summed xs) -> [(Natural, CaseOpts ix, Fix (Summed xs))] -> Fix (Summed xs)
+mkCase = \(_ :: Proxy ix) x xs -> Fix . inj $ Case @_ @ix x xs
+
+data PrintExpr ix
+  = MkPrintExpr
+  { printLamOpts :: LamOpts ix -> String -> String
+  , printCaseOpts :: CaseOpts ix -> String
+  }
+
 printExpr :: PrintExpr ix -> Expr ix String -> String
-printExpr (MkPrintExpr lam) = go
+printExpr (MkPrintExpr lam cse) = go
  where
   go (App func input) = func <> " " <> input
   go (Lam name body ) = concat ["(\\", lam name body, " -> ", body, ")"]
   go (Val x         ) = printAbst id x
+  go (List xs) = "[" <> sepBy ", " xs <> "]" 
+  go (Inj i x) = "Inj " <> show i <> " " <> x
+  go (Proj i) = "@ " <> show i
+  go (Case x xs) =
+    let printCase (n, v, c) = "Inj " <> show n <> " " <> cse v <> " -> " <> c
+    in "case " <> x <> " of { " <> sepBy "; " (printCase <$> xs) <> "} "
 
 printAbst :: (a -> String) -> Abst a -> String
 printAbst f (Inline x) = f x

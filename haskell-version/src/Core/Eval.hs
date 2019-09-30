@@ -27,6 +27,12 @@ eval = para $ \case
       func <- x
       case unfix func of
         (Here (Lam _ body)) -> pure $ subst y' (0 :: Natural) body
+        (Here (Proj i)) -> case unfix y' of
+          (Here (List xs)) ->
+            if fromIntegral i < length xs
+              then pure $ xs !! fromIntegral i
+              else error "Index out of bounds!"
+          _ -> error "@ must be used with a list!"
         _                   -> error "Cannot reduce non lambda value!"
 
     -- Don't evaluate lambdas
@@ -37,6 +43,20 @@ eval = para $ \case
     (Val (Free   name  )) -> symLookup name >>= \case
       Nothing -> error "Variable was not in context"
       Just x  -> pure x
+    (List xs) -> do
+      xs' <- sequence . fmap snd $ xs
+      pure $ mkList ce xs' 
+    (Inj i x) -> mkInj ce i <$> snd x
+    (Proj i) -> pure $ mkProj ce i 
+    (Case x xs) -> do
+      x' <- snd x
+      case unfix x' of
+        (Here (Inj i val)) ->
+          case caseLookup ce i xs of
+            Nothing -> error "Unmatched Pattern!"
+            Just (_, body) -> pure $ subst val (0 :: Natural) (fst body)
+        _ -> error "Value under case is not a sum type"
+        
 
   (There (Here layer)) -> case layer of
     (RArr _ (_, output)              ) -> mkRig ce () <$> output

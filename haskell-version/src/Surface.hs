@@ -22,6 +22,7 @@ data Surface
 
 instance Expression Surface where
   type LamOpts Surface = String
+  type CaseOpts Surface = String
 
 instance TypedExpression Surface where
   type RigName Surface = String
@@ -31,7 +32,10 @@ instance TypedExpression Surface where
 type SurfaceE = Summed '[ Expr Surface, Typed Surface ]
 
 instance Display (Expr Surface String) where
-  display = printExpr $ MkPrintExpr { printLamOpts   = const }
+  display = printExpr $ MkPrintExpr
+    { printLamOpts   = const
+    , printCaseOpts = id 
+    }
 
 instance Display (Typed Surface String) where
   display = printTyped $ MkPrintTyped
@@ -67,6 +71,17 @@ instance ToCore SurfaceE where
             Val (Free   x) -> \(tbl, depth) -> case Map.lookup x tbl of
               Nothing -> mkFree ce x
               Just n  -> mkVar ce (depth - n - 1)
+            List xs -> do
+              xs' <- sequence xs
+              pure $ mkList ce xs'
+            Inj i x -> mkInj ce i <$> x 
+            Proj i -> pure $ mkProj ce i
+            Case x xs -> do
+              x' <- x
+              let convCase (n, _, c) = do
+                    c' <- c
+                    pure $ (n, (), c')
+              mkCase ce x' <$> (sequence $ convCase <$> xs)
 
     go (There (Here layer)) =
       case layer of
