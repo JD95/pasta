@@ -6,6 +6,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Core where
 
@@ -55,3 +56,17 @@ class ToCore f where
 
 ce :: Proxy Core
 ce = Proxy @Core
+
+mkProdTy
+  :: (Injectable (Typed ix) xs, Injectable (Expr ix) xs)
+  => Proxy ix
+  -> [Fix (Summed xs)]
+  -> Fix (Summed xs)
+mkProdTy = \ix xs -> mkNewType ix "Prod" (mkList ix xs)
+
+mkCoProdTy
+  :: (Injectable (Typed ix) xs, Injectable (Expr ix) xs)
+  => Proxy ix
+  -> [Fix (Summed xs)]
+  -> Fix (Summed xs)
+mkCoProdTy = \ix xs -> mkNewType ix "CoProd" (mkList ix xs)

@@ -92,6 +92,11 @@ genConstraints tbl = cata go
       Nothing     -> throw $ UndefinedSymbol name
     (Val (Inline x)) -> x
 
+    (Case _ _      ) -> error "Constraining case expressions not implemented"
+    (Inj  _ _      ) -> error "Constraining injections not implemented"
+    (Proj _        ) -> error "Constraining projections not implemented"
+    (List _        ) -> error "Constraining lists not implemented"
+
     (Lam _ body    ) -> do
       inTy   <- hole <$> newName
       funRig <- hole <$> newName
@@ -113,10 +118,11 @@ genConstraints tbl = cata go
       pure outTy
 
   go (There (Here layer)) = case layer of
-    (RArr _ _  ) -> error "genConstraints rig not implemented"
-    (PArr _ _  ) -> error "genConstraints pol not implemented"
-    (TArr _ _ _) -> error "genConstraints arr not implemented"
-    (TCon _    ) -> error "genConstraints con not implemented"
-    (Type _    ) -> error "genConstraints type not implemented"
+    (RArr _ _   ) -> error "genConstraints rig not implemented"
+    (PArr _ _   ) -> error "genConstraints pol not implemented"
+    (TArr _ _ _ ) -> error "genConstraints arr not implemented"
+    (TCon _     ) -> error "genConstraints con not implemented"
+    (NewType _ _) -> error "genConstraints newtype not implemented"
+    (Type _     ) -> error "genConstraints type not implemented"
 
   go _ = undefined

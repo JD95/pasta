@@ -34,7 +34,7 @@ type SurfaceE = Summed '[ Expr Surface, Typed Surface ]
 instance Display (Expr Surface String) where
   display = printExpr $ MkPrintExpr
     { printLamOpts   = const
-    , printCaseOpts = id 
+    , printCaseOpts = id
     }
 
 instance Display (Typed Surface String) where
@@ -74,7 +74,7 @@ instance ToCore SurfaceE where
             List xs -> do
               xs' <- sequence xs
               pure $ mkList ce xs'
-            Inj i x -> mkInj ce i <$> x 
+            Inj i x -> mkInj ce i <$> x
             Proj i -> pure $ mkProj ce i
             Case x xs -> do
               x' <- x
@@ -90,6 +90,7 @@ instance ToCore SurfaceE where
             TArr (name, a, b) input output ->
               mkArrow ce (a, b) <$> input <*> (output . pushName name)
             TCon name -> pure $ mkCon ce name
+            NewType name ty -> mkNewType ce name <$> ty
             Type n    -> pure $ mkT ce n
 
     go _ = undefined

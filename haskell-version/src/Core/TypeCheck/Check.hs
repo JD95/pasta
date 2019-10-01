@@ -32,7 +32,10 @@ data TypeCheckError
 type CheckE = Summed '[ Expr Check, Typed Check, Checked]
 
 instance Display (Expr Check String) where
-  display = printExpr $ MkPrintExpr { printLamOpts = (const . const) "_" }
+  display = printExpr $ MkPrintExpr
+    { printLamOpts = (const . const) "_"
+    , printCaseOpts = error "Display Checked case not implemented"
+    }
 
 instance Display (Typed Check String) where
   display = printTyped $ MkPrintTyped
@@ -53,6 +56,7 @@ data Check
 
 instance Expression Check where
   type LamOpts Check = LamOpts Core
+  type CaseOpts Check = CaseOpts Core
 
 instance TypedExpression Check where
   type RigName Check = RigName Core
@@ -76,11 +80,16 @@ toCheck = cata go
     Val (Inline x) -> mkInline cke x
     App x y        -> mkApp cke x y
     Lam x body     -> mkLam cke x body
+    List xs        -> mkList cke xs
+    Case x xs      -> mkCase cke x xs
+    Proj i         -> mkProj cke i
+    Inj i x        -> mkInj cke i x
   go (There (Here layer)) = case layer of
     RArr x y        -> mkRig cke x y
     PArr x y        -> mkPol cke x y
     TArr (a, b) x y -> mkArrow cke (Left a, Left b) x y
     TCon x          -> mkCon cke x
+    NewType name ty -> mkNewType cke name ty
     Type n          -> mkT cke n
   go _ = undefined
 

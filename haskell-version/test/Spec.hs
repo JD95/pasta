@@ -93,3 +93,21 @@ typeCheckingTests = testSpec "Type Checking" . parallel $ do
         let e = mkApp ce (mkLam ce () (mkVar ce 0)) (mkFree ce "x")
         let t   = mkCon ce "Thing"
         shouldReject . runCheck $ check runNoLogging tbl e t
+
+    describe "products" $ do
+
+      it "accepts projections" $ do
+        let tbl =
+              Map.fromList [("x", mkProdTy ce [mkCon ce "Foo", mkCon ce "Bar"])]
+        let e = mkApp ce (mkProj ce 0) (mkFree ce "x")
+        let t = mkCon ce "Foo"
+        shouldAccept . runCheck $ check runNoLogging tbl e t
+
+
+    describe "co-products" $ do
+
+      it "accepts injection" $ do
+        let tbl = Map.fromList [("x", mkCon ce "Foo")]
+        let e   = mkInj ce 0 (mkFree ce "x")
+        let t   = mkCoProdTy ce [mkCon ce "Foo", mkCon ce "Bar"]
+        shouldAccept . runCheck $ check runNoLogging tbl e t

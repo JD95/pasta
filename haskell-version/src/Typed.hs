@@ -26,6 +26,7 @@ data Typed ix a where
   PArr :: PolName ix -> a -> Typed ix a
   TArr :: ArrowOpts ix -> a -> a -> Typed ix a
   TCon :: String -> Typed ix a
+  NewType :: String -> a -> Typed ix a
   Type :: Natural -> Typed ix a
 
 deriving instance Functor (Typed ix)
@@ -66,6 +67,7 @@ printTyped (MkPrintTyped r p arr) = go
   go (PArr name output      ) = concat ["[", p name, " : Pol] -> ", output]
   go (TArr opts input output) = concat [arr opts input output, " -> ", output]
   go (TCon name             ) = name
+  go (NewType name val      ) = concat [name, " ", val]
   go (Type n                ) = "Type " <> show n
 
 mkRig
@@ -109,6 +111,14 @@ mkCon = \(_ :: Proxy ix) name -> Fix . inj $ TCon @ix name
 
 mkT :: (Injectable (Typed ix) xs) => Proxy ix -> Natural -> Fix (Summed xs)
 mkT = \(_ :: Proxy ix) n -> Fix . inj $ Type @ix n
+
+mkNewType
+  :: (Injectable (Typed ix) xs)
+  => Proxy ix
+  -> String
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+mkNewType = \(_ :: Proxy ix) name n -> Fix . inj $ NewType @_ @ix name n
 
 instance Subst (Typed ix) Natural where
   depth (RArr a o) n = RArr a (n + 1, o)
