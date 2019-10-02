@@ -12,6 +12,8 @@
 module Core.TypeCheck.Unify where
 
 import           Control.Exception              ( Exception )
+import           Data.Foldable                  ( toList )
+import           Data.Map.Strict                ( mapWithKey )
 import           Polysemy
 import           Polysemy.Error
 
@@ -53,7 +55,12 @@ instance Unify (Typed Check) (Typed Check) where
 
 instance Unify Checked (Expr Check) where
   unify (Hole s) _ = pure $ Left (MkFill s)
-  unify (ListH _) _ = error "Unifying ListH with expr not implemented!"
+  unify (ListH mp) (List xs) = do
+    let f k v = if fromIntegral k < length xs
+          then pure $ SubTerm SubEq v (xs !! fromIntegral k)
+          else throw CantUnify
+    Right <$> (sequence . toList $ mapWithKey f mp)
+  unify (ListH _) _ = throw CantUnify
 
 instance Unify Checked (Typed Check) where
   unify (Hole s) _ = pure $ Left (MkFill s)
@@ -61,11 +68,11 @@ instance Unify Checked (Typed Check) where
 
 instance Unify Checked Checked where
   unify (Hole s) _ = pure $ Left (MkFill s)
-  unify (ListH _) _ = error "Unifying ListH with type not implemented!"
+  unify (ListH _) (Hole s) = pure $ Left (MkFill s)
+  unify (ListH _) (ListH _) = error "Unifying ListH with ListH not implemented!"
 
 instance Subst (Expr ix) Fill where
   depth f n = (,) n <$> f
-
   getKey = const Nothing
 
 instance Subst (Typed ix) Fill where
@@ -74,6 +81,5 @@ instance Subst (Typed ix) Fill where
 
 instance Subst Checked Fill where
   depth f n = (,) n <$> f
-
   getKey (Hole s) = Just (MkFill s)
-  getKey (ListH _) = error "getKey for ListH is not implemented yet"
+  getKey (ListH _) = Nothing
