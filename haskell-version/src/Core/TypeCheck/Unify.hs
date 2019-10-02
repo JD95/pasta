@@ -11,9 +11,13 @@
 
 module Core.TypeCheck.Unify where
 
+import           Prelude                 hiding ( lookup )
 import           Control.Exception              ( Exception )
 import           Data.Foldable                  ( toList )
-import           Data.Map.Strict                ( mapWithKey )
+import           Data.Map.Strict                ( mapWithKey
+                                                , lookup
+                                                )
+import           Data.Maybe
 import           Polysemy
 import           Polysemy.Error
 
@@ -64,12 +68,18 @@ instance Unify Checked (Expr Check) where
 
 instance Unify Checked (Typed Check) where
   unify (Hole s) _ = pure $ Left (MkFill s)
-  unify (ListH _) _ = error "Unifying ListH with type not implemented!"
+  unify (ListH _) _ = throw CantUnify
 
 instance Unify Checked Checked where
   unify (Hole s) _ = pure $ Left (MkFill s)
   unify (ListH _) (Hole s) = pure $ Left (MkFill s)
-  unify (ListH _) (ListH _) = error "Unifying ListH with ListH not implemented!"
+  unify (ListH xs) (ListH ys) = do
+    -- List holes can unify so long as all of their shared
+    -- indicies unify.
+    let f k x = case lookup k ys of
+          Nothing -> pure Nothing
+          Just y -> pure . Just $ SubTerm SubEq x y
+    Right . catMaybes <$> (sequence . toList $ mapWithKey f xs)
 
 instance Subst (Expr ix) Fill where
   depth f n = (,) n <$> f
