@@ -53,12 +53,15 @@ instance Unify (Typed Check) (Typed Check) where
 
 instance Unify Checked (Expr Check) where
   unify (Hole s) _ = pure $ Left (MkFill s)
+  unify (ListH _) _ = error "Unifying ListH with expr not implemented!"
 
 instance Unify Checked (Typed Check) where
   unify (Hole s) _ = pure $ Left (MkFill s)
+  unify (ListH _) _ = error "Unifying ListH with type not implemented!"
 
 instance Unify Checked Checked where
   unify (Hole s) _ = pure $ Left (MkFill s)
+  unify (ListH _) _ = error "Unifying ListH with type not implemented!"
 
 instance Subst (Expr ix) Fill where
   depth f n = (,) n <$> f
@@ -73,3 +76,4 @@ instance Subst Checked Fill where
   depth f n = (,) n <$> f
 
   getKey (Hole s) = Just (MkFill s)
+  getKey (ListH _) = error "getKey for ListH is not implemented yet"

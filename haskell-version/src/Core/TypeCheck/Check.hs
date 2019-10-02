@@ -14,6 +14,10 @@ module Core.TypeCheck.Check where
 import           Data.Functor.Foldable
 import           Data.Proxy
 import           Numeric.Natural
+import           Data.Foldable
+import           Data.Map.Strict                ( Map
+                                                , mapWithKey
+                                                )
 
 import           Core
 import           Display
@@ -22,10 +26,21 @@ import           Subst
 import           Summable
 import           Typed
 
-data Checked a = Hole String deriving (Functor)
+data Checked a
+  = Hole String
+  -- ^ Represents a whole in an expression
+  | ListH (Map Natural a)
+  -- ^ Represents a series of holes in some list
+  -- Given that the size of the list is unknown
+  -- the indicies are filled and then a concrete
+  -- list is checked against it.
+  deriving (Functor)
 
 instance (Display a) => Display (Checked a) where
   display (Hole name) = "?" <> name
+  display (ListH mp) =
+    let cs = sepBy "," (toList $ mapWithKey (\k v -> show k <> " = " <> display v) mp)
+    in "[" <> cs <> "]"
 
 data TypeCheckError
 
