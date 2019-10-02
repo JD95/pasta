@@ -86,6 +86,9 @@ cke = Proxy @Check
 hole :: String -> Fix CheckE
 hole = Fix . inj . Hole
 
+listH :: Map Natural (Fix CheckE) -> Fix CheckE
+listH = Fix . inj . ListH
+
 toCheck :: Fix CoreE -> Fix CheckE
 toCheck = cata go
  where
