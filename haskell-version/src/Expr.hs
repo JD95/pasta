@@ -7,9 +7,11 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Expr where
 
+import           Data.Functor.Classes
 import           Data.Functor.Foldable
 import           Numeric.Natural
 import           Data.Proxy
@@ -29,6 +31,19 @@ data Expr ix a where
 
 deriving instance Functor (Expr ix)
 
+instance (Eq (CaseOpts ix), Eq (LamOpts ix)) => Eq1 (Expr ix) where
+  liftEq f (App x y) (App x' y') = and [f x x', f y y']
+  liftEq f (Lam opt x) (Lam opt' x') = and [opt == opt', f x x']
+  liftEq f (Val x) (Val y) = liftEq f x y
+  liftEq f (List xs) (List ys) = liftEq f xs ys
+  liftEq f (Inj n x) (Inj m y) = n == m && f x y
+  liftEq _ (Proj n) (Proj m) = n == m
+  liftEq f (Case x xs) (Case x' xs') =
+    let cmp (n,opt,a) (n',opt',b) = and
+          [n == n', opt == opt', f a b]
+    in f x x' && liftEq cmp xs xs'
+  liftEq _ _ _ = False
+
 class Expression ix where
   type LamOpts ix :: *
   type CaseOpts ix :: *
@@ -42,7 +57,13 @@ caseLookup _ _ [] = Nothing
 caseLookup p n ((m, c, v) : xs) =
   if n == m then Just (c, v) else caseLookup p n xs
 
-data Abst a = Inline a | Bound Natural | Free String deriving (Show, Functor)
+data Abst a = Inline a | Bound Natural | Free String deriving (Show, Eq, Functor)
+
+instance Eq1 Abst where
+  liftEq f (Inline a) (Inline b) = f a b
+  liftEq _ (Bound n) (Bound m) = n == m
+  liftEq _ (Free n) (Free m) = n == m
+  liftEq _ _ _ = False
 
 mkApp
   :: (Injectable (Expr ix) xs)

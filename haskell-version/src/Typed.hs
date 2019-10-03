@@ -6,9 +6,11 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Typed where
 
+import           Data.Functor.Classes
 import           Data.Functor.Foldable
 import           Numeric.Natural
 import           Data.Proxy
@@ -30,6 +32,16 @@ data Typed ix a where
   Type :: Natural -> Typed ix a
 
 deriving instance Functor (Typed ix)
+
+instance (Eq (RigName ix), Eq (PolName ix), Eq (ArrowOpts ix)) => Eq1 (Typed ix) where
+  liftEq f (RArr n x) (RArr m y) = n == m && f x y
+  liftEq f (PArr n x) (PArr m y) = n == m && f x y
+  liftEq f (TArr opts i o) (TArr opts' i' o') =
+    and [opts == opts', f i i', f o o']
+  liftEq _ (TCon s) (TCon t) = s == t
+  liftEq f (NewType s x) (NewType t y) = s == t && f x y
+  liftEq _ (Type n) (Type m) = n == m
+  liftEq _ _ _ = False
 
 data Pol = S | L deriving (Show, Eq)
 data Rig = R0 | R1 | RU deriving (Show, Eq)

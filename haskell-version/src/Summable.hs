@@ -10,6 +10,7 @@
 
 module Summable where
 
+import           Data.Functor.Classes
 import           Data.Void
 
 class Summable (fs :: [* -> *]) where
@@ -22,6 +23,14 @@ instance Summable (f ': fs) where
   data Summed (f ': fs) a = Here (f a) | There (Summed fs a)
 
 deriving instance (Functor f, Functor (Summed fs)) => Functor (Summed (f ': fs))
+
+instance Eq1 (Summed '[]) where
+  liftEq _ _ _ = True
+
+instance (Eq1 f, Eq1 (Summed fs)) => Eq1 (Summed (f ': fs)) where
+  liftEq f (Here x) (Here y) = liftEq f x y
+  liftEq f (There xs) (There ys) = liftEq f xs ys
+  liftEq _ _ _ = False
 
 class Injectable (f :: * -> *) (fs :: [* -> *]) where
   inj :: f a -> Summed fs a

@@ -34,9 +34,9 @@ instance Exception UnifyException
 
 data Fill = MkFill { unFill :: String } deriving (Eq, Ord)
 
-data SubUnify  = SubEq | SubArr
+data SubUnify  = SubEq | SubArr deriving (Eq)
 
-data SubTerm a = SubTerm SubUnify a a deriving Functor
+data SubTerm a = SubTerm SubUnify a a deriving (Eq, Functor)
 
 instance Display (SubTerm String) where
   display (SubTerm _ x y) = x <> " ~ " <> y

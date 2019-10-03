@@ -11,6 +11,7 @@
 
 module Core.TypeCheck.Check where
 
+import           Data.Functor.Classes
 import           Data.Functor.Foldable
 import           Data.Proxy
 import           Numeric.Natural
@@ -34,7 +35,12 @@ data Checked a
   -- Given that the size of the list is unknown
   -- the indicies are filled and then a concrete
   -- list is checked against it.
-  deriving (Functor)
+  deriving (Functor, Eq)
+
+instance Eq1 Checked where
+  liftEq _ (Hole s) (Hole t) = s == t
+  liftEq f (ListH xs) (ListH ys) = liftEq f xs ys
+  liftEq _ _ _ = False
 
 instance (Display a) => Display (Checked a) where
   display (Hole name) = "?" <> name
