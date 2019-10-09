@@ -71,9 +71,8 @@ instance ToCore SurfaceE where
             Val (Free   x) -> \(tbl, depth) -> case Map.lookup x tbl of
               Nothing -> mkFree ce x
               Just n  -> mkVar ce (depth - n - 1)
-            List t xs -> do
-              xs' <- sequence xs
-              pure $ mkList ce t xs'
+            Record xs -> mkRec ce <$> sequence xs
+            List t xs -> mkList ce t <$> sequence xs
             Inj i x -> mkInj ce i <$> x
             Proj i -> pure $ mkProj ce i
             Case x xs -> do

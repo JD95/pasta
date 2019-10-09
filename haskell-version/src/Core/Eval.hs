@@ -43,8 +43,11 @@ eval = para $ \case
       Nothing -> error "Variable was not in context"
       Just x  -> pure x
     (List t xs) -> do
-      xs' <- sequence . fmap snd $ xs
+      xs' <- traverse snd $ xs
       pure $ mkList ce t xs'
+    (Record x) -> do
+      xs' <- traverse snd $ x
+      pure $ mkRec ce xs'
     (Inj i x  ) -> mkInj ce i <$> snd x
     (Proj i   ) -> pure $ mkProj ce i
     (Case x xs) -> do
