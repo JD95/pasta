@@ -8,6 +8,7 @@
 module Core.Eval where
 
 import           Data.Functor.Foldable
+import qualified Data.Map.Strict               as Map
 import           Numeric.Natural
 import           Polysemy
 
@@ -31,7 +32,12 @@ eval = para $ \case
           (Here (List _ xs)) -> if fromIntegral i < length xs
             then pure $ xs !! fromIntegral i
             else error "Index out of bounds!"
-          _ -> error "@ must be used with a list!"
+          _ -> error "@ expecting an index to access a product!"
+        (Here (Proj (Key k))) -> case unfix y' of
+          (Here (Record xs)) -> case Map.lookup k xs of
+            Just val -> pure val
+            Nothing  -> error "Field does not exist in record!"
+          _ -> error "@ expecting a field to access a record"
         _ -> error "Cannot reduce non lambda value!"
 
     -- Don't evaluate lambdas
