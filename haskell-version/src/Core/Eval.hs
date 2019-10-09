@@ -28,7 +28,7 @@ eval = para $ \case
       case unfix func of
         (Here (Lam _ body)) -> pure $ subst y' (0 :: Natural) body
         (Here (Proj i    )) -> case unfix y' of
-          (Here (List xs)) -> if fromIntegral i < length xs
+          (Here (List _ xs)) -> if fromIntegral i < length xs
             then pure $ xs !! fromIntegral i
             else error "Index out of bounds!"
           _ -> error "@ must be used with a list!"
@@ -42,9 +42,9 @@ eval = para $ \case
     (Val (Free   name  )) -> symLookup name >>= \case
       Nothing -> error "Variable was not in context"
       Just x  -> pure x
-    (List xs) -> do
+    (List t xs) -> do
       xs' <- sequence . fmap snd $ xs
-      pure $ mkList ce xs'
+      pure $ mkList ce t xs'
     (Inj i x  ) -> mkInj ce i <$> snd x
     (Proj i   ) -> pure $ mkProj ce i
     (Case x xs) -> do

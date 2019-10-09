@@ -62,11 +62,11 @@ mkProdTy
   => Proxy ix
   -> [Fix (Summed xs)]
   -> Fix (Summed xs)
-mkProdTy = \ix xs -> mkNewType ix "Prod" (mkList ix xs)
+mkProdTy = \ix xs -> mkList ix Prod xs
 
-mkCoProdTy
+mkCoProd
   :: (Injectable (Typed ix) xs, Injectable (Expr ix) xs)
   => Proxy ix
   -> [Fix (Summed xs)]
   -> Fix (Summed xs)
-mkCoProdTy = \ix xs -> mkNewType ix "CoProd" (mkList ix xs)
+mkCoProd = \ix xs -> mkList ix Sum xs

@@ -20,11 +20,13 @@ import           Display
 import           Subst
 import           Summable
 
+data ListType = Sum | Prod deriving (Show, Eq)
+
 data Expr ix a where
   App :: a -> a -> Expr ix a
   Lam :: LamOpts ix -> a -> Expr ix a
   Val :: Abst a -> Expr ix a
-  List :: [a] -> Expr ix a
+  List :: ListType -> [a] -> Expr ix a
   Inj :: Natural -> a -> Expr ix a
   Proj :: Natural -> Expr ix a
   Case :: a -> [(Natural, CaseOpts ix, a)] -> Expr ix a
@@ -35,7 +37,7 @@ instance (Eq (CaseOpts ix), Eq (LamOpts ix)) => Eq1 (Expr ix) where
   liftEq f (App x y) (App x' y') = and [f x x', f y y']
   liftEq f (Lam opt x) (Lam opt' x') = and [opt == opt', f x x']
   liftEq f (Val x) (Val y) = liftEq f x y
-  liftEq f (List xs) (List ys) = liftEq f xs ys
+  liftEq f (List t xs) (List t' ys) = and [t == t', liftEq f xs ys]
   liftEq f (Inj n x) (Inj m y) = n == m && f x y
   liftEq _ (Proj n) (Proj m) = n == m
   liftEq f (Case x xs) (Case x' xs') =
@@ -104,9 +106,10 @@ mkInline = \(_ :: Proxy ix) x -> Fix . inj . Val @_ @ix $ Inline x
 mkList
   :: (Injectable (Expr ix) xs)
   => Proxy ix
+  -> ListType
   -> [Fix (Summed xs)]
   -> Fix (Summed xs)
-mkList = \(_ :: Proxy ix) xs -> Fix . inj $ List @_ @ix xs
+mkList = \(_ :: Proxy ix) t xs -> Fix . inj $ List @_ @ix t xs
 
 mkInj
   :: (Injectable (Expr ix) xs)
@@ -138,9 +141,10 @@ printExpr (MkPrintExpr lam cse) = go
  where
   go (App func input) = func <> " " <> input
   go (Lam name body ) = concat ["(\\", lam name body, " -> ", body, ")"]
-  go (Val  x        ) = printAbst id x
-  go (List xs       ) = "[" <> sepBy ", " xs <> "]"
-  go (Inj i x       ) = "Inj " <> show i <> " " <> x
+  go (Val x         ) = printAbst id x
+  go (List Sum  xs  ) = "(" <> sepBy " | " xs <> ")"
+  go (List Prod xs  ) = "(" <> sepBy ", " xs <> ")"
+  go (Inj  i    x   ) = "Inj " <> show i <> " " <> x
   go (Proj i        ) = "@ " <> show i
   go (Case x xs) =
     let printCase (n, v, c) = "Inj " <> show n <> " " <> cse v <> " -> " <> c
