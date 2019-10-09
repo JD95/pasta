@@ -73,8 +73,8 @@ instance ToCore SurfaceE where
               Just n  -> mkVar ce (depth - n - 1)
             Record xs -> mkRec ce <$> sequence xs
             List t xs -> mkList ce t <$> sequence xs
-            Inj i x -> mkInj ce i <$> x
-            Proj i -> pure $ mkProj ce i
+            Inj i x -> mkInj ce <$> sequence i <*> x
+            Proj i -> mkProj ce <$> sequence i
             Case x xs -> do
               x' <- x
               let convCase (n, _, c) = do

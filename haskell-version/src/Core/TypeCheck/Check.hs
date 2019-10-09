@@ -104,7 +104,8 @@ toCheck = cata go
     Val (Inline x) -> mkInline cke x
     App x y        -> mkApp cke x y
     Lam x body     -> mkLam cke x body
-    List xs        -> mkList cke xs
+    Record xs      -> mkRec cke xs
+    List t xs      -> mkList cke t xs
     Case x xs      -> mkCase cke x xs
     Proj i         -> mkProj cke i
     Inj i x        -> mkInj cke i x

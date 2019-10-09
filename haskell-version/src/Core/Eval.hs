@@ -26,8 +26,8 @@ eval = para $ \case
       y'   <- y
       func <- x
       case unfix func of
-        (Here (Lam _ body)) -> pure $ subst y' (0 :: Natural) body
-        (Here (Proj i    )) -> case unfix y' of
+        (Here (Lam _ body    )) -> pure $ subst y' (0 :: Natural) body
+        (Here (Proj (Index i))) -> case unfix y' of
           (Here (List _ xs)) -> if fromIntegral i < length xs
             then pure $ xs !! fromIntegral i
             else error "Index out of bounds!"
@@ -48,12 +48,12 @@ eval = para $ \case
     (Record x) -> do
       xs' <- traverse snd $ x
       pure $ mkRec ce xs'
-    (Inj i x  ) -> mkInj ce i <$> snd x
-    (Proj i   ) -> pure $ mkProj ce i
+    (Inj i x  ) -> mkInj ce <$> traverse snd i <*> snd x
+    (Proj i   ) -> mkProj ce <$> traverse snd i
     (Case x xs) -> do
       x' <- snd x
       case unfix x' of
-        (Here (Inj i val)) -> case caseLookup ce i xs of
+        (Here (Inj (Index i) val)) -> case caseLookupIndex ce i xs of
           Nothing        -> error "Unmatched Pattern!"
           Just (_, body) -> pure $ subst val (0 :: Natural) (fst body)
         _ -> error "Value under case is not a sum type"

@@ -95,7 +95,8 @@ genConstraints tbl = cata go
     (Case _ _      ) -> error "Constraining case expressions not implemented"
     (Inj  _ _      ) -> error "Constraining injections not implemented"
     (Proj _        ) -> error "Constraining projections not implemented"
-    (List _        ) -> error "Constraining lists not implemented"
+    (List _ _      ) -> error "Constraining lists not implemented"
+    (Record _      ) -> error "Constraining records not implemented"
 
     (Lam _ body    ) -> do
       inTy   <- hole <$> newName

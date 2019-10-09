@@ -59,7 +59,7 @@ instance Unify (Typed Check) (Typed Check) where
 
 instance Unify Checked (Expr Check) where
   unify (Hole s) _ = pure $ Left (MkFill s)
-  unify (ListH mp) (List xs) = do
+  unify (ListH mp) (List _ xs) = do
     let f k v = if fromIntegral k < length xs
           then pure $ SubTerm SubEq v (xs !! fromIntegral k)
           else throw CantUnify

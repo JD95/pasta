@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -27,14 +29,22 @@ import           Summable
 
 data ListType = Sum | Prod deriving (Show, Eq)
 
+data Lookup a = Index Natural | Key String | Unique a deriving (Show, Eq, Functor, Foldable, Traversable)
+
+instance Eq1 Lookup where
+  liftEq _ (Index a) (Index b) = a == b
+  liftEq _ (Key a) (Key b) = a == b
+  liftEq f (Unique a) (Unique b) = f a b
+  liftEq _ _ _ = False
+
 data Expr ix a where
   App :: a -> a -> Expr ix a
   Lam :: LamOpts ix -> a -> Expr ix a
   Val :: Abst a -> Expr ix a
   List :: ListType -> [a] -> Expr ix a
   Record :: Map String a -> Expr ix a
-  Inj :: Natural -> a -> Expr ix a
-  Proj :: Natural -> Expr ix a
+  Inj :: Lookup a -> a -> Expr ix a
+  Proj :: Lookup a -> Expr ix a
   Case :: a -> [(Natural, CaseOpts ix, a)] -> Expr ix a
 
 deriving instance Functor (Expr ix)
@@ -47,8 +57,8 @@ instance (Eq (CaseOpts ix), Eq (LamOpts ix)) => Eq1 (Expr ix) where
   liftEq f (Record x) (Record y) =
     getAll . fold . fmap All $
     merge (mapMissing (\_ _ -> False)) (mapMissing (\_ _ -> False)) (zipWithMatched (const f)) x y
-  liftEq f (Inj n x) (Inj m y) = n == m && f x y
-  liftEq _ (Proj n) (Proj m) = n == m
+  liftEq f (Inj n x) (Inj m y) = liftEq f n m && f x y
+  liftEq f (Proj n) (Proj m) = liftEq f n m
   liftEq f (Case x xs) (Case x' xs') =
     let cmp (n,opt,a) (n',opt',b) = and
           [n == n', opt == opt', f a b]
@@ -59,14 +69,14 @@ class Expression ix where
   type LamOpts ix :: *
   type CaseOpts ix :: *
 
-caseLookup
+caseLookupIndex
   :: Proxy ix
   -> Natural
   -> [(Natural, CaseOpts ix, a)]
   -> Maybe (CaseOpts ix, a)
-caseLookup _ _ [] = Nothing
-caseLookup p n ((m, c, v) : xs) =
-  if n == m then Just (c, v) else caseLookup p n xs
+caseLookupIndex _ _ [] = Nothing
+caseLookupIndex p n ((m, c, v) : xs) =
+  if n == m then Just (c, v) else caseLookupIndex p n xs
 
 data Abst a = Inline a | Bound Natural | Free String deriving (Show, Eq, Functor)
 
@@ -123,13 +133,17 @@ mkList = \(_ :: Proxy ix) t xs -> Fix . inj $ List @_ @ix t xs
 mkInj
   :: (Injectable (Expr ix) xs)
   => Proxy ix
-  -> Natural
+  -> Lookup (Fix (Summed xs))
   -> Fix (Summed xs)
   -> Fix (Summed xs)
 mkInj = \(_ :: Proxy ix) i x -> Fix . inj $ Inj @_ @ix i x
 
-mkProj :: (Injectable (Expr ix) xs) => Proxy ix -> Natural -> Fix (Summed xs)
-mkProj = \(_ :: Proxy ix) x -> Fix . inj $ Proj @ix x
+mkProj
+  :: (Injectable (Expr ix) xs)
+  => Proxy ix
+  -> Lookup (Fix (Summed xs))
+  -> Fix (Summed xs)
+mkProj = \(_ :: Proxy ix) x -> Fix . inj $ Proj @_ @ix x
 
 mkRec
   :: (Injectable (Expr ix) xs)
