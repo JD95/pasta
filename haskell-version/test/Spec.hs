@@ -143,7 +143,6 @@ typeCheckingTests = testSpec "Type Checking" . parallel $ do
         let t = mkCon ce "Foo"
         shouldAccept . runCheck $ check runNoLogging tbl e t
 
-
     describe "co-products" $ do
 
       it "accepts injection" $ do

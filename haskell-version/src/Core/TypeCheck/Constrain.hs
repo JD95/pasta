@@ -92,13 +92,22 @@ genConstraints tbl = cata go
       Nothing     -> throw $ UndefinedSymbol name
     (Val (Inline x)) -> x
 
-    (Case _ _      ) -> error "Constraining case expressions not implemented"
-    (Inj  _ _      ) -> error "Constraining injections not implemented"
-    (Proj _        ) -> error "Constraining projections not implemented"
-    (List _ _      ) -> error "Constraining lists not implemented"
-    (Record _      ) -> error "Constraining records not implemented"
+    (Case _ _) -> error "Constraining case expressions not implemented"
+    (Inj (Index i) val) -> do
+      ty <- val
+      pure $ listH (Map.singleton i ty)
+    (Inj _ _       ) -> error "Constraining injections not implemented"
+    (Proj (Index i)) -> do
+      ty     <- hole <$> newName
+      funRig <- hole <$> newName
+      funPol <- hole <$> newName
+      let opts = (Right funRig, Right funPol)
+      pure $ mkArrow cke opts (listH (Map.singleton i ty)) ty
+    (Proj _    ) -> error "Constraining projections not implemented"
+    (List _ _  ) -> error "Constraining lists not implemented"
+    (Record _  ) -> error "Constraining records not implemented"
 
-    (Lam _ body    ) -> do
+    (Lam _ body) -> do
       inTy   <- hole <$> newName
       funRig <- hole <$> newName
       funPol <- hole <$> newName
