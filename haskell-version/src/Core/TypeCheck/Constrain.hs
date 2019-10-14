@@ -128,9 +128,13 @@ genConstraints tbl = cata go
       pure outTy
 
   go (There (Here layer)) = case layer of
-    (RArr _ _   ) -> error "genConstraints rig not implemented"
-    (PArr _ _   ) -> error "genConstraints pol not implemented"
-    (TArr _ _ _ ) -> error "genConstraints arr not implemented"
+    (RArr _ _               ) -> error "genConstraints rig not implemented"
+    (PArr _ _               ) -> error "genConstraints pol not implemented"
+    (TArr _ inConst outConst) -> do
+      _     <- inConst
+      outTy <- outConst
+      require $ outTy ~: mkT cke 0
+      pure $ mkT cke 0
     (TCon _     ) -> error "genConstraints con not implemented"
     (NewType _ _) -> error "genConstraints newtype not implemented"
     (Type _     ) -> error "genConstraints type not implemented"
