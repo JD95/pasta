@@ -13,6 +13,9 @@
 
 module Core.TypeCheck.Constrain where
 
+import           Control.Monad                  ( forM
+                                                , forM_
+                                                )
 import           Control.Exception              ( Exception(..) )
 import           Lens.Micro.Platform
 import           Data.Functor.Foldable
@@ -90,9 +93,24 @@ genConstraints tbl = cata go
     (Val (Free name)) -> case Map.lookup name tbl of
       Just result -> pure (toCheck result)
       Nothing     -> throw $ UndefinedSymbol name
-    (Val (Inline x)) -> x
+    (Val (Inline x)    ) -> x
 
-    (Case _ _) -> error "Constraining case expressions not implemented"
+    (Case subject paths) -> do
+      ty      <- subject
+      results <- forM paths $ \(i, _, body) -> do
+        pat <- hole <$> newName
+        -- Type of subject must contain the type of the pattern
+        -- matched on.
+        require (listH (Map.singleton i pat) ~: ty)
+        withBinding pat body
+      case results of
+        []       -> error "Incomplete pattern match!"
+        -- All paths must match the type of the first
+        -- path
+        (x : ys) -> do
+          forM_ ys $ \y -> require (x ~: y)
+          pure x
+
     (Inj (Index i) val) -> do
       ty <- val
       pure $ listH (Map.singleton i ty)

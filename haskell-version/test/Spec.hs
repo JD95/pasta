@@ -150,3 +150,43 @@ typeCheckingTests = testSpec "Type Checking" . parallel $ do
         let e   = mkInj ce (Index 0) (mkFree ce "x")
         let t   = mkCoProd ce [mkCon ce "Foo", mkCon ce "Bar"]
         shouldAccept . runCheck $ check runNoLogging tbl e t
+
+
+    describe "case expressions" $ do
+
+      it "accepts valid case" $ do
+        let tbl = Map.fromList
+              [ ("x", mkCoProd ce [mkCon ce "Foo", mkCon ce "Bar"])
+              , ("y", mkCon ce "Bar")
+              ]
+        let
+          e = mkCase ce
+                     (mkFree ce "x")
+                     [(0, (), mkFree ce "y"), (1, (), mkFree ce "y")]
+        let t = mkCon ce "Bar"
+        shouldAccept . runCheck $ check runNoLogging tbl e t
+
+      it "rejects out of bounds index" $ do
+        let tbl = Map.fromList
+              [ ("x", mkCoProd ce [mkCon ce "Foo", mkCon ce "Bar"])
+              , ("y", mkCon ce "Bar")
+              ]
+        let
+          e = mkCase ce
+                     (mkFree ce "x")
+                     [(5, (), mkFree ce "y"), (1, (), mkFree ce "y")]
+        let t = mkCon ce "Bar"
+        shouldReject . runCheck $ check runNoLogging tbl e t
+
+      it "rejects mistmatched result" $ do
+        let tbl = Map.fromList
+              [ ("x", mkCoProd ce [mkCon ce "Foo", mkCon ce "Bar"])
+              , ("y", mkCon ce "Bar")
+              , ("z", mkCon ce "Foo")
+              ]
+        let
+          e = mkCase ce
+                     (mkFree ce "x")
+                     [(0, (), mkFree ce "y"), (1, (), mkFree ce "z")]
+        let t = mkCon ce "Bar"
+        shouldReject . runCheck $ check runNoLogging tbl e t
