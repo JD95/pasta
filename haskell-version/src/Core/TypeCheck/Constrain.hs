@@ -13,6 +13,9 @@
 
 module Core.TypeCheck.Constrain where
 
+import           Control.Monad                  ( forM
+                                                , forM_
+                                                )
 import           Control.Exception              ( Exception(..) )
 import           Lens.Micro.Platform
 import           Data.Functor.Foldable
@@ -90,9 +93,39 @@ genConstraints tbl = cata go
     (Val (Free name)) -> case Map.lookup name tbl of
       Just result -> pure (toCheck result)
       Nothing     -> throw $ UndefinedSymbol name
-    (Val (Inline x)) -> x
+    (Val (Inline x)    ) -> x
 
-    (Lam _ body    ) -> do
+    (Case subject paths) -> do
+      ty      <- subject
+      results <- forM paths $ \(i, _, body) -> do
+        pat <- hole <$> newName
+        -- Type of subject must contain the type of the pattern
+        -- matched on.
+        require (listH (Map.singleton i pat) ~: ty)
+        withBinding pat body
+      case results of
+        []       -> error "Incomplete pattern match!"
+        -- All paths must match the type of the first
+        -- path
+        (x : ys) -> do
+          forM_ ys $ \y -> require (x ~: y)
+          pure x
+
+    (Inj (Index i) val) -> do
+      ty <- val
+      pure $ listH (Map.singleton i ty)
+    (Inj _ _       ) -> error "Constraining injections not implemented"
+    (Proj (Index i)) -> do
+      ty     <- hole <$> newName
+      funRig <- hole <$> newName
+      funPol <- hole <$> newName
+      let opts = (Right funRig, Right funPol)
+      pure $ mkArrow cke opts (listH (Map.singleton i ty)) ty
+    (Proj _    ) -> error "Constraining projections not implemented"
+    (List _ _  ) -> error "Constraining lists not implemented"
+    (Record _  ) -> error "Constraining records not implemented"
+
+    (Lam _ body) -> do
       inTy   <- hole <$> newName
       funRig <- hole <$> newName
       funPol <- hole <$> newName
@@ -113,10 +146,15 @@ genConstraints tbl = cata go
       pure outTy
 
   go (There (Here layer)) = case layer of
-    (RArr _ _  ) -> error "genConstraints rig not implemented"
-    (PArr _ _  ) -> error "genConstraints pol not implemented"
-    (TArr _ _ _) -> error "genConstraints arr not implemented"
-    (TCon _    ) -> error "genConstraints con not implemented"
-    (Type _    ) -> error "genConstraints type not implemented"
+    (RArr _ _               ) -> error "genConstraints rig not implemented"
+    (PArr _ _               ) -> error "genConstraints pol not implemented"
+    (TArr _ inConst outConst) -> do
+      _     <- inConst
+      outTy <- outConst
+      require $ outTy ~: mkT cke 0
+      pure $ mkT cke 0
+    (TCon _     ) -> error "genConstraints con not implemented"
+    (NewType _ _) -> error "genConstraints newtype not implemented"
+    (Type _     ) -> error "genConstraints type not implemented"
 
   go _ = undefined

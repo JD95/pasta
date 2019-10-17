@@ -6,9 +6,11 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Typed where
 
+import           Data.Functor.Classes
 import           Data.Functor.Foldable
 import           Numeric.Natural
 import           Data.Proxy
@@ -26,9 +28,20 @@ data Typed ix a where
   PArr :: PolName ix -> a -> Typed ix a
   TArr :: ArrowOpts ix -> a -> a -> Typed ix a
   TCon :: String -> Typed ix a
+  NewType :: String -> a -> Typed ix a
   Type :: Natural -> Typed ix a
 
 deriving instance Functor (Typed ix)
+
+instance (Eq (RigName ix), Eq (PolName ix), Eq (ArrowOpts ix)) => Eq1 (Typed ix) where
+  liftEq f (RArr n x) (RArr m y) = n == m && f x y
+  liftEq f (PArr n x) (PArr m y) = n == m && f x y
+  liftEq f (TArr opts i o) (TArr opts' i' o') =
+    and [opts == opts', f i i', f o o']
+  liftEq _ (TCon s) (TCon t) = s == t
+  liftEq f (NewType s x) (NewType t y) = s == t && f x y
+  liftEq _ (Type n) (Type m) = n == m
+  liftEq _ _ _ = False
 
 data Pol = S | L deriving (Show, Eq)
 data Rig = R0 | R1 | RU deriving (Show, Eq)
@@ -66,6 +79,7 @@ printTyped (MkPrintTyped r p arr) = go
   go (PArr name output      ) = concat ["[", p name, " : Pol] -> ", output]
   go (TArr opts input output) = concat [arr opts input output, " -> ", output]
   go (TCon name             ) = name
+  go (NewType name val      ) = concat [name, " ", val]
   go (Type n                ) = "Type " <> show n
 
 mkRig
@@ -109,6 +123,14 @@ mkCon = \(_ :: Proxy ix) name -> Fix . inj $ TCon @ix name
 
 mkT :: (Injectable (Typed ix) xs) => Proxy ix -> Natural -> Fix (Summed xs)
 mkT = \(_ :: Proxy ix) n -> Fix . inj $ Type @ix n
+
+mkNewType
+  :: (Injectable (Typed ix) xs)
+  => Proxy ix
+  -> String
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+mkNewType = \(_ :: Proxy ix) name n -> Fix . inj $ NewType @_ @ix name n
 
 instance Subst (Typed ix) Natural where
   depth (RArr a o) n = RArr a (n + 1, o)

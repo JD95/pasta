@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -7,41 +9,82 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Expr where
 
-import  Data.List
-import           Data.Functor.Foldable
+import           Data.Functor.Classes
+import           Data.Functor.Foldable   hiding ( fold )
+import           Data.Foldable
 import           Numeric.Natural
 import           Data.Proxy
+import           Data.Map.Strict                ( Map )
+import qualified Data.Map.Strict               as Map
+import           Data.Map.Merge.Strict
+import           Data.Monoid                    ( All(..) )
 
-import Display
+import           Display
 import           Subst
 import           Summable
+
+data ListType = Sum | Prod deriving (Show, Eq)
+
+data Lookup a = Index Natural | Key String | Unique a deriving (Show, Eq, Functor, Foldable, Traversable)
+
+instance Eq1 Lookup where
+  liftEq _ (Index a) (Index b) = a == b
+  liftEq _ (Key a) (Key b) = a == b
+  liftEq f (Unique a) (Unique b) = f a b
+  liftEq _ _ _ = False
 
 data Expr ix a where
   App :: a -> a -> Expr ix a
   Lam :: LamOpts ix -> a -> Expr ix a
   Val :: Abst a -> Expr ix a
-  List :: [a] -> Expr ix a
-  Inj :: Natural -> a -> Expr ix a
-  Proj :: Natural -> Expr ix a
+  List :: ListType -> [a] -> Expr ix a
+  Record :: Map String a -> Expr ix a
+  Inj :: Lookup a -> a -> Expr ix a
+  Proj :: Lookup a -> Expr ix a
   Case :: a -> [(Natural, CaseOpts ix, a)] -> Expr ix a
 
 deriving instance Functor (Expr ix)
+
+instance (Eq (CaseOpts ix), Eq (LamOpts ix)) => Eq1 (Expr ix) where
+  liftEq f (App x y) (App x' y') = and [f x x', f y y']
+  liftEq f (Lam opt x) (Lam opt' x') = and [opt == opt', f x x']
+  liftEq f (Val x) (Val y) = liftEq f x y
+  liftEq f (List t xs) (List t' ys) = and [t == t', liftEq f xs ys]
+  liftEq f (Record x) (Record y) =
+    getAll . fold . fmap All $
+    merge (mapMissing (\_ _ -> False)) (mapMissing (\_ _ -> False)) (zipWithMatched (const f)) x y
+  liftEq f (Inj n x) (Inj m y) = liftEq f n m && f x y
+  liftEq f (Proj n) (Proj m) = liftEq f n m
+  liftEq f (Case x xs) (Case x' xs') =
+    let cmp (n,opt,a) (n',opt',b) = and
+          [n == n', opt == opt', f a b]
+    in f x x' && liftEq cmp xs xs'
+  liftEq _ _ _ = False
 
 class Expression ix where
   type LamOpts ix :: *
   type CaseOpts ix :: *
 
-caseLookup :: Proxy ix -> Natural -> [(Natural, CaseOpts ix, a)] -> Maybe (CaseOpts ix, a)
-caseLookup _ _ [] = Nothing
-caseLookup p n ((m, c, v):xs) =
-  if n == m
-    then Just (c,v)
-    else caseLookup p n xs
+caseLookupIndex
+  :: Proxy ix
+  -> Natural
+  -> [(Natural, CaseOpts ix, a)]
+  -> Maybe (CaseOpts ix, a)
+caseLookupIndex _ _ [] = Nothing
+caseLookupIndex p n ((m, c, v) : xs) =
+  if n == m then Just (c, v) else caseLookupIndex p n xs
 
-data Abst a = Inline a | Bound Natural | Free String deriving (Show, Functor)
+data Abst a = Inline a | Bound Natural | Free String deriving (Show, Eq, Functor)
+
+instance Eq1 Abst where
+  liftEq f (Inline a) (Inline b) = f a b
+  liftEq _ (Bound n) (Bound m) = n == m
+  liftEq _ (Free n) (Free m) = n == m
+  liftEq _ _ _ = False
 
 mkApp
   :: (Injectable (Expr ix) xs)
@@ -80,19 +123,48 @@ mkInline
 mkInline = \(_ :: Proxy ix) x -> Fix . inj . Val @_ @ix $ Inline x
 
 mkList
-  :: (Injectable (Expr ix) xs) => Proxy ix -> [Fix (Summed xs)] -> Fix (Summed xs)
-mkList = \(_ :: Proxy ix) xs -> Fix . inj $ List @_ @ix xs 
+  :: (Injectable (Expr ix) xs)
+  => Proxy ix
+  -> ListType
+  -> [Fix (Summed xs)]
+  -> Fix (Summed xs)
+mkList = \(_ :: Proxy ix) t xs -> Fix . inj $ List @_ @ix t xs
 
 mkInj
-  :: (Injectable (Expr ix) xs) => Proxy ix -> Natural -> Fix (Summed xs) -> Fix (Summed xs)
-mkInj = \(_ :: Proxy ix) i x -> Fix . inj $ Inj @_ @ix i x 
-  
+  :: (Injectable (Expr ix) xs)
+  => Proxy ix
+  -> Lookup (Fix (Summed xs))
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+mkInj = \(_ :: Proxy ix) i x -> Fix . inj $ Inj @_ @ix i x
+
 mkProj
-  :: (Injectable (Expr ix) xs) => Proxy ix -> Natural -> Fix (Summed xs)
-mkProj = \(_ :: Proxy ix) x -> Fix . inj $ Proj @ix x 
+  :: (Injectable (Expr ix) xs)
+  => Proxy ix
+  -> Lookup (Fix (Summed xs))
+  -> Fix (Summed xs)
+mkProj = \(_ :: Proxy ix) x -> Fix . inj $ Proj @_ @ix x
+
+mkRec
+  :: (Injectable (Expr ix) xs)
+  => Proxy ix
+  -> Map String (Fix (Summed xs))
+  -> Fix (Summed xs)
+mkRec = \(_ :: Proxy ix) xs -> Fix . inj $ Record @_ @ix xs
+
+mkRec'
+  :: (Injectable (Expr ix) xs)
+  => Proxy ix
+  -> [(String, Fix (Summed xs))]
+  -> Fix (Summed xs)
+mkRec' = \ix xs -> mkRec ix (Map.fromList xs)
 
 mkCase
-  :: (Injectable (Expr ix) xs) => Proxy ix -> Fix (Summed xs) -> [(Natural, CaseOpts ix, Fix (Summed xs))] -> Fix (Summed xs)
+  :: (Injectable (Expr ix) xs)
+  => Proxy ix
+  -> Fix (Summed xs)
+  -> [(Natural, CaseOpts ix, Fix (Summed xs))]
+  -> Fix (Summed xs)
 mkCase = \(_ :: Proxy ix) x xs -> Fix . inj $ Case @_ @ix x xs
 
 data PrintExpr ix
@@ -107,12 +179,15 @@ printExpr (MkPrintExpr lam cse) = go
   go (App func input) = func <> " " <> input
   go (Lam name body ) = concat ["(\\", lam name body, " -> ", body, ")"]
   go (Val x         ) = printAbst id x
-  go (List xs) = "[" <> sepBy ", " xs <> "]" 
-  go (Inj i x) = "Inj " <> show i <> " " <> x
-  go (Proj i) = "@ " <> show i
+  go (Record x) =
+    "{" <> (sepBy "; " . fmap (\(k, v) -> k <> ": " <> v) $ Map.toList x) <> "}"
+  go (List Sum  xs) = "(" <> sepBy " | " xs <> ")"
+  go (List Prod xs) = "(" <> sepBy ", " xs <> ")"
+  go (Inj  i    x ) = "Inj " <> show i <> " " <> x
+  go (Proj i      ) = "@ " <> show i
   go (Case x xs) =
     let printCase (n, v, c) = "Inj " <> show n <> " " <> cse v <> " -> " <> c
-    in "case " <> x <> " of { " <> sepBy "; " (printCase <$> xs) <> "} "
+    in  "case " <> x <> " of { " <> sepBy "; " (printCase <$> xs) <> "} "
 
 printAbst :: (a -> String) -> Abst a -> String
 printAbst f (Inline x) = f x
