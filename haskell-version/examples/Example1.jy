@@ -1,0 +1,27 @@
+  hello = 5
+  
+foo : (Int | String | Bool) -> String
+foo (Inj 0 _) = "It's an Int"
+foo (Inj 1 _) = "It's a String"
+foo (Inj 2 _) = "It's a Bool"
+
+bar : (Int, String, Bool) -> String
+bar x = "I've got a "
+      <> show (x @ 0)
+      <> " and a "
+      <> show (x @ 1)
+      <> " and a "
+      <> show (x @ 2)
+
+bleh : { age: Int, name: String, cool: Bool } -> String
+bleh x = if x @ cool
+  then "Is cool"
+  else "Is not cool"
+
+mkBar : Bool -> (Double | String)
+mkBar True = Inj 0 5.0
+mkBar False = Inj 1 "Hello"
+
+mkBar : Bool -> (Double | String)
+mkBar True = Inj Double 5.0
+mkBar False = Inj String "Hello"
