@@ -40,6 +40,8 @@ instance Eq1 Lookup where
 data Expr ix a where
   App :: a -> a -> Expr ix a
   Lam :: LamOpts ix -> a -> Expr ix a
+  Nat :: Natural -> Expr ix a
+  Str :: String -> Expr ix a
   Val :: Abst a -> Expr ix a
   List :: ListType -> [a] -> Expr ix a
   Record :: Map String a -> Expr ix a
@@ -118,6 +120,12 @@ mkVar = \(_ :: Proxy ix) i -> Fix . inj . Val @_ @ix $ Bound i
 mkFree :: (Injectable (Expr ix) xs) => Proxy ix -> String -> Fix (Summed xs)
 mkFree = \(_ :: Proxy ix) name -> Fix . inj . Val @_ @ix $ Free name
 
+mkNat :: (Injectable (Expr ix) xs) => Proxy ix -> Natural -> Fix (Summed xs)
+mkNat = \(_ :: Proxy ix) val -> Fix . inj . Nat @ix $ val 
+
+mkStr :: (Injectable (Expr ix) xs) => Proxy ix -> String -> Fix (Summed xs)
+mkStr = \(_ :: Proxy ix) val -> Fix . inj . Str @ix $ val 
+
 mkInline
   :: (Injectable (Expr ix) xs) => Proxy ix -> Fix (Summed xs) -> Fix (Summed xs)
 mkInline = \(_ :: Proxy ix) x -> Fix . inj . Val @_ @ix $ Inline x
@@ -179,6 +187,8 @@ printExpr (MkPrintExpr lam cse) = go
   go (App func input) = func <> " " <> input
   go (Lam name body ) = concat ["(\\", lam name body, " -> ", body, ")"]
   go (Val x         ) = printAbst id x
+  go (Nat n) = show n
+  go (Str  s) = show s
   go (Record x) =
     "{" <> (sepBy "; " . fmap (\(k, v) -> k <> ": " <> v) $ Map.toList x) <> "}"
   go (List Sum  xs) = "(" <> sepBy " | " xs <> ")"

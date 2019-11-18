@@ -30,6 +30,7 @@ data Typed ix a where
   TCon :: String -> Typed ix a
   NewType :: String -> a -> Typed ix a
   Type :: Natural -> Typed ix a
+  Ann :: a -> a -> Typed ix a
 
 deriving instance Functor (Typed ix)
 
@@ -81,6 +82,7 @@ printTyped (MkPrintTyped r p arr) = go
   go (TCon name             ) = name
   go (NewType name val      ) = concat [name, " ", val]
   go (Type n                ) = "Type " <> show n
+  go (Ann a b) = concat [a, " : ", b]
 
 mkRig
   :: (Injectable (Typed ix) xs)
@@ -131,6 +133,14 @@ mkNewType
   -> Fix (Summed xs)
   -> Fix (Summed xs)
 mkNewType = \(_ :: Proxy ix) name n -> Fix . inj $ NewType @_ @ix name n
+
+mkAnn
+  :: (Injectable (Typed ix) xs)
+  => Proxy ix
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+  -> Fix (Summed xs)
+mkAnn = \(_ :: Proxy ix) x y -> Fix . inj $ Ann @_ @ix x y 
 
 instance Subst (Typed ix) Natural where
   depth (RArr a o) n = RArr a (n + 1, o)

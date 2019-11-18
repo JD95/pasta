@@ -1,15 +1,18 @@
+{-# OPTIONS_GHC -fno-warn-type-defaults #-}
 module Parse where
 
 import           Control.Monad
 import           Data.Tree
-import           Numeric.Natural
 
+printLineWithNumbers :: String -> IO ()
 printLineWithNumbers file = do
   forM_ (zip [1 ..] (lines file))
     $ \(n, line) -> putStrLn $ (show n) <> ": " <> line
 
+example :: [Char]
 example = "hello\n  world\nI'm Jeff"
 
+answer :: [Tree [Char]]
 answer = [Node "hello" [Node "  world" []], Node "I'm Jeff" []]
 
 getIndentation :: String -> Int

@@ -71,6 +71,8 @@ instance ToCore SurfaceE where
             Val (Free   x) -> \(tbl, depth) -> case Map.lookup x tbl of
               Nothing -> mkFree ce x
               Just n  -> mkVar ce (depth - n - 1)
+            Nat n -> const $ mkNat ce n
+            Str s -> const $ mkStr ce s
             Record xs -> mkRec ce <$> sequence xs
             List t xs -> mkList ce t <$> sequence xs
             Inj i x -> mkInj ce <$> sequence i <*> x
@@ -91,6 +93,7 @@ instance ToCore SurfaceE where
             TCon name -> pure $ mkCon ce name
             NewType name ty -> mkNewType ce name <$> ty
             Type n    -> pure $ mkT ce n
+            Ann a b -> mkAnn ce <$> a <*> b
 
     go _ = undefined
 

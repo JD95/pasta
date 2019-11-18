@@ -88,6 +88,28 @@ typeCheckingTests = testSpec "Type Checking" . parallel $ do
         let t   = mkCon ce "Thing"
         shouldReject . runCheck $ check runNoLogging tbl e t
 
+    describe "primitives" $ do
+
+      describe "Nat" $ do
+
+        it "should check" $ do
+          let e = mkNat ce 5
+          let t = mkCon ce "Nat"
+          shouldAccept . runCheck $ check runNoLogging mempty e t
+
+      describe "String" $ do
+
+        it "should check" $ do
+          let e = mkStr ce "Hello" 
+          let t = mkCon ce "String"
+          shouldAccept . runCheck $ check runNoLogging mempty e t
+
+    describe "annotations" $ do
+      it "should constrain type" $ do
+        let t = mkCon ce "Nat"
+        let e = mkAnn ce (mkNat ce 5) t
+        shouldAccept . runCheck $ check runNoLogging mempty e t
+
     describe "lambdas" $ do
 
       it "accept valid lambda" $ do

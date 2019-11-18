@@ -95,6 +95,10 @@ genConstraints tbl = cata go
       Nothing     -> throw $ UndefinedSymbol name
     (Val (Inline x)    ) -> x
 
+    (Nat _) -> pure $ mkCon cke "Nat" 
+
+    (Str _) -> pure $ mkCon cke "String" 
+
     (Case subject paths) -> do
       ty      <- subject
       results <- forM paths $ \(i, _, body) -> do
@@ -156,5 +160,6 @@ genConstraints tbl = cata go
     (TCon _     ) -> error "genConstraints con not implemented"
     (NewType _ _) -> error "genConstraints newtype not implemented"
     (Type _     ) -> error "genConstraints type not implemented"
+    (Ann _ _) -> error "genConstraints ann not implemented"
 
   go _ = undefined

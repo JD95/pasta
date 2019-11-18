@@ -48,6 +48,8 @@ eval = para $ \case
     (Val (Free   name  )) -> symLookup name >>= \case
       Nothing -> error "Variable was not in context"
       Just x  -> pure x
+    (Nat n) -> pure $ mkNat ce n
+    (Str  s) -> pure $ mkStr ce s
     (List t xs) -> do
       xs' <- traverse snd $ xs
       pure $ mkList ce t xs'
@@ -72,5 +74,6 @@ eval = para $ \case
     (TCon name                       ) -> pure $ mkCon ce name
     (NewType name ty                 ) -> mkNewType ce name <$> snd ty
     (Type n                          ) -> pure $ mkT ce n
+    (Ann (_, x) _) -> x
 
   _ -> undefined

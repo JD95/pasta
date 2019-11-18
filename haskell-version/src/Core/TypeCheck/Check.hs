@@ -102,6 +102,8 @@ toCheck = cata go
     Val (Bound  i) -> mkVar cke i
     Val (Free   x) -> mkFree cke x
     Val (Inline x) -> mkInline cke x
+    Nat n -> mkNat cke n
+    Str s -> mkStr cke s
     App x y        -> mkApp cke x y
     Lam x body     -> mkLam cke x body
     Record xs      -> mkRec cke xs
@@ -116,6 +118,7 @@ toCheck = cata go
     TCon x          -> mkCon cke x
     NewType name ty -> mkNewType cke name ty
     Type n          -> mkT cke n
+    Ann x y -> mkAnn cke x y
   go _ = undefined
 
 instance Subst Checked Natural where
