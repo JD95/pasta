@@ -1,9 +1,3 @@
-
-a
-  b
-  d
-    c
-
 foo : (Int | String | Bool) -> String
 foo (Inj 0 _) = "It's an Int"
 foo (Inj 1 _) = "It's a String"

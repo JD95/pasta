@@ -6,7 +6,7 @@ import           Data.Tree
 
 printLineWithNumbers :: String -> IO ()
 printLineWithNumbers file = do
-  forM_ (zip [1 ..] (lines file))
+  forM_ (zip [1 :: Int ..] (lines file))
     $ \(n, line) -> putStrLn $ (show n) <> ": " <> line
 
 example :: [Char]
