@@ -41,9 +41,9 @@ data Subst s a = Subst { substHole :: Hole s a, substStack :: [a] }
 newtype Unfilled f s a = Unfilled (f (Term s (Unfilled f s a)))
 
 class ZipF f where
-  zipF :: f a -> f a -> Maybe [(a,a)]
+  zipF :: f a -> f a -> Maybe (f (a,a))
 
-unify :: ZipF f => Unfilled f s a -> Unfilled f s a -> ST s ()
+unify :: (Traversable f, ZipF f) => Unfilled f s a -> Unfilled f s a -> ST s ()
 unify (Unfilled a) (Unfilled b) = do
   case zipF a b of
     Just results -> forM_ results $ \case
