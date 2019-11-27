@@ -29,6 +29,26 @@ removeEmptyLines = filter (not . isEmpty)
   isEmpty (' ' : rest) = isEmpty rest
   isEmpty _            = False
 
+data AST
+  = App AST AST
+  | Num Int
+  | Sym String
+
+apple = "someFunc 1 2 3"
+bake = ["someFunc", "1", "2", "3"]
+cake = Sym "someFunc" `App` Num 1 `App` Num 2 `App` Num 3
+
+parseApp :: String -> String -> [String]
+parseApp [] acc = [acc]
+parseApp (c:rest) acc =
+  if c == ' '
+    then acc : parseApp rest "" 
+    else parseApp rest (acc <> [c])
+
+  -- 1. Char for whitespace
+  -- 2. If there is whitespace, look next to see if something after
+  -- 3. If no whitespace, keep adding to existing element
+
 test :: IO ()
 test = do
   putStrLn "Starting Parsing..."

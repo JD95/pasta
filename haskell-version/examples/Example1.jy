@@ -23,3 +23,5 @@ mkBar False = Inj 1 "Hello"
 mkBar : Bool -> (Double | String)
 mkBar True = Inj Double 5.0
 mkBar False = Inj String "Hello"
+
+someFunc 1 2 3

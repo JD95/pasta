@@ -55,3 +55,10 @@ unify (Unfilled a) (Unfilled b) = do
       (Var h , Val b') -> fillHole h b'
       (Var a', Var b') -> unifyHole a' b'
     Nothing -> error "Unification Failed!"
+
+data Tree a = Tree (Tree a) a (Tree a) | Leaf a
+
+apple = Tree (Tree (Leaf 1) 2 (Leaf 3)) 4 (Leaf 5)
+pie = Tree (Tree (Leaf 1) 2 (Leaf 3)) 4 (Leaf 5)
+cake = Tree (Leaf 1) 2 (Tree (Leaf 3) 4 (Leaf 5))
+
