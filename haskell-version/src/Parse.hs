@@ -3,12 +3,12 @@ module Parse where
 import           Control.Monad
 import           Data.Tree
 
-printLineWithNumbers file = do
-  forM_ (zip [1 :: Int ..] (lines file))
-    $ \(n, line) -> putStrLn $ (show n) <> ": " <> line
+-- printLineWithNumbers file = do
+--   forM_ (zip [1 :: Int ..] (lines file))
+--     $ \(n, line) -> putStrLn $ (show n) <> ": " <> line
 
-example = "hello\n  world\nI'm Jeff"
-answer = [Node "hello" [Node "  world" []], Node "I'm Jeff" []]
+-- example = "hello\n  world\nI'm Jeff"
+-- answer = [Node "hello" [Node "  world" []], Node "I'm Jeff" []]
 
 getIndentation :: String -> Int
 getIndentation = length . takeWhile (' ' ==)
@@ -34,16 +34,14 @@ data AST
   | Num Int
   | Sym String
 
-apple = "someFunc 1 2 3"
-bake = ["someFunc", "1", "2", "3"]
-cake = Sym "someFunc" `App` Num 1 `App` Num 2 `App` Num 3
+-- apple = "someFunc 1 2 3"
+-- bake = ["someFunc", "1", "2", "3"]
+-- cake = Sym "someFunc" `App` Num 1 `App` Num 2 `App` Num 3
 
 parseApp :: String -> String -> [String]
 parseApp [] acc = [acc]
-parseApp (c:rest) acc =
-  if c == ' '
-    then acc : parseApp rest "" 
-    else parseApp rest (acc <> [c])
+parseApp (c : rest) acc =
+  if c == ' ' then acc : parseApp rest "" else parseApp rest (acc <> [c])
 
   -- 1. Char for whitespace
   -- 2. If there is whitespace, look next to see if something after

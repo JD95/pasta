@@ -28,6 +28,7 @@ dependencies:
 - microlens-platform
 - polysemy
 - polysemy-plugin
+- logict
 
 library:
   source-dirs: src

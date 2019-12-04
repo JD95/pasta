@@ -1,8 +1,11 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 module Logic where
 
-import           Control.Arrow
+import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.ST
 import           Data.STRef
@@ -34,21 +37,24 @@ unifyHole holeA holeB = do
   when (holeA /= holeB) $ do
     guessHole holeA =<< getGuess holeB
 
+newHole :: ST s (Hole s a)
+newHole = do
+  h     <- newSTRef []
+  guess <- newSTRef (Guess h :| [])
+  pure $ Hole guess
+
 data Term s a = Var (Hole s a) | Val a
 
 data Subst s a = Subst { substHole :: Hole s a, substStack :: [a] }
 
-newtype Unfilled f s a = Unfilled (f (Term s (Unfilled f s a)))
+newtype Unfilled f s = Unfilled (f (Term s (Unfilled f s)))
 
-class ZipF f where
-  zipWithF :: (a -> b -> c) -> f a -> f b -> Maybe (f c)
+class Traversable f => Unified f where
+  merge :: Alternative t => (a -> b -> t c) -> f a -> f b -> t (f c)
 
-zipF :: ZipF f => f a -> f b -> Maybe (f (a, b))
-zipF = zipWithF (,)
-
-unify :: (Traversable f, ZipF f) => Unfilled f s a -> Unfilled f s a -> ST s ()
+unify :: (Traversable f, Unified f) => Unfilled f s -> Unfilled f s -> ST s ()
 unify (Unfilled a) (Unfilled b) = do
-  case zipF a b of
+  case merge (\x y -> Just (x, y)) a b of
     Just results -> forM_ results $ \case
       (Val a', Val b') -> unify a' b'
       (Val a', Var h ) -> fillHole h a'
@@ -56,9 +62,42 @@ unify (Unfilled a) (Unfilled b) = do
       (Var a', Var b') -> unifyHole a' b'
     Nothing -> error "Unification Failed!"
 
-data Tree a = Tree (Tree a) a (Tree a) | Leaf a
+extractFilled :: Traversable f => Unfilled f s -> ST s (Maybe (Fix f))
+extractFilled (Unfilled x) = do
+  a <- traverse extractTerm $ x
+  case sequence a of
+    Nothing -> pure Nothing
+    Just b  -> do
+      c <- traverse extractFilled $ b
+      pure $ Fix <$> sequence c
+ where
+  extractTerm :: Term s a -> ST s (Maybe a)
+  extractTerm (Var h) = extractHole h
+  extractTerm (Val v) = pure $ Just v
 
-apple = Tree (Tree (Leaf 1) 2 (Leaf 3)) 4 (Leaf 5)
-pie = Tree (Tree (Leaf 1) 2 (Leaf 3)) 4 (Leaf 5)
-cake = Tree (Leaf 1) 2 (Tree (Leaf 3) 4 (Leaf 5))
+  extractHole :: Hole s a -> ST s (Maybe a)
+  extractHole h = do
+    guess <- unGuess <$> getGuess h
+    val   <- readSTRef guess
+    pure $ case val of
+      []      -> Nothing
+      (v : _) -> Just v
+
+data Tree a = Tree (Tree a) a (Tree a) | Leaf a deriving (Show, Functor, Foldable, Traversable)
+
+instance Unified Tree where
+  merge f (Tree s x t) (Tree s' x' t') = do
+    lft <- merge f s s'
+    v <- f x x'
+    rht <- merge f t t'
+    pure $ Tree lft v rht
+
+  merge f (Leaf x) (Leaf y) = Leaf <$> f x y
+
+test = do
+  h1 <- newHole
+  let x = Unfilled (Tree (Leaf $ Val (1 :: Int)) (Var h1) (Leaf $ Val 5))
+  let y = Unfilled (Tree (Leaf $ Val (1 :: Int)) (Val 2) (Leaf $ Val 5))
+  unify x y
+  extractFilled x
 
