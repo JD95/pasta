@@ -29,6 +29,9 @@ dependencies:
 - polysemy
 - polysemy-plugin
 - logict
+- text
+- vector
+- compdata
 
 library:
   source-dirs: src
