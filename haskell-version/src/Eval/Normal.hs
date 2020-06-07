@@ -8,9 +8,11 @@
 module Eval.Normal where
 
 import Control.Monad.ST (ST)
-import Data.Functor.Foldable (Fix(..), unfix)
+import Data.Functor.Const
+import Data.Functor.Foldable (Fix(..), unfix, cata)
 import Data.STRef (readSTRef, writeSTRef)
 import Data.Sum
+import Prelude hiding (lookup)
 
 import AST.Core
 import AST.Transform
@@ -20,28 +22,23 @@ import Eval.Stages
 -- |
 -- * Evaluates WHNF terms into NF, removing
 --   all closures.
-class Normal s f where
-  normal :: f (Fix (WHNF s)) -> ST s (Fix NF)
+class Normal f where
+  normal :: f (Stack (Fix NF) -> Fix NF) -> (Stack (Fix NF) -> Fix NF)
 
-instance Apply (Normal s) fs => Normal s (Sum fs) where
-  normal = apply @(Normal s) normal
+instance Apply Normal fs => Normal (Sum fs) where
+  normal = apply @Normal normal
 
-instance Normal s Prim where
-  normal = pass . fmap (normal @s . unfix) 
+instance Normal Prim where
+  normal = pass
 
-instance Normal s Data where
-  normal = pass . fmap (normal @s . unfix) 
+instance Normal Data where
+  normal = pass
 
-instance Normal s (Bound s (Fix NF)) where
-  normal (Bound ref) = do
-    value <- readSTRef ref
-    result <- normal value
-    writeSTRef ref . Clo . Left $ result
-    pure result
+instance Normal Bound where
+  normal (Bound ref) (Stack st) = st !! fromIntegral ref
 
-instance Normal s (Closure s (Fix NF)) where
-  normal (Clo value) =
-    case value of
-      Right (comp, st) -> normal . unfix =<< (comp st)
-      Left x -> pure x
+instance Normal (Thunk (Fix NF)) where
+  normal (Thunk st comp) _ = comp st
 
+instance Normal Norm where
+  normal = pure . getConst
