@@ -3,7 +3,14 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: fastsum-0.1.1.1@sha256:984ce99c8c153f31bffe03af6cc0599818878d62e9dae6ecb26b6623c92d6cec,2325
+    pantry-tree:
+      size: 431
+      sha256: 1c89d4034e6d06e15ff0ec421a95206c030ddc2d35b9eee7f0a02aa30c6051c1
+  original:
+    hackage: fastsum-0.1.1.1
 snapshots:
 - completed:
     size: 523878

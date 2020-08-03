@@ -1,69 +1,61 @@
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Eval.Stages where
 
+import AST.Core
 import Data.Functor.Const
-import Control.Monad.ST (ST)
-import Data.Functor.Foldable (Fix(..))
-import Data.STRef (STRef)
+import Data.Functor.Foldable (Fix (..), unfix)
+import Data.IORef (IORef)
 import Data.Sum
 import Numeric.Natural
-
-import AST.Core
 
 -- | A polarized application.
 --
 -- Carries info about how to
 -- evaluate input
 data PApp a = PApp Polarity a a
+
 deriving instance Functor PApp
 
 papp :: (PApp :< fs) => Polarity -> Fix (Sum fs) -> Fix (Sum fs) -> Fix (Sum fs)
 papp p func = Fix . inject . PApp p func
 
--- | The runtime stack, holding pointers to closures
-newtype Stack a = Stack [a]
-deriving instance Functor Stack
+newtype Stack a = Stack [IORef a]
 
--- | A closure is either a suspended computation, a thunk,
--- or it's an expression in at least WHNF 
+-- | The runtime stack, holding pointers to closures
 data Thunk b a = Thunk (Stack b) a
+
 deriving instance Functor (Thunk b)
 
-thunk :: (Thunk b :< fs)
-  => Stack b 
-  -> Fix (Sum fs)
-  -> Fix (Sum fs)
+thunk :: (Thunk b :< fs) => Stack b -> Fix (Sum fs) -> Fix (Sum fs)
 thunk st = Fix . inject . Thunk st
 
--- | All symbols at this point are bound within the stack
--- and have been converted to pointers
---
--- Bound variables will *always* point to a closure of type a
--- but point to Any internally to allow for pointer reuse
--- through different phases
 newtype Bound a = Bound Natural
+
 deriving instance Functor Bound
 
 bnd :: (Bound :< fs) => Natural -> Fix (Sum fs)
 bnd = Fix . inject . Bound
 
--- | Expressions after type checking
--- ready to be evaluated
-type RunTerm = Sum [Prim, Data, Bound, PApp] 
+type TermComps b = Sum [Prim, Data, Thunk b, Bound, Norm]
 
 -- | Expressions during and after eval
-newtype WHNF a = WHNF { unWHNF :: Sum [Prim, Data, Bound, Thunk (Fix WHNF), Norm] a }
+newtype Term a = Term {unTerm :: TermComps (Fix Term) a}
 
-type Norm = Const (Fix NF)  
+term :: (fs ~ TermComps (Fix Term)) => Fix fs -> Fix Term
+term = Fix . Term . fmap term . unfix
+
+deriving instance Functor Term
+
+type Norm = Const (Fix NF)
 
 -- | Fully evaluated term
-type NF = Sum [Prim, Data] 
+type NF = Sum '[Prim, Data]

@@ -26,19 +26,15 @@ dependencies:
 - free
 - exceptions
 - microlens-platform
-- polysemy
-- polysemy-plugin
-- logict
 - text
 - vector
+- freer-simple
 - fastsum
 
 library:
   source-dirs: src
   ghc-options:
   - -Wall
-  - -Werror
-  - -fplugin=Polysemy.Plugin
 
 executables:
   jelly-exe:
@@ -62,9 +58,4 @@ tests:
     dependencies:
     - jelly
     - tasty
-    - tasty-hspec
-    - stm
-    - tagged
-    - time
-    - directory
-    - process
+    - tasty-hunit
