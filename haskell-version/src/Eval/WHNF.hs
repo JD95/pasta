@@ -1,5 +1,7 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -9,27 +11,55 @@ module Eval.WHNF where
 
 import AST.Core
 import AST.Transform
-import Control.Monad.ST (ST)
-import Data.Functor.Foldable (Fix (..))
+import Control.Monad.Freer
+import Control.Monad.Freer.Reader
+import Data.Functor.Foldable (Fix (..), cata)
+import Data.IORef (readIORef, writeIORef)
 import Data.Sum
 import Eval.Stages
+import Prelude hiding (lookup)
 
--- class Run f where
---   run :: f (Stack (Fix WHNF) -> Fix WHNF) -> (Stack (Fix WHNF) -> Fix WHNF)
+-- -----------------------------------------------------------
 
--- instance Apply Run fs => Run (Sum fs) where
---   run = apply @Run run
+-- |
+-- * Evaluates WHNF terms into NF, removing
+--   all closures.
+class Whnf f where
+  whnf ::
+    Members '[Reader [Fix Term], IO] es =>
+    f (Eff es (Fix Term)) ->
+    Eff es (Fix Term)
 
--- instance Run Prim where
---   run = gpass WHNF
+instance Apply Whnf fs => Whnf (Sum fs) where
+  whnf = apply @Whnf whnf
 
--- instance Run Data where
---   run = gpass WHNF
+instance Whnf Term where
+  whnf = whnf . unTerm
 
--- instance Run Bound where
---   run (Bound ref) (Stack st) = st !! fromIntegral ref
+instance Whnf Prim where
+  whnf = gpass Term
 
--- instance Run PApp where
---   run (PApp Shallow _ _) = error "Shallow Eval not supported"
---   run (PApp Lazy _ _) = error "Lazy Eval not supported"
---   run (PApp Logic _ _) = error "Logic Eval not supported"
+instance Whnf Data where
+  whnf = gpass Term
+
+instance Whnf (Ref (Fix Term)) where
+  whnf (Ref r) = do
+    val <- send $ readIORef r
+    result <- cata whnf val
+    send $ writeIORef r result
+    pure (term $ ref r)
+
+instance Whnf (Thunk (Fix Term)) where
+  whnf (Thunk st a) = local (const st) a
+
+instance Whnf Bound where
+  whnf (Bound i) = do
+    st <- ask @[Fix Term]
+    let val = st !! fromIntegral i
+    pure val
+
+instance Whnf Norm where
+  whnf = gpass Term
+
+runWhnf :: [Fix Term] -> Fix Term -> IO (Fix Term)
+runWhnf st = runM . runReader st . cata whnf
