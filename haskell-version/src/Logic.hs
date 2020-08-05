@@ -62,6 +62,8 @@ allocProp val p =
   let (n, ps') = alloc val (props p)
    in (PropRef n, p {props = ps'})
 
+----------------------------------------------------------------------------------------------------
+
 popAlert :: p a -> Eff (Prop a) (Maybe PropRef)
 popAlert (_ :: p a) = do
   st <- get @(PropST a)
@@ -133,6 +135,23 @@ propagator (f :: [a] -> a) ns target = do
 constant :: (Show a, Eq a) => a -> CellRef -> Eff (Prop a) ()
 constant val = propagator (\_ -> val) []
 
+runAlerts :: p a -> Eff (Prop a) ()
+runAlerts (pxy :: p a) = do
+  popAlert pxy >>= \case
+    Just (PropRef alert) -> do
+      st <- get @(PropST a)
+      case Map.lookup alert (values $ props st) of
+        Just prop -> prop *> runAlerts pxy
+        Nothing -> runAlerts pxy
+    Nothing -> pure ()
+
+runPropagator :: Eff (Prop i) a -> a
+runPropagator prop = run $ evalState initPropST prop
+  where
+    initPropST = PropST (Allocator 0 mempty) (Allocator 0 mempty) mempty
+
+----------------------------------------------------------------------------------------------------
+
 adder :: CellRef -> CellRef -> CellRef -> Eff (Prop Double) ()
 adder in1 in2 = propagator (\[x, y] -> x + y) [in1, in2]
 
@@ -156,41 +175,3 @@ product in1 in2 out = do
   multiplier in1 in2 out
   divider out in1 in2
   divider out in2 in1
-
-fahrenheitToCelsius :: CellRef -> CellRef -> Eff (Prop Double) ()
-fahrenheitToCelsius f c = do
-  thirtyTwo <- newCell (Proxy @Double)
-  f32 <- newCell (Proxy @Double)
-  five <- newCell (Proxy @Double)
-  c9 <- newCell (Proxy @Double)
-  nine <- newCell (Proxy @Double)
-  constant 32 thirtyTwo
-  constant 5 five
-  constant 9 nine
-  sum thirtyTwo f32 f
-  product f32 five c9
-  product c nine c9
-
-runAlerts :: p a -> Eff (Prop a) ()
-runAlerts (pxy :: p a) = do
-  popAlert pxy >>= \case
-    Just (PropRef alert) -> do
-      st <- get @(PropST a)
-      case Map.lookup alert (values $ props st) of
-        Just prop -> prop *> runAlerts pxy
-        Nothing -> runAlerts pxy
-    Nothing -> pure ()
-
-runPropagator :: Eff (Prop i) a -> a
-runPropagator prop = run $ evalState initPropST prop
-  where
-    initPropST = PropST (Allocator 0 mempty) (Allocator 0 mempty) mempty
-
-test :: Maybe Double
-test = runPropagator $ do
-  f <- newCell (Proxy @Double)
-  c <- newCell (Proxy @Double)
-  fahrenheitToCelsius f c
-  addContent (Just 25) c
-  runAlerts (Proxy @Double)
-  content f
