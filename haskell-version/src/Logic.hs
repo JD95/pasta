@@ -24,18 +24,18 @@ import qualified Data.Sequence as Seq
 import Numeric.Natural
 import Prelude hiding (product, sum)
 
-newtype CellRef = CellRef {unCellRef :: Natural}
+newtype CellRef = CellRef {unCellRef :: Natural} deriving (Show, Eq)
 
-newtype PropRef = PropRef {unPropRef :: Natural}
+newtype PropRef = PropRef {unPropRef :: Natural} deriving (Show, Eq)
 
-data Allocator a = Allocator {counter :: Natural, values :: Map Natural a}
+data Allocator a = Allocator {counter :: Natural, values :: Map Natural a} deriving (Show)
 
 alloc :: a -> Allocator a -> (Natural, Allocator a)
 alloc val al =
   let i = counter al + 1
    in (i, al {counter = i, values = Map.insert i val (values al)})
 
-type Prop a = '[State (PropST a), IO]
+type Prop a = '[State (PropST a)]
 
 data PropST a = PropST
   { cells :: Allocator (Maybe a, [PropRef]),
@@ -47,6 +47,15 @@ allocCell :: PropST a -> (CellRef, PropST a)
 allocCell p =
   let (n, cs') = alloc (Nothing, []) (cells p)
    in (CellRef n, p {cells = cs'})
+
+addNeighbor :: PropRef -> CellRef -> PropST a -> Maybe (PropST a)
+addNeighbor pr (CellRef cr) st = do
+  (val, ns) <- Map.lookup cr (values $ cells st)
+  if any ((==) pr) ns
+    then Nothing
+    else
+      let cs' = Map.adjust (\_ -> (val, pr : ns)) cr (values $ cells st)
+       in Just $ st {cells = (cells st) {values = cs'}}
 
 allocProp :: (Eff (Prop a) ()) -> PropST a -> (PropRef, PropST a)
 allocProp val p =
@@ -62,6 +71,11 @@ popAlert (_ :: p a) = do
       put $ st {alerts = alerts'}
       pure (Just alert)
     Nothing -> pure Nothing
+
+pushAlert :: p a -> PropRef -> Eff (Prop a) ()
+pushAlert (_ :: p a) alert = do
+  st <- get @(PropST a)
+  put $ st {alerts = alerts st |> alert}
 
 newCell :: p a -> Eff (Prop a) CellRef
 newCell (_ :: p a) = do
@@ -94,24 +108,29 @@ addContent (Just x) (CellRef ref) = do
     Nothing -> pure ()
 
 newNeighbor :: p a -> PropRef -> CellRef -> Eff (Prop a) ()
-newNeighbor (_ :: p a) n (CellRef c) = do
-  PropST cs ps as <- get @(PropST a)
-  let cs' = cs {values = Map.adjust (second ((:) n)) c (values cs)}
-  put $ PropST cs' ps as
+newNeighbor (pxy :: p a) n cr = do
+  st <- get @(PropST a)
+  case addNeighbor n cr st of
+    Just st' -> put st' *> pushAlert pxy n
+    Nothing -> pure ()
 
-propagator :: Eq a => ([a] -> a) -> [CellRef] -> CellRef -> Eff (Prop a) ()
+nothingCheck :: [Maybe a] -> Maybe [a]
+nothingCheck = foldr go (Just [])
+  where
+    go x xs = (:) <$> x <*> xs
+
+propagator :: (Show a, Eq a) => ([a] -> a) -> [CellRef] -> CellRef -> Eff (Prop a) ()
 propagator (f :: [a] -> a) ns target = do
   let prop = do
-        sequence <$> traverse content ns >>= \case
-          Just inputs -> do
-            addContent (Just (f inputs)) target
-          Nothing -> pure ()
+        inputs <- nothingCheck <$> traverse content ns
+        addContent (f <$> inputs) target
   st <- get
-  let (pRef, st') = allocProp prop st
+  let (todo, st') = allocProp prop st
   put $ st'
-  forM_ ns (newNeighbor (Proxy @a) pRef)
+  forM_ ns (newNeighbor (Proxy @a) todo)
+  pushAlert (Proxy @a) todo
 
-constant :: Eq a => a -> CellRef -> Eff (Prop a) ()
+constant :: (Show a, Eq a) => a -> CellRef -> Eff (Prop a) ()
 constant val = propagator (\_ -> val) []
 
 adder :: CellRef -> CellRef -> CellRef -> Eff (Prop Double) ()
@@ -156,19 +175,18 @@ runAlerts :: p a -> Eff (Prop a) ()
 runAlerts (pxy :: p a) = do
   popAlert pxy >>= \case
     Just (PropRef alert) -> do
-      send $ print "Got an alert"
       st <- get @(PropST a)
       case Map.lookup alert (values $ props st) of
         Just prop -> prop *> runAlerts pxy
         Nothing -> runAlerts pxy
     Nothing -> pure ()
 
-runPropagator :: Eff (Prop i) a -> IO a
-runPropagator prop = runM $ evalState initPropST prop
+runPropagator :: Eff (Prop i) a -> a
+runPropagator prop = run $ evalState initPropST prop
   where
     initPropST = PropST (Allocator 0 mempty) (Allocator 0 mempty) mempty
 
-test :: IO (Maybe Double)
+test :: Maybe Double
 test = runPropagator $ do
   f <- newCell (Proxy @Double)
   c <- newCell (Proxy @Double)
