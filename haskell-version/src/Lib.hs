@@ -1,13 +1,16 @@
 module Lib
-  ( module AST.Transform
-  , module AST.Core
-  , module TypeCheck.Typed
-  , module Eval.WHNF
-  , module Eval.Normal
-  ) where
+  ( module AST.Transform,
+    module AST.Core,
+    module TypeCheck.Typed,
+    module Eval.WHNF,
+    module Eval.Normal,
+    module Logic,
+  )
+where
 
-import AST.Transform
 import AST.Core
-import TypeCheck.Typed
-import Eval.WHNF
+import AST.Transform
 import Eval.Normal
+import Eval.WHNF
+import Logic
+import TypeCheck.Typed
