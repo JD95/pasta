@@ -155,7 +155,7 @@ newNeighbor (pxy :: p a) n cr = do
 noInfoCheck :: [Info a] -> Info [a]
 noInfoCheck = foldr (liftA2 (:)) (Info [])
 
-propagator :: (Show a, Eq a, Merge a) => ([a] -> a) -> [CellRef] -> CellRef -> Eff (Prop a) ()
+propagator :: (Eq a, Merge a) => ([a] -> a) -> [CellRef] -> CellRef -> Eff (Prop a) ()
 propagator (f :: [a] -> a) ns target = do
   let prop = do
         inputs <- noInfoCheck <$> traverse content ns
@@ -186,25 +186,25 @@ runPropagator prop = run $ evalState initPropST prop
 
 ----------------------------------------------------------------------------------------------------
 
-adder :: CellRef -> CellRef -> CellRef -> Eff (Prop Double) ()
+adder :: (Eq a, Merge a, Num a) => CellRef -> CellRef -> CellRef -> Eff (Prop a) ()
 adder in1 in2 = propagator (\[x, y] -> x + y) [in1, in2]
 
-subtractor :: CellRef -> CellRef -> CellRef -> Eff (Prop Double) ()
+subtractor :: (Eq a, Merge a, Num a) => CellRef -> CellRef -> CellRef -> Eff (Prop a) ()
 subtractor in1 in2 = propagator (\[x, y] -> x - y) [in1, in2]
 
-multiplier :: CellRef -> CellRef -> CellRef -> Eff (Prop Double) ()
+multiplier :: (Eq a, Merge a, Num a) => CellRef -> CellRef -> CellRef -> Eff (Prop a) ()
 multiplier in1 in2 = propagator (\[x, y] -> x * y) [in1, in2]
 
-divider :: CellRef -> CellRef -> CellRef -> Eff (Prop Double) ()
+divider :: (Eq a, Merge a, Floating a) => CellRef -> CellRef -> CellRef -> Eff (Prop a) ()
 divider in1 in2 = propagator (\[x, y] -> x / y) [in1, in2]
 
-sum :: CellRef -> CellRef -> CellRef -> Eff (Prop Double) ()
+sum :: (Eq a, Merge a, Num a) => CellRef -> CellRef -> CellRef -> Eff (Prop a) ()
 sum in1 in2 out = do
   adder in1 in2 out
   subtractor out in1 in2
   subtractor out in2 in1
 
-product :: CellRef -> CellRef -> CellRef -> Eff (Prop Double) ()
+product :: (Eq a, Merge a, Floating a) => CellRef -> CellRef -> CellRef -> Eff (Prop a) ()
 product in1 in2 out = do
   multiplier in1 in2 out
   divider out in1 in2
