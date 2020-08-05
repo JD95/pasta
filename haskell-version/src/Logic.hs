@@ -11,6 +11,7 @@
 
 module Logic where
 
+import Control.Applicative
 import Control.Arrow
 import Control.Monad
 import Control.Monad.Freer
@@ -38,14 +39,14 @@ alloc val al =
 type Prop a = '[State (PropST a)]
 
 data PropST a = PropST
-  { cells :: Allocator (Maybe a, [PropRef]),
+  { cells :: Allocator (Info a, [PropRef]),
     props :: Allocator (Eff (Prop a) ()),
     alerts :: Seq PropRef
   }
 
 allocCell :: PropST a -> (CellRef, PropST a)
 allocCell p =
-  let (n, cs') = alloc (Nothing, []) (cells p)
+  let (n, cs') = alloc (NoInfo, []) (cells p)
    in (CellRef n, p {cells = cs'})
 
 addNeighbor :: PropRef -> CellRef -> PropST a -> Maybe (PropST a)
@@ -63,6 +64,41 @@ allocProp val p =
    in (PropRef n, p {props = ps'})
 
 ----------------------------------------------------------------------------------------------------
+
+class Merge a where
+  merge :: a -> a -> Maybe a
+
+data Info a = Info a | Contradiction | NoInfo deriving (Eq, Show)
+
+instance Merge a => Semigroup (Info a) where
+  (Info x) <> (Info y) = maybe Contradiction Info (merge x y)
+  (Info x) <> NoInfo = Info x
+  NoInfo <> (Info y) = Info y
+  NoInfo <> NoInfo = NoInfo
+  Contradiction <> _ = Contradiction
+  _ <> Contradiction = Contradiction
+
+instance Merge a => Monoid (Info a) where
+  mempty = NoInfo
+
+instance Merge Double where
+  merge x y
+    | x == y = Just x
+    | otherwise = Nothing
+
+instance Functor Info where
+  fmap f (Info x) = Info (f x)
+  fmap _ NoInfo = NoInfo
+  fmap _ Contradiction = Contradiction
+
+instance Applicative Info where
+  pure x = Info x
+
+  (Info f) <*> (Info x) = Info (f x)
+  NoInfo <*> _ = NoInfo
+  _ <*> NoInfo = NoInfo
+  Contradiction <*> _ = Contradiction
+  _ <*> Contradiction = Contradiction
 
 popAlert :: p a -> Eff (Prop a) (Maybe PropRef)
 popAlert (_ :: p a) = do
@@ -86,27 +122,27 @@ newCell (_ :: p a) = do
   put $ st'
   pure ref
 
-content :: CellRef -> Eff (Prop a) (Maybe a)
+content :: CellRef -> Eff (Prop a) (Info a)
 content (CellRef ref) = do
   st <- get
   case Map.lookup ref (values $ cells st) of
     Just (val, _) -> pure val
-    Nothing -> pure Nothing
+    Nothing -> error "Getting content of non-existant cell"
 
-addContent :: Eq a => Maybe a -> CellRef -> Eff (Prop a) ()
-addContent Nothing _ = pure ()
-addContent (Just x) (CellRef ref) = do
+addContent :: (Eq a, Merge a) => Info a -> CellRef -> Eff (Prop a) ()
+addContent NoInfo _ = pure ()
+addContent newInfo (CellRef ref) = do
   PropST cs ps as <- get
-  case Map.lookup ref (values $ cs) of
-    Just (Just y, _) -> do
-      if x == y
-        then pure ()
-        else error "Propagator inconsistency!"
-    Just (Nothing, ns) -> do
-      let cs' = cs {values = Map.adjust (first (const $ Just x)) ref (values cs)}
+  let mVal = do
+        (oldInfo, ns) <- Map.lookup ref . values $ cs
+        let result = newInfo <> oldInfo
+        guard (result /= oldInfo)
+        pure (result, ns)
+  case mVal of
+    Just (val, ns) -> do
+      let cs' = cs {values = Map.adjust (first (const val)) ref (values cs)}
       let as' = foldl' (|>) as ns
       put $ (PropST cs' ps as')
-      pure ()
     Nothing -> pure ()
 
 newNeighbor :: p a -> PropRef -> CellRef -> Eff (Prop a) ()
@@ -116,15 +152,13 @@ newNeighbor (pxy :: p a) n cr = do
     Just st' -> put st' *> pushAlert pxy n
     Nothing -> pure ()
 
-nothingCheck :: [Maybe a] -> Maybe [a]
-nothingCheck = foldr go (Just [])
-  where
-    go x xs = (:) <$> x <*> xs
+noInfoCheck :: [Info a] -> Info [a]
+noInfoCheck = foldr (liftA2 (:)) (Info [])
 
-propagator :: (Show a, Eq a) => ([a] -> a) -> [CellRef] -> CellRef -> Eff (Prop a) ()
+propagator :: (Show a, Eq a, Merge a) => ([a] -> a) -> [CellRef] -> CellRef -> Eff (Prop a) ()
 propagator (f :: [a] -> a) ns target = do
   let prop = do
-        inputs <- nothingCheck <$> traverse content ns
+        inputs <- noInfoCheck <$> traverse content ns
         addContent (f <$> inputs) target
   st <- get
   let (todo, st') = allocProp prop st
@@ -132,7 +166,7 @@ propagator (f :: [a] -> a) ns target = do
   forM_ ns (newNeighbor (Proxy @a) todo)
   pushAlert (Proxy @a) todo
 
-constant :: (Show a, Eq a) => a -> CellRef -> Eff (Prop a) ()
+constant :: (Show a, Eq a, Merge a) => a -> CellRef -> Eff (Prop a) ()
 constant val = propagator (\_ -> val) []
 
 runAlerts :: p a -> Eff (Prop a) ()

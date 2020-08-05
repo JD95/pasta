@@ -45,7 +45,7 @@ main = defaultMain tests
                   adder x y z
                   runAlerts (Proxy @Double)
                   content z
-            result @?= (Just 3.0),
+            result @?= (Info 3.0),
           testCase "values prop backward" $ do
             let result = runPropagator $ do
                   x <- newCell (Proxy @Double)
@@ -56,7 +56,7 @@ main = defaultMain tests
                   Lib.sum x y z
                   runAlerts (Proxy @Double)
                   content y
-            result @?= (Just 2.0),
+            result @?= (Info 2.0),
           testCase "farhenheitToCelsius" $ do
             let fahrenheitToCelsius f c = do
                   thirtyTwo <- newCell (Proxy @Double)
@@ -74,8 +74,8 @@ main = defaultMain tests
                   f <- newCell (Proxy @Double)
                   c <- newCell (Proxy @Double)
                   fahrenheitToCelsius f c
-                  addContent (Just 25) c
+                  addContent (Info 25) c
                   runAlerts (Proxy @Double)
                   content f
-            result @?= (Just 77.0)
+            result @?= (Info 77.0)
         ]
