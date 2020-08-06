@@ -2,7 +2,6 @@
 
 import AST.Core
 import Control.Monad.Freer
-import Data.Proxy
 import Eval.Stages
 import Lib
 import Test.Tasty
@@ -37,26 +36,26 @@ main = defaultMain tests
       testGroup
         "Propagators"
         [ testCase "values prop forward" $ do
-            let result = runPropagator $ do
-                  x <- cell
-                  y <- cell
-                  z <- cell
-                  constant 1 x
-                  constant 2 y
-                  adder x y z
-                  solve Proxy
-                  send $ content z
+            result <- runPropagator $ do
+              x <- cell @Double
+              y <- cell
+              z <- cell
+              constant 1 x
+              constant 2 y
+              adder x y z
+              solve
+              send $ content z
             result @?= (Info 3.0),
           testCase "values prop backward" $ do
-            let result = runPropagator $ do
-                  x <- cell
-                  y <- cell
-                  z <- cell
-                  constant 1 x
-                  constant 3 z
-                  Lib.sum x y z
-                  solve Proxy
-                  content y
+            result <- runPropagator $ do
+              x <- cell @Double
+              y <- cell
+              z <- cell
+              constant 1 x
+              constant 3 z
+              Lib.sum x y z
+              solve
+              send $ content y
             result @?= (Info 2.0),
           testCase "farhenheitToCelsius" $ do
             let fahrenheitToCelsius f c = do
@@ -71,12 +70,12 @@ main = defaultMain tests
                   Lib.sum thirtyTwo f32 f
                   Lib.product f32 five c9
                   Lib.product c nine c9
-            let result = runPropagator $ do
-                  f <- cell
-                  c <- cell
-                  fahrenheitToCelsius f c
-                  addContent (Info 25) c
-                  solve Proxy
-                  content f
+            result <- runPropagator $ do
+              f <- cell @Double
+              c <- cell
+              fahrenheitToCelsius f c
+              fill (Info 25) c
+              solve
+              send $ content f
             result @?= (Info 77.0)
         ]
