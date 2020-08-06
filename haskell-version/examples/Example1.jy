@@ -25,3 +25,26 @@ mkBar True = Inj Double 5.0
 mkBar False = Inj String "Hello"
 
 someFunc 1 2 3
+
+let someVar = 5
+in (\x y -> x + y + someVar) 6
+
+if : (a : Type; 0)
+  -> (cond : Bool)      -- Condition to check
+  -> (truePath : a; 1!)  -- Code to run if condition is true
+  -> (falsePath : a; u~) -- Code to run if condition is false
+  -> a                  -- Result of running either branch 
+
+func (x; 1) = (x : list1, x : list2)
+
+func : Int; 1# -> String; ! -> Bool; ~ -> Person
+
+void add1(int* a);
+
+int value = new int(5);
+add1(value*);
+add1(value*);
+add1(value*);
+add1(value*);
+add1(value*);
+return value;

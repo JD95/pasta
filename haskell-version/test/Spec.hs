@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 import AST.Core
+import Control.Monad.Freer
 import Data.Proxy
 import Eval.Stages
 import Lib
@@ -37,33 +38,33 @@ main = defaultMain tests
         "Propagators"
         [ testCase "values prop forward" $ do
             let result = runPropagator $ do
-                  x <- newCell (Proxy @Double)
-                  y <- newCell (Proxy @Double)
-                  z <- newCell (Proxy @Double)
+                  x <- cell
+                  y <- cell
+                  z <- cell
                   constant 1 x
                   constant 2 y
                   adder x y z
-                  runAlerts (Proxy @Double)
-                  content z
+                  solve Proxy
+                  send $ content z
             result @?= (Info 3.0),
           testCase "values prop backward" $ do
             let result = runPropagator $ do
-                  x <- newCell (Proxy @Double)
-                  y <- newCell (Proxy @Double)
-                  z <- newCell (Proxy @Double)
+                  x <- cell
+                  y <- cell
+                  z <- cell
                   constant 1 x
                   constant 3 z
                   Lib.sum x y z
-                  runAlerts (Proxy @Double)
+                  solve Proxy
                   content y
             result @?= (Info 2.0),
           testCase "farhenheitToCelsius" $ do
             let fahrenheitToCelsius f c = do
-                  thirtyTwo <- newCell (Proxy @Double)
-                  f32 <- newCell (Proxy @Double)
-                  five <- newCell (Proxy @Double)
-                  c9 <- newCell (Proxy @Double)
-                  nine <- newCell (Proxy @Double)
+                  thirtyTwo <- cell
+                  f32 <- cell
+                  five <- cell
+                  c9 <- cell
+                  nine <- cell
                   constant 32 thirtyTwo
                   constant 5 five
                   constant 9 nine
@@ -71,11 +72,11 @@ main = defaultMain tests
                   Lib.product f32 five c9
                   Lib.product c nine c9
             let result = runPropagator $ do
-                  f <- newCell (Proxy @Double)
-                  c <- newCell (Proxy @Double)
+                  f <- cell
+                  c <- cell
                   fahrenheitToCelsius f c
                   addContent (Info 25) c
-                  runAlerts (Proxy @Double)
+                  solve Proxy
                   content f
             result @?= (Info 77.0)
         ]
