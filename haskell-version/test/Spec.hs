@@ -1,9 +1,7 @@
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 import AST.Core
 import Control.Monad.Freer
-import Control.Monad.Primitive
 import Eval.Stages
 import Lib
 import Test.Tasty
@@ -38,48 +36,46 @@ main = defaultMain tests
       testGroup
         "Propagators"
         [ testCase "values prop forward" $ do
-            result <-
-              primToIO . runPropagator @IO $ \env -> do
-                x <- doubleCell env
-                y <- doubleCell env
-                z <- doubleCell env
-                constant 1 x
-                constant 2 y
-                adder x y z
-                solve env
-                send $ content z
-
+            result <- runPropagator $ do
+              x <- cell @Double
+              y <- cell
+              z <- cell
+              constant 1 x
+              constant 2 y
+              adder x y z
+              solve
+              send $ content z
             result @?= (Info 3.0),
           testCase "values prop backward" $ do
-            result <- runPropagator $ \env -> do
-              x <- doubleCell env
-              y <- doubleCell env
-              z <- doubleCell env
+            result <- runPropagator $ do
+              x <- cell @Double
+              y <- cell
+              z <- cell
               constant 1 x
               constant 3 z
               Lib.sum x y z
-              solve env
+              solve
               send $ content y
             result @?= (Info 2.0),
           testCase "farhenheitToCelsius" $ do
-            let fahrenheitToCelsius f c env = do
-                  thirtyTwo <- doubleCell env
-                  f32 <- doubleCell env
-                  five <- doubleCell env
-                  c9 <- doubleCell env
-                  nine <- doubleCell env
+            let fahrenheitToCelsius f c = do
+                  thirtyTwo <- cell
+                  f32 <- cell
+                  five <- cell
+                  c9 <- cell
+                  nine <- cell
                   constant 32 thirtyTwo
                   constant 5 five
                   constant 9 nine
                   Lib.sum thirtyTwo f32 f
                   Lib.product f32 five c9
                   Lib.product c nine c9
-            result <- runPropagator $ \env -> do
-              f <- doubleCell env
-              c <- doubleCell env
-              fahrenheitToCelsius f c env
+            result <- runPropagator $ do
+              f <- cell @Double
+              c <- cell
+              fahrenheitToCelsius f c
               fill (Info 25) c
-              solve env
+              solve
               send $ content f
             result @?= (Info 77.0)
         ]

@@ -29,7 +29,6 @@ dependencies:
 - text
 - vector
 - freer-simple
-- primitive
 - fastsum
 
 library:
