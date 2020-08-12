@@ -28,19 +28,12 @@ newtype PropRef = PropRef {unPropRef :: IORef (Seq (PropRef) -> IO (Seq (PropRef
 ----------------------------------------------------------------------------------------------------
 
 class Merge a where
-  merge :: a -> a -> Info a
+  merge :: a -> a -> Maybe a
 
-data Info a
-  = -- | Acts as multiplicative 0
-    Contradiction
-  | -- | Acts as multiplicative 1
-    NoInfo
-  | -- | Some info
-    Info a
-  deriving (Eq, Show)
+data Info a = Info a | Contradiction | NoInfo deriving (Eq, Show)
 
 instance Merge a => Semigroup (Info a) where
-  (Info x) <> (Info y) = merge x y
+  (Info x) <> (Info y) = maybe Contradiction Info (merge x y)
   (Info x) <> NoInfo = Info x
   NoInfo <> (Info y) = Info y
   NoInfo <> NoInfo = NoInfo
@@ -52,8 +45,8 @@ instance Merge a => Monoid (Info a) where
 
 instance Merge Double where
   merge x y
-    | x == y = NoInfo
-    | otherwise = Contradiction
+    | x == y = Just x
+    | otherwise = Nothing
 
 instance Functor Info where
   fmap f (Info x) = Info (f x)
@@ -69,21 +62,6 @@ instance Applicative Info where
   Contradiction <*> _ = Contradiction
   _ <*> Contradiction = Contradiction
 
-newtype Justified b a = Justified {unJustified :: (b, Info a)}
-
-instance (Merge a, Ord b, Monoid b) => Merge (Justified b a) where
-  merge (Justified (j1, x)) (Justified (j2, y)) =
-    case x <> y of
-      NoInfo ->
-        if j1 == j2
-          then NoInfo
-          else Info $ Justified (min j1 j2, x)
-      Contradiction ->
-        if j1 == j2
-          then Info $ Justified (j1, Contradiction)
-          else Info $ Justified (min j1 j2, Contradiction)
-      Info z -> Info $ Justified (j1 <> j2, Info z)
-
 pushAlert :: PropRef -> Seq PropRef -> Seq PropRef
 pushAlert alert alerts = alerts |> alert
 
@@ -92,18 +70,23 @@ content (CellRef ref) = do
   (info, _) <- readIORef ref
   pure info
 
-addContent :: (Merge a) => Info a -> CellRef a -> Seq PropRef -> IO (Seq PropRef)
+fill ::
+  (Eq a, Merge a) => Info a -> CellRef a -> Eff '[State (Seq PropRef), IO] ()
+fill info c = put =<< send . addContent info c =<< get
+
+addContent :: (Eq a, Merge a) => Info a -> CellRef a -> Seq PropRef -> IO (Seq PropRef)
 addContent NoInfo _ alerts = pure alerts
 addContent newInfo (CellRef ref) alerts = do
   (oldInfo, ns) <- readIORef ref
-  case newInfo <> oldInfo of
-    NoInfo -> pure alerts
-    val -> do
+  let mVal = do
+        let result = newInfo <> oldInfo
+        guard (result /= oldInfo)
+        pure result
+  case mVal of
+    Just val -> do
       writeIORef ref (val, ns)
       pure $ foldl' (|>) alerts ns
-
-fill :: (Merge a) => Info a -> CellRef a -> Eff '[State (Seq PropRef), IO] ()
-fill info c = put =<< send . addContent info c =<< get
+    Nothing -> pure alerts
 
 newNeighbor :: PropRef -> CellRef a -> Seq PropRef -> IO (Seq PropRef)
 newNeighbor n (CellRef ref) alerts = do
