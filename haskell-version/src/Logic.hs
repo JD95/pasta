@@ -19,6 +19,7 @@ import Control.Monad.Freer.State
 import Data.IORef
 import Data.List hiding (product, sum)
 import Data.Sequence (Seq (..), (|>))
+import Logic.Info
 import Prelude hiding (product, sum)
 
 newtype CellRef a = CellRef {unCellRef :: IORef (Info a, [PropRef])}
@@ -26,41 +27,6 @@ newtype CellRef a = CellRef {unCellRef :: IORef (Info a, [PropRef])}
 newtype PropRef = PropRef {unPropRef :: IORef (Seq (PropRef) -> IO (Seq (PropRef)))}
 
 ----------------------------------------------------------------------------------------------------
-
-class Merge a where
-  merge :: a -> a -> Maybe a
-
-data Info a = Info a | Contradiction | NoInfo deriving (Eq, Show)
-
-instance Merge a => Semigroup (Info a) where
-  (Info x) <> (Info y) = maybe Contradiction Info (merge x y)
-  (Info x) <> NoInfo = Info x
-  NoInfo <> (Info y) = Info y
-  NoInfo <> NoInfo = NoInfo
-  Contradiction <> _ = Contradiction
-  _ <> Contradiction = Contradiction
-
-instance Merge a => Monoid (Info a) where
-  mempty = NoInfo
-
-instance Merge Double where
-  merge x y
-    | x == y = Just x
-    | otherwise = Nothing
-
-instance Functor Info where
-  fmap f (Info x) = Info (f x)
-  fmap _ NoInfo = NoInfo
-  fmap _ Contradiction = Contradiction
-
-instance Applicative Info where
-  pure x = Info x
-
-  (Info f) <*> (Info x) = Info (f x)
-  NoInfo <*> _ = NoInfo
-  _ <*> NoInfo = NoInfo
-  Contradiction <*> _ = Contradiction
-  _ <*> Contradiction = Contradiction
 
 pushAlert :: PropRef -> Seq PropRef -> Seq PropRef
 pushAlert alert alerts = alerts |> alert
@@ -100,18 +66,34 @@ newNeighbor n (CellRef ref) alerts = do
 noInfoCheck :: [Info a] -> Info [a]
 noInfoCheck = foldr (liftA2 (:)) (Info [])
 
+data CellStatus = CallStatus {hasInfo :: IO Bool, addNeighbor :: PropRef -> Seq PropRef -> IO (Seq PropRef)}
+
+mkCellStatus :: CellRef a -> CellStatus
+mkCellStatus ref =
+  CallStatus
+    { hasInfo = do
+        content ref >>= \case
+          NoInfo -> pure False
+          _ -> pure True,
+      addNeighbor = \p -> newNeighbor p ref
+    }
+
 propagator ::
   (Eq a, Merge a) =>
-  ([a] -> a) ->
-  [CellRef a] ->
+  IO (Info a) ->
+  [CellStatus] ->
   CellRef a ->
   Seq PropRef ->
   IO (Seq PropRef)
-propagator f ns target alerts = do
+propagator action ns target alerts = do
   todo <- fmap PropRef . newIORef $ \as -> do
-    inputs <- noInfoCheck <$> traverse content ns
-    addContent (f <$> inputs) target as
-  alerts' <- foldM (\as c -> newNeighbor todo c as) alerts ns
+    allHaveInfo <- fmap and . traverse hasInfo $ ns
+    if allHaveInfo
+      then do
+        result <- action
+        addContent result target as
+      else pure as
+  alerts' <- foldM (\as c -> addNeighbor c todo as) alerts ns
   pure $ alerts' |> todo
 
 runAlerts :: Seq PropRef -> IO ()
@@ -138,7 +120,22 @@ constant ::
   a ->
   CellRef a ->
   Eff '[State (Seq PropRef), IO] ()
-constant val = liftProp . propagator (\_ -> val) []
+constant val = liftProp . propagator (pure $ Info val) []
+
+binProp ::
+  (Eq c, Merge c) =>
+  (a -> b -> c) ->
+  CellRef a ->
+  CellRef b ->
+  CellRef c ->
+  Eff '[State (Seq PropRef), IO] ()
+binProp f in1 in2 out = do
+  let action = do
+        Info x <- content in1
+        Info y <- content in2
+        pure . Info $ f x y
+      stats = [mkCellStatus in1, mkCellStatus in2]
+   in liftProp $ propagator action stats out
 
 adder ::
   (Eq a, Merge a, Num a) =>
@@ -146,7 +143,7 @@ adder ::
   CellRef a ->
   CellRef a ->
   Eff '[State (Seq PropRef), IO] ()
-adder in1 in2 = liftProp . propagator (\[x, y] -> x + y) [in1, in2]
+adder = binProp (+)
 
 subtractor ::
   (Eq a, Merge a, Num a) =>
@@ -154,7 +151,7 @@ subtractor ::
   CellRef a ->
   CellRef a ->
   Eff '[State (Seq PropRef), IO] ()
-subtractor in1 in2 = liftProp . propagator (\[x, y] -> x - y) [in1, in2]
+subtractor = binProp (-)
 
 multiplier ::
   (Eq a, Merge a, Num a) =>
@@ -162,7 +159,7 @@ multiplier ::
   CellRef a ->
   CellRef a ->
   Eff '[State (Seq PropRef), IO] ()
-multiplier in1 in2 = liftProp . propagator (\[x, y] -> x * y) [in1, in2]
+multiplier = binProp (*)
 
 divider ::
   (Eq a, Merge a, Floating a) =>
@@ -170,7 +167,7 @@ divider ::
   CellRef a ->
   CellRef a ->
   Eff '[State (Seq PropRef), IO] ()
-divider in1 in2 = liftProp . propagator (\[x, y] -> x / y) [in1, in2]
+divider = binProp (/)
 
 sum ::
   (Eq a, Merge a, Num a) =>

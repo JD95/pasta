@@ -4,6 +4,7 @@ import AST.Core
 import Control.Monad.Freer
 import Eval.Stages
 import Lib
+import Logic.Info
 import Test.Tasty
 import Test.Tasty.HUnit
 
