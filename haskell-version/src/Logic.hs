@@ -20,6 +20,7 @@ import Data.IORef
 import Data.List hiding (product, sum)
 import Data.Sequence (Seq (..), (|>))
 import Logic.Info
+import Logic.Propagator
 import Prelude hiding (product, sum)
 
 newtype CellRef a = CellRef {unCellRef :: IORef (Info a, [PropRef])}

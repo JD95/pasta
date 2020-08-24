@@ -1,7 +1,13 @@
 module Logic.Info where
 
+-- |
+--  if (isTop x) and isTop y,
+--  then merge x y is a contradiction
+--  unless they are equal.
 class Merge a where
   merge :: a -> a -> Info a
+
+  isTop :: a -> Bool
 
 data Info a
   = -- | Acts as multiplicative 0
@@ -28,6 +34,8 @@ instance Merge Double where
     | x == y = NoInfo
     | otherwise = Contradiction
 
+  isTop _ = True
+
 instance Functor Info where
   fmap f (Info x) = Info (f x)
   fmap _ NoInfo = NoInfo
@@ -41,18 +49,3 @@ instance Applicative Info where
   _ <*> NoInfo = NoInfo
   Contradiction <*> _ = Contradiction
   _ <*> Contradiction = Contradiction
-
-newtype Justified b a = Justified {unJustified :: (b, Info a)}
-
-instance (Merge a, Ord b, Monoid b) => Merge (Justified b a) where
-  merge (Justified (j1, x)) (Justified (j2, y)) =
-    case x <> y of
-      NoInfo ->
-        if j1 == j2
-          then NoInfo
-          else Info $ Justified (min j1 j2, x)
-      Contradiction ->
-        if j1 == j2
-          then Info $ Justified (j1, Contradiction)
-          else Info $ Justified (min j1 j2, Contradiction)
-      Info z -> Info $ Justified (j1 <> j2, Info z)
