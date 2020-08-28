@@ -27,10 +27,17 @@ import Logic.Info
 data Alert m where
   Alert :: Network m => NetworkId m -> m () -> Alert m
 
+instance Eq (Alert m) where
+  (Alert x _) == (Alert y _) = x == y
+
 class Network m => HasTargets m f where
   getTargets :: f a -> m [Alert m]
   addTarget :: Alert m -> f a -> m ()
   removeTarget :: NetworkId m -> f a -> m ()
+
+instance Hashable (Alert m) where
+  hash (Alert x _) = hash x
+  hashWithSalt d (Alert x _) = hashWithSalt d x
 
 -- | Add some Info to the contained value
 class (Network m, Monad m) => Inform m f where
@@ -43,7 +50,7 @@ class (Inform m cell, HasTargets m cell, Monad m) => Cell m cell where
 data SomeCell m where
   SomeCell :: Cell m f => f a -> SomeCell m
 
-class (Eq (NetworkId m), Monad m) => Network m where
+class (Hashable (NetworkId m), Eq (NetworkId m), Monad m) => Network m where
   type NetworkId m :: *
   newId :: m (NetworkId m)
 
