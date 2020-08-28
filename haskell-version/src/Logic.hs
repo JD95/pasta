@@ -19,6 +19,7 @@ import Control.Monad.Freer.State
 import Data.IORef
 import Data.List hiding (product, sum)
 import Data.Sequence (Seq (..), (|>))
+import Logic.Datalog
 import Logic.Info
 import Logic.Propagator
 import Prelude hiding (product, sum)

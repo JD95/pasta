@@ -29,6 +29,9 @@ dependencies:
 - text
 - vector
 - freer-simple
+- primitive
+- hashable
+- ghc-prim
 - fastsum
 
 library:
