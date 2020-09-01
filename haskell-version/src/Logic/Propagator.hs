@@ -12,13 +12,13 @@ import Control.Monad.IO.Class
 import Data.List.NonEmpty
 import Logic.Info
 import Logic.Propagator.Class
-import Logic.Propagator.IOCell
+import Logic.Propagator.PrimCell
 
 test :: (m ~ IO, MonadFail m, MonadIO m, Network m) => m (Info Double)
 test = do
-  x <- newIOCell
-  y <- newIOCell
-  z <- newIOCell
+  x <- newPrimCell
+  y <- newPrimCell
+  z <- newPrimCell
   adder x y z
   inform (Info 1.0) x
   inform (Info 5.0) z
