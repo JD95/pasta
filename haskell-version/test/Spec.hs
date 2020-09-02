@@ -1,17 +1,18 @@
 {-# LANGUAGE TypeApplications #-}
 
 import AST.Core
-import Control.Monad.Freer
+import Control.Applicative
+import Control.Monad.Primitive
 import Eval.Stages
 import Lib
-import Logic.Info
 import Test.Tasty
 import Test.Tasty.HUnit
+import Prelude hiding (product)
 
 main :: IO ()
 main = defaultMain tests
   where
-    tests = testGroup "Eval" [evalTest, boundTest, propTest]
+    tests = testGroup "Eval" [evalTest, boundTest, propTest, primCellTest]
 
     evalTest = testCase "eval int is int" $ do
       result <- runNormal [] . term . int $ 1
@@ -33,50 +34,63 @@ main = defaultMain tests
             result @?= nf (int 1)
         ]
 
+    primCellTest =
+      testGroup
+        "PrimCells"
+        [ testCase "primCells backtrack" $ do
+            result <- observeT $ do
+              x <- newPrimCell @_ @Double
+              let path1 = inform (Info 0) x *> empty
+              let path2 = inform (Info 1) x
+              path1 <|> path2
+              content x
+            result @?= Info 1
+        ]
+
     propTest =
       testGroup
         "Propagators"
         [ testCase "values prop forward" $ do
-            result <- runPropagator $ do
-              x <- cell @Double
-              y <- cell
-              z <- cell
-              constant 1 x
-              constant 2 y
+            result <- primToIO $ do
+              x <- newPrimCell @IO @Double
+              y <- newPrimCell
+              z <- newPrimCell
+              inform (Info 1) x
+              inform (Info 2) y
               adder x y z
               solve
-              send $ content z
+              content z
             result @?= (Info 3.0),
           testCase "values prop backward" $ do
-            result <- runPropagator $ do
-              x <- cell @Double
-              y <- cell
-              z <- cell
-              constant 1 x
-              constant 3 z
-              Lib.sum x y z
+            result <- primToIO $ do
+              x <- newPrimCell @IO @Double
+              y <- newPrimCell
+              z <- newPrimCell
+              inform (Info 1) x
+              inform (Info 3) z
+              adder x y z
               solve
-              send $ content y
+              content y
             result @?= (Info 2.0),
           testCase "farhenheitToCelsius" $ do
             let fahrenheitToCelsius f c = do
-                  thirtyTwo <- cell
-                  f32 <- cell
-                  five <- cell
-                  c9 <- cell
-                  nine <- cell
-                  constant 32 thirtyTwo
-                  constant 5 five
-                  constant 9 nine
-                  Lib.sum thirtyTwo f32 f
-                  Lib.product f32 five c9
-                  Lib.product c nine c9
-            result <- runPropagator $ do
-              f <- cell @Double
-              c <- cell
+                  thirtyTwo <- newPrimCell
+                  f32 <- newPrimCell
+                  five <- newPrimCell
+                  c9 <- newPrimCell
+                  nine <- newPrimCell
+                  inform (Info 32) thirtyTwo
+                  inform (Info 5) five
+                  inform (Info 9) nine
+                  adder thirtyTwo f32 f
+                  product f32 five c9
+                  product c nine c9
+            result <- primToIO $ do
+              f <- newPrimCell @IO @Double
+              c <- newPrimCell
               fahrenheitToCelsius f c
-              fill (Info 25) c
+              inform (Info 25) c
               solve
-              send $ content f
+              content f
             result @?= (Info 77.0)
         ]

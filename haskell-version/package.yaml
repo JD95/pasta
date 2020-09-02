@@ -22,6 +22,7 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - containers
+- data-default
 - exceptions
 - fastsum
 - free
@@ -29,9 +30,11 @@ dependencies:
 - ghc-prim
 - hashable
 - microlens-platform
+- mtl
 - primitive
 - recursion-schemes
 - text
+- transformers
 - unordered-containers
 - vector
 

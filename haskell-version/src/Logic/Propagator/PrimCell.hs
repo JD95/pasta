@@ -3,16 +3,16 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
 
 module Logic.Propagator.PrimCell where
 
+import Control.Applicative
 import Control.Arrow
 import Control.Monad
-import Control.Monad.IO.Class
 import Control.Monad.Primitive
-import Data.HashSet
+import Data.HashSet (HashSet)
 import qualified Data.HashSet as Set
-import Data.IORef
 import Data.Primitive.MutVar
 import Logic.Info
 import Logic.Propagator.Class
@@ -25,9 +25,9 @@ instance (Network m, PrimMonad m) => Inform m (PrimCell m) where
     case x <> y of
       NoInfo -> pure ()
       Info z -> do
-        writeMutVar ref (Info z, listeners)
+        backtrackWrite ref (Info z, listeners)
         forM_ listeners $ \(Alert _ go) -> go
-      Contradiction -> error "Boom!"
+      Contradiction -> empty
 
 instance (Network m, PrimMonad m) => Cell m (PrimCell m) where
   content (PrimCell ref) = fmap fst . readMutVar $ ref
@@ -39,3 +39,21 @@ instance (Network m, PrimMonad m) => HasTargets m (PrimCell m) where
 
 newPrimCell :: (PrimMonad m) => forall a. m (PrimCell m a)
 newPrimCell = fmap PrimCell $ newMutVar (NoInfo, Set.empty)
+
+backtrackWrite :: (MonadPlus m, PrimMonad m) => MutVar (PrimState m) a -> a -> m ()
+backtrackWrite ref val = do
+  unwind ((),) (writeMutVar ref) $ atomicModifyMutVar ref (val,)
+
+backtrackModify :: (MonadPlus m, PrimMonad m) => MutVar (PrimState m) a -> (a -> a) -> m ()
+backtrackModify ref f = do
+  unwind ((),) (writeMutVar ref) $ atomicModifyMutVar ref $ \a -> (f a, a)
+
+unwind ::
+  MonadPlus m =>
+  (a -> (b, c)) ->
+  (c -> m d) ->
+  m a ->
+  m b
+unwind f mu na =
+  na >>= \a -> case f a of
+    (b, c) -> pure b <|> (mu c *> empty)

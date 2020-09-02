@@ -9,6 +9,13 @@ class Merge a where
 
   isTop :: a -> Bool
 
+instance Merge Double where
+  merge x y
+    | x == y = NoInfo
+    | otherwise = Contradiction
+
+  isTop _ = True
+
 data Info a
   = -- | Acts as multiplicative 0
     Contradiction
@@ -29,12 +36,9 @@ instance Merge a => Semigroup (Info a) where
 instance Merge a => Monoid (Info a) where
   mempty = NoInfo
 
-instance Merge Double where
-  merge x y
-    | x == y = NoInfo
-    | otherwise = Contradiction
-
-  isTop _ = True
+isInfo :: Info a -> Bool
+isInfo (Info _) = True
+isInfo _ = False
 
 instance Functor Info where
   fmap f (Info x) = Info (f x)

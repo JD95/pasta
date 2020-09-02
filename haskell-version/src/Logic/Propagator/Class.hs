@@ -3,24 +3,21 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Logic.Propagator.Class where
 
 import Control.Monad
 import Control.Monad.Fail
-import Control.Monad.Primitive
+import Control.Monad.IO.Class
 import Data.Hashable
-import Data.List.NonEmpty
-import GHC.Prim
-import GHC.Types
 import Logic.Info
+import Logic.Monad
+import Unique
 
 -- | A container for an alert to schedule
 -- with an Id so they can be identified.
@@ -50,7 +47,7 @@ class (Inform m cell, HasTargets m cell, Monad m) => Cell m cell where
 data SomeCell m where
   SomeCell :: Cell m f => f a -> SomeCell m
 
-class (Hashable (NetworkId m), Eq (NetworkId m), Monad m) => Network m where
+class (MonadPlus m, Hashable (NetworkId m), Eq (NetworkId m), Monad m) => Network m where
   type NetworkId m :: *
   newId :: m (NetworkId m)
 
@@ -62,21 +59,6 @@ class (Hashable (NetworkId m), Eq (NetworkId m), Monad m) => Network m where
 
   propagate :: (Inform m f, Merge a) => m (Info a) -> [f a] -> m ()
   solve :: m ()
-
-data Unique s = Unique !Int (MutableByteArray# s)
-
-type UniqueM m = Unique (PrimState m)
-
-instance Eq (Unique s) where
-  Unique _ p == Unique _ q = isTrue# (sameMutableByteArray# p q)
-
-instance Hashable (Unique s) where
-  hash (Unique i _) = i
-  hashWithSalt d (Unique i _) = hashWithSalt d i
-
-newUnique :: PrimMonad m => m (UniqueM m)
-newUnique = primitive $ \s -> case newByteArray# 0# s of
-  (# s', ba #) -> (# s', Unique (I# (addr2Int# (unsafeCoerce# ba))) ba #)
 
 instance Network IO where
   type NetworkId IO = UniqueM IO
@@ -93,23 +75,43 @@ instance Network IO where
 
   solve = pure ()
 
+instance Network (LogicT IO) where
+  type NetworkId (LogicT IO) = UniqueM (LogicT IO)
+
+  newId = liftIO newUnique
+
+  alert = id
+
+  propagate action targets = do
+    action >>= \case
+      NoInfo -> pure ()
+      Info x -> forM_ targets $ inform (Info x)
+      Contradiction -> error "Boom!"
+
+  solve = pure ()
+
 watchCells ::
   (MonadFail m, Network m) =>
-  NonEmpty (SomeCell m) ->
+  [SomeCell m] ->
   -- | Action to take when all cells have info
   m () ->
   m ()
-watchCells (SomeCell c :| cs) action = do
-  propId <- newId
-  let go (SomeCell ref) next = do
-        content ref >>= \case
-          NoInfo -> addTarget (Alert propId (fire propId ref next)) ref
-          Info _ -> fire propId ref next
-          Contradiction -> error "Boom!"
-  let watchAll = do
-        forM_ cs $ \(SomeCell ref) -> addTarget (Alert propId action) ref
-        action
-  addTarget (Alert propId (foldr go watchAll cs)) c
+watchCells cells action = do
+  filterM (\(SomeCell c) -> not . isInfo <$> content c) cells >>= \case
+    [] -> action
+    (SomeCell c : cs) -> do
+      propId <- newId
+      let go (SomeCell ref) next = do
+            content ref >>= \case
+              -- One of the values needed doesn't have info,
+              -- watch this value until it fills
+              NoInfo -> addTarget (Alert propId (fire propId ref next)) ref
+              Info _ -> fire propId ref next
+              Contradiction -> error "Boom!"
+      let watchAll = do
+            forM_ cells $ \(SomeCell ref) -> addTarget (Alert propId action) ref
+            action
+      addTarget (Alert propId (foldr go watchAll cs)) c
 
 fire :: (Cell m cell) => NetworkId m -> cell x -> m () -> m ()
 fire propId ref next = removeTarget propId ref *> next
