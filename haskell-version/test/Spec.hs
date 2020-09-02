@@ -12,39 +12,31 @@ import Prelude hiding (product)
 main :: IO ()
 main = defaultMain tests
   where
-    tests = testGroup "Eval" [evalTest, boundTest, propTest, primCellTest]
+    tests = testGroup "Jelly" [evalTests, propTest]
 
-    evalTest = testCase "eval int is int" $ do
-      result <- runNormal [] . term . int $ 1
-      result @?= nf (int 1)
-
-    boundTest =
+    evalTests =
       testGroup
-        "bound"
-        [ testCase "can lookup value" $ do
-            let r = term . int $ 1
-            let t = term . thunk [r] . bnd $ 0
-            result <- runNormal [] t
-            result @?= nf (int 1),
-          testCase "looks up proper value" $ do
-            let r0 = term . int $ 0
-            let r1 = term . int $ 1
-            let t = term $ thunk [r0, r1] (bnd 1)
-            result <- runNormal [] t
-            result @?= nf (int 1)
-        ]
-
-    primCellTest =
-      testGroup
-        "PrimCells"
-        [ testCase "primCells backtrack" $ do
-            result <- observeT $ do
-              x <- newPrimCell @_ @Double
-              let path1 = inform (Info 0) x *> empty
-              let path2 = inform (Info 1) x
-              path1 <|> path2
-              content x
-            result @?= Info 1
+        "Eval"
+        [ testGroup
+            "Int"
+            [ testCase "eval is idempotent" $ do
+                result <- runNormal [] . term . int $ 1
+                result @?= nf (int 1)
+            ],
+          testGroup
+            "Bound"
+            [ testCase "can lookup value" $ do
+                let r = term . int $ 1
+                let t = term . thunk [r] . bnd $ 0
+                result <- runNormal [] t
+                result @?= nf (int 1),
+              testCase "looks up proper value" $ do
+                let r0 = term . int $ 0
+                let r1 = term . int $ 1
+                let t = term $ thunk [r0, r1] (bnd 1)
+                result <- runNormal [] t
+                result @?= nf (int 1)
+            ]
         ]
 
     propTest =
@@ -92,5 +84,29 @@ main = defaultMain tests
               inform (Info 25) c
               solve
               content f
-            result @?= (Info 77.0)
+            result @?= (Info 77.0),
+          testGroup
+            "PrimCells"
+            [ testCase "primCells backtrack" $ do
+                result <- observeT $ do
+                  x <- newPrimCell @_ @Double
+                  let path1 = inform (Info 0) x *> empty
+                  let path2 = inform (Info 1) x *> inform (Info 3) x
+                  let path3 = inform (Info 2) x
+                  path1 <|> path2 <|> path3
+                  content x
+                result @?= Info 2,
+              testCase "alternate paths work" $ do
+                result <- observeAllT $ do
+                  x <- newPrimCell @_ @Double
+                  y <- newPrimCell @_ @Double
+                  z <- newPrimCell @_ @Double
+                  adder x y z
+                  let path1 = inform (Info 0) x *> inform (Info 1) y
+                  let path2 = inform (Info 1) x *> inform (Info 2) y
+                  let path3 = inform (Info 2) x *> inform (Info 3) y
+                  path1 <|> path2 <|> path3
+                  content z
+                result @?= [Info 1, Info 3, Info 5]
+            ]
         ]

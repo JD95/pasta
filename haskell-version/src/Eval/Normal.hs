@@ -21,11 +21,6 @@ import Data.Sum
 import Eval.Stages
 import Prelude hiding (lookup)
 
--- -----------------------------------------------------------
-
--- |
--- * Evaluates WHNF terms into NF, removing
---   all closures.
 class Normal f where
   normal ::
     Members '[Reader [Fix NF], IO] es =>

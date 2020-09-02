@@ -19,11 +19,6 @@ import Data.Sum
 import Eval.Stages
 import Prelude hiding (lookup)
 
--- -----------------------------------------------------------
-
--- |
--- * Evaluates WHNF terms into NF, removing
---   all closures.
 class Whnf f where
   whnf ::
     Members '[Reader [Fix Term], IO] es =>

@@ -106,8 +106,6 @@ instance m ~ Identity => Uncons (LogicT m) where
 instance Monad m => Semigroup (LogicT m a) where
   (<>) = (<|>)
 
--- LogicT xs <> LogicT ys = LogicT (xs <> ys)
-
 instance Monad m => Monoid (LogicT m a) where
   mempty = LogicT mempty
 
