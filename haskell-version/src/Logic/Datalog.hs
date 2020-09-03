@@ -8,10 +8,8 @@ module Logic.Datalog where
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.IO.Class
 import Control.Monad.Primitive
-import Data.Foldable
-import Data.List
+import qualified Data.HashSet as Set
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Logic.Info
@@ -49,7 +47,7 @@ edge in1 in2 (Table tbl) = do
   waitOn [SomeCell tbl'] $
     flip propagate [in1] $ do
       content tbl' >>= \case
-        Info vals -> foldr (<|>) (pure Contradiction) (map (pure . Info) . nub . Vec.toList . Vec.map edgeFrom $ vals)
+        Info vals -> msum (map (pure . Info) . Set.toList . Vec.foldr Set.insert Set.empty . Vec.map edgeFrom $ vals)
         _ -> pure NoInfo
 
   waitOn [SomeCell tbl'] $
@@ -61,13 +59,11 @@ edge in1 in2 (Table tbl) = do
         -- implemented yet, simply split on the *unique* values
         -- in the row.
         Info vals ->
-          foldr
-            (<|>)
-            (pure Contradiction)
+          msum
             ( map (pure . Info)
                 -- Only care about unique  values
-                . nub
-                . Vec.toList
+                . Set.toList
+                . Vec.foldr Set.insert Set.empty
                 -- Grab appropriate row
                 . Vec.map edgeTo
                 $ vals
