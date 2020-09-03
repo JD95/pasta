@@ -11,8 +11,8 @@
 
 module Logic.Propagator.Class where
 
+import Control.Applicative
 import Control.Monad
-import Control.Monad.Fail
 import Control.Monad.IO.Class
 import Data.Hashable
 import Logic.Info
@@ -71,7 +71,7 @@ instance Network IO where
     action >>= \case
       NoInfo -> pure ()
       Info x -> forM_ targets $ inform (Info x)
-      Contradiction -> error "Boom!"
+      Contradiction -> empty
 
   solve = pure ()
 
@@ -86,17 +86,26 @@ instance Network (LogicT IO) where
     action >>= \case
       NoInfo -> pure ()
       Info x -> forM_ targets $ inform (Info x)
-      Contradiction -> error "Boom!"
+      Contradiction -> empty
 
   solve = pure ()
 
 watchCells ::
-  (MonadFail m, Network m) =>
+  (Network m) =>
+  NetworkId m ->
   [SomeCell m] ->
   -- | Action to take when all cells have info
   m () ->
   m ()
-watchCells cells action = do
+watchCells propId cells action = forM_ cells $ \(SomeCell ref) -> addTarget (Alert propId action) ref
+
+waitOn ::
+  (Network m) =>
+  [SomeCell m] ->
+  -- | Action to take when all cells have info
+  m () ->
+  m ()
+waitOn cells action = do
   filterM (\(SomeCell c) -> not . isInfo <$> content c) cells >>= \case
     [] -> action
     (SomeCell c : cs) -> do
@@ -108,10 +117,8 @@ watchCells cells action = do
               NoInfo -> addTarget (Alert propId (fire propId ref next)) ref
               Info _ -> fire propId ref next
               Contradiction -> error "Boom!"
-      let watchAll = do
-            forM_ cells $ \(SomeCell ref) -> addTarget (Alert propId action) ref
-            action
-      addTarget (Alert propId (foldr go watchAll cs)) c
+      let wakeUp = watchCells propId cells action *> action
+      addTarget (Alert propId (foldr go wakeUp cs)) c
 
 fire :: (Cell m cell) => NetworkId m -> cell x -> m () -> m ()
 fire propId ref next = removeTarget propId ref *> next

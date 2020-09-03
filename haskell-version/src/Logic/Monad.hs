@@ -10,6 +10,7 @@
 module Logic.Monad
   ( LogicT (LogicT), -- TODO internal
     Logic,
+    MonadLogic (..),
     observe,
     observeMany,
     observeAll,

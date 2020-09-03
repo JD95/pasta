@@ -20,9 +20,9 @@ import Logic.Propagator.Class
 data PrimCell m a = PrimCell (MutVar (PrimState m) (Info a, HashSet (Alert m)))
 
 instance (Network m, PrimMonad m) => Inform m (PrimCell m) where
-  inform x (PrimCell ref) = do
-    (y, listeners) <- readMutVar ref
-    case x <> y of
+  inform new (PrimCell ref) = do
+    (old, listeners) <- readMutVar ref
+    case old <> new of
       NoInfo -> pure ()
       Info z -> do
         backtrackWrite ref (Info z, listeners)
