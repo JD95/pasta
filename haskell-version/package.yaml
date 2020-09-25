@@ -29,6 +29,7 @@ dependencies:
 - freer-simple
 - ghc-prim
 - hashable
+- Logic
 - microlens-platform
 - mtl
 - primitive
