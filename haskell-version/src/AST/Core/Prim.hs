@@ -18,7 +18,6 @@ import Numeric.Natural (Natural)
 
 data Prim a
   = Arr a a
-  | Rel a a
   | NewTy !Text a
   | Type !Natural
   | Pole !Polarity
@@ -56,7 +55,6 @@ instance Show1 Prim where
 
 instance Display Prim where
   displayF (Arr i o) = i <> " -> " <> o
-  displayF (Rel i o) = i <> " -: " <> o
   displayF (NewTy n _) = n
   displayF (Type _) = "Type"
   displayF (Pole Deep) = "!"

@@ -3,8 +3,11 @@
 import AST.Core
 import Control.Applicative
 import Control.Monad.Primitive
+import Data.Functor.Foldable
 import Eval.Stages
 import Lib
+import Logic
+import Logic.Propagator
 import Test.Tasty
 import Test.Tasty.HUnit
 import Prelude hiding (product)
@@ -12,7 +15,19 @@ import Prelude hiding (product)
 main :: IO ()
 main = defaultMain tests
   where
-    tests = testGroup "Jelly" [evalTests]
+    tests = testGroup "Jelly" [evalTests, typeCheckTests]
+
+    typeCheckTests = testGroup "TypeCheck" [unifyTests]
+      where
+        unifyTests =
+          testGroup
+            "Unify"
+            [ testCase "Unit with Unit" $ do
+                result <- observeAllT $ do
+                  uni <- unify (struct []) (struct [])
+                  zonk (undefined) (unfix uni)
+                result @?= [struct []]
+            ]
 
     evalTests =
       testGroup

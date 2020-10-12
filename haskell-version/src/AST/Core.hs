@@ -27,6 +27,7 @@ where
 
 import AST.Core.Data
 import AST.Core.Prim
+import Data.Functor.Classes
 import Data.Functor.Foldable (Fix (..))
 import Data.Sum
 import Data.Text (Text)
@@ -50,16 +51,27 @@ data Lam a = Lam Text a
 
 deriving instance Functor Lam
 
+deriving instance Foldable Lam
+
+deriving instance Traversable Lam
+
 instance Display Lam where
   displayF (Lam input body) = "\\" <> input <> " -> " <> body
 
 lam :: (Lam :< fs) => Text -> Fix (Sum fs) -> Fix (Sum fs)
 lam input = Fix . inject . Lam input
 
+instance Eq1 Lam where
+  liftEq f (Lam a b) (Lam c d) = a == c && f b d
+
 -- | Application terms
 data App a = App a a
 
 deriving instance Functor App
+
+deriving instance Foldable App
+
+deriving instance Traversable App
 
 app :: (App :< fs) => Fix (Sum fs) -> Fix (Sum fs) -> Fix (Sum fs)
 app func = Fix . inject . App func
@@ -71,10 +83,20 @@ newtype FreeVar a = FreeVar Text
 
 deriving instance Functor FreeVar
 
+deriving instance Foldable FreeVar
+
+deriving instance Traversable FreeVar
+
+instance Eq1 App where
+  liftEq f (App a b) (App c d) = f a c && f b d
+
 free :: (FreeVar :< fs) => Text -> Fix (Sum fs)
 free var = Fix . inject $ FreeVar var
 
 instance Display FreeVar where
   displayF (FreeVar v) = v
+
+instance Eq1 FreeVar where
+  liftEq _ (FreeVar x) (FreeVar y) = x == y
 
 type Core = Sum [Prim, Data, Lam, App, FreeVar]

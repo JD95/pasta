@@ -48,8 +48,8 @@ deriving instance Foldable Data
 
 deriving instance Traversable Data
 
-struct :: (Data :< fs) => [Fix (Sum fs)] -> Fix (Sum fs)
-struct = Fix . inject . Struct . V.fromList
+struct :: (Foldable t, Data :< fs) => t (Fix (Sum fs)) -> Fix (Sum fs)
+struct = Fix . inject . Struct . V.fromList . toList
 
 case_ :: (Data :< fs) => Fix (Sum fs) -> [(Natural, Fix (Sum fs))] -> Fix (Sum fs)
 case_ sub = Fix . inject . Case sub . Map.fromList
