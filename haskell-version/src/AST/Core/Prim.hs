@@ -6,17 +6,37 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module AST.Core.Prim where
 
+import AST.Transform
 import Control.Monad.Free
+import Data.Eq.Deriving
 import Data.Functor.Classes (Eq1 (..), Show1 (..))
 import Data.Sum
 import Data.Text (Text, pack, unpack)
 import Display
+import Logic.Info
 import Numeric.Natural (Natural)
+import Text.Show.Deriving
+
+data Polarity
+  = -- | Evaluate expression to normal form
+    Deep
+  | -- | Evaluate expression to WHNF
+    Shallow
+  | -- | Suspend expression
+    Lazy
+  deriving (Eq, Ord, Show)
+
+data Usage
+  = Zero
+  | Once
+  | Many
+  deriving (Eq, Ord, Show)
 
 data Prim a
   = Arr a a
@@ -48,12 +68,14 @@ deriving instance Traversable Prim
 
 deriving instance (Eq a) => Eq (Prim a)
 
-instance Eq1 Prim where
-  liftEq _ (PInt x) (PInt y) = x == y
-  liftEq _ _ _ = undefined
+deriveEq1 ''Prim
+deriveShow1 ''Prim
 
-instance Show1 Prim where
-  liftShowsPrec f _ _ p = unpack . displayF . fmap pack . traverse (f 0) p
+instance Diffable Prim where
+  diff f (Arr a b) (Arr c d) = Arr <$> f a c <*> f b d
+  diff f (NewTy s x) (NewTy t y) = s `diffEq` t *> (NewTy s <$> f x y)
+  diff _ (Type n) (Type m) = Type <$> n `diffEq` m
+  diff _ _ _ = error "Diffable for Prim not complete"
 
 instance Display Prim where
   displayF (Arr i o) = i <> " -> " <> o
@@ -76,21 +98,6 @@ instance Display Prim where
   displayF (PChar c) = pack . show $ c
   displayF (CharTy) = "Char"
 
-data Polarity
-  = -- | Evaluate expression to normal form
-    Deep
-  | -- | Evaluate expression to WHNF
-    Shallow
-  | -- | Suspend expression
-    Lazy
-  deriving (Eq, Ord)
-
-data Usage
-  = Zero
-  | Once
-  | Many
-  deriving (Eq, Ord)
-
 (-:>) :: (Prim :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
 i -:> o = Free . inject $ Arr i o
 
@@ -102,3 +109,6 @@ ty = Free . inject . Type
 
 int :: (Prim :< fs) => Int -> Free (Sum fs) a
 int = Free . inject . PInt
+
+intTy :: (Prim :< fs) => Free (Sum fs) a
+intTy = Free $ inject IntTy

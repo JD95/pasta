@@ -6,11 +6,14 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 
 module AST.Core.Data where
 
+import AST.Transform
 import Control.Monad.Free
+import Data.Eq.Deriving
 import Data.Foldable
 import Data.Functor.Classes (Eq1 (..), Show1 (..))
 import Data.Functor.Foldable (Fix (..))
@@ -24,6 +27,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Display
 import Numeric.Natural (Natural)
+import Text.Show.Deriving
 
 data Data a where
   -- | A grouping of values
@@ -35,19 +39,23 @@ data Data a where
   -- | Branching on a value
   Case :: a -> Map Natural a -> Data a
 
-instance Show1 Data where
-  liftShowsPrec f _ _ p = unpack . displayF . fmap pack . traverse (f 0) p
-
 deriving instance (Eq a) => Eq (Data a)
-
-instance Eq1 Data where
-  liftEq _ _ _ = undefined
 
 deriving instance Functor Data
 
 deriving instance Foldable Data
 
 deriving instance Traversable Data
+
+deriveEq1 ''Data
+deriveShow1 ''Data
+
+instance Diffable Data where
+  diff f (Struct _) (Struct _) = undefined
+  diff f (Out _ _) (Out _ _) = undefined
+  diff f (In _ _) (In _ _) = undefined
+  diff f (Case _ _) (Case _ _) = undefined
+  diff _ _ _ = undefined
 
 struct :: (Foldable t, Data :< fs) => t (Free (Sum fs) a) -> Free (Sum fs) a
 struct = Free . inject . Struct . V.fromList . toList

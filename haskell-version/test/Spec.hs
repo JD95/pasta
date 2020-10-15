@@ -1,8 +1,10 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
 import AST.Core
 import Control.Applicative
+import Control.Monad.Free
 import Control.Monad.Primitive
 import Data.Functor.Foldable
 import Display
@@ -19,8 +21,18 @@ main = defaultMain tests
   where
     tests = testGroup "Jelly" [evalTests, typeCheckTests]
 
-    typeCheckTests = testGroup "TypeCheck" [unifyTests]
+    typeCheckTests = testGroup "TypeCheck" [unifyTests, checkTests]
       where
+        checkTests =
+          testGroup
+            "Check"
+            [ testCase "0 : Int" $ do
+                let term = int 0 :: Partial Hole
+                let answer = intTy :: Partial Hole
+                unTypeCell <$> cata check term >>= (fmap . fmap) unTypeMerge . content >>= \case
+                  Info result -> result @?= answer
+                  _ -> undefined
+            ]
         unifyTests =
           testGroup
             "Unify"
