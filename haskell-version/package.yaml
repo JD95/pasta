@@ -34,6 +34,7 @@ dependencies:
 - mtl
 - primitive
 - recursion-schemes
+- smash
 - text
 - transformers
 - unordered-containers
@@ -41,8 +42,6 @@ dependencies:
 
 library:
   source-dirs: src
-  ghc-options:
-  - -Wall
 
 executables:
   jelly-exe:

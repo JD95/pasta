@@ -11,7 +11,8 @@
 
 module AST.Transform where
 
-import Data.Functor.Foldable (Fix (..))
+import Control.Monad.Free
+import Data.Functor.Foldable (Fix (..), cata)
 import Data.Sum
 
 -- | Allows for unchanging parts of the AST to pass through a transform
@@ -25,3 +26,9 @@ gpass ::
   f (m (Fix h)) ->
   m (Fix h)
 gpass into = fmap (Fix . into . inject) . sequence
+
+asFix :: Functor f => Free f (Fix f) -> Fix f
+asFix = iter Fix
+
+asFree :: Functor f => Fix f -> Free f a
+asFree = cata Free

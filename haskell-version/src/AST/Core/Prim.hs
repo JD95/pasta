@@ -11,7 +11,9 @@
 
 module AST.Core.Prim where
 
+import Control.Monad.Free
 import Data.Functor.Classes (Eq1 (..), Show1 (..))
+import Data.Sum
 import Data.Text (Text, pack, unpack)
 import Display
 import Numeric.Natural (Natural)
@@ -88,3 +90,15 @@ data Usage
   | Once
   | Many
   deriving (Eq, Ord)
+
+(-:>) :: (Prim :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
+i -:> o = Free . inject $ Arr i o
+
+new_ :: (Prim :< fs) => Text -> Free (Sum fs) a -> Free (Sum fs) a
+new_ name = Free . inject . NewTy name
+
+ty :: (Prim :< fs) => Natural -> Free (Sum fs) a
+ty = Free . inject . Type
+
+int :: (Prim :< fs) => Int -> Free (Sum fs) a
+int = Free . inject . PInt

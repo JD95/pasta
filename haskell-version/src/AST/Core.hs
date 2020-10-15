@@ -27,6 +27,7 @@ where
 
 import AST.Core.Data
 import AST.Core.Prim
+import Control.Monad.Free
 import Data.Functor.Classes
 import Data.Functor.Foldable (Fix (..))
 import Data.Sum
@@ -34,20 +35,8 @@ import Data.Text (Text)
 import Display
 import Numeric.Natural (Natural)
 
-(-:>) :: (Prim :< fs) => Fix (Sum fs) -> Fix (Sum fs) -> Fix (Sum fs)
-i -:> o = Fix . inject $ Arr i o
-
-new_ :: (Prim :< fs) => Text -> Fix (Sum fs) -> Fix (Sum fs)
-new_ name = Fix . inject . NewTy name
-
-ty :: (Prim :< fs) => Natural -> Fix (Sum fs)
-ty = Fix . inject . Type
-
-int :: (Prim :< fs) => Int -> Fix (Sum fs)
-int = Fix . inject . PInt
-
 -- | Lambda Terms
-data Lam a = Lam Text a
+data Lam a = Lam Text a deriving (Eq, Show)
 
 deriving instance Functor Lam
 
@@ -58,14 +47,14 @@ deriving instance Traversable Lam
 instance Display Lam where
   displayF (Lam input body) = "\\" <> input <> " -> " <> body
 
-lam :: (Lam :< fs) => Text -> Fix (Sum fs) -> Fix (Sum fs)
-lam input = Fix . inject . Lam input
+lam :: (Lam :< fs) => Text -> Free (Sum fs) a -> Free (Sum fs) a
+lam input = Free . inject . Lam input
 
 instance Eq1 Lam where
   liftEq f (Lam a b) (Lam c d) = a == c && f b d
 
 -- | Application terms
-data App a = App a a
+data App a = App a a deriving (Eq, Show)
 
 deriving instance Functor App
 
@@ -73,13 +62,13 @@ deriving instance Foldable App
 
 deriving instance Traversable App
 
-app :: (App :< fs) => Fix (Sum fs) -> Fix (Sum fs) -> Fix (Sum fs)
-app func = Fix . inject . App func
+app :: (App :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
+app func = Free . inject . App func
 
 instance Display App where
   displayF (App func input) = "(" <> func <> " " <> input <> ")"
 
-newtype FreeVar a = FreeVar Text
+newtype FreeVar a = FreeVar Text deriving (Eq, Show)
 
 deriving instance Functor FreeVar
 
@@ -90,8 +79,8 @@ deriving instance Traversable FreeVar
 instance Eq1 App where
   liftEq f (App a b) (App c d) = f a c && f b d
 
-free :: (FreeVar :< fs) => Text -> Fix (Sum fs)
-free var = Fix . inject $ FreeVar var
+free :: (FreeVar :< fs) => Text -> Free (Sum fs) a
+free var = Free . inject $ FreeVar var
 
 instance Display FreeVar where
   displayF (FreeVar v) = v

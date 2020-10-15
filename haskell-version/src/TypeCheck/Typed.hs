@@ -7,6 +7,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -21,19 +22,28 @@ import AST.Core
 import AST.Transform
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Free
+import qualified Control.Monad.Free as Free
+import Control.Monad.Freer
+import Control.Monad.Freer.State
 import Control.Monad.Primitive
 import Data.Functor.Classes
 import Data.Functor.Foldable hiding (project)
+import Data.Hashable
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import Data.Sum
+import Data.Text
 import Data.Traversable
 import Data.Vector (Vector)
+import Data.Wedge
+import Display
 import Logic.Info
 import Logic.Propagator
+import Logic.Propagator.Class
 import Logic.Propagator.PrimCell
-import Unsafe.Coerce
 
-data Ann a where
-  Ann :: a -> a -> Ann a
+data Ann a = Ann a a deriving (Eq, Show)
 
 deriving instance Functor Ann
 
@@ -44,130 +54,67 @@ deriving instance Traversable Ann
 instance Eq1 Ann where
   liftEq f (Ann a b) (Ann c d) = f a c && f b d
 
-ann :: (Ann :< fs) => Fix (Sum fs) -> Fix (Sum fs) -> Fix (Sum fs)
-ann val = Fix . inject . Ann val
+ann :: (Ann :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
+ann val = Free . inject . Ann val
 
-newtype Hole m a = Hole {unHole :: PrimCell m (Typing m a)}
+newtype Hole = Hole {unHole :: Int} deriving (Eq, Show)
 
-instance Eq1 (Hole m) where
-  liftEq f (Hole x) (Hole y) = x == unsafeCoerce y
+instance Display Ann where
+  displayF (Ann x y) = x <> " : " <> y
 
-instance (Merge a) => Merge (Hole m a) where
-  merge (OldInfo (Hole old)) (NewInfo (Hole new))
-    | old == new = NoInfo
-    | otherwise = Contradiction
-  isTop _ = True
+hole :: Functor f => Int -> Free f Hole
+hole i = Pure $ Hole i
 
-type Typing m = Sum [Prim, Data, App, Lam, FreeVar, Ann, Hole m]
+type Partial h = Free Typed h
 
 -- | Expressions with Types and free variables
-type TypedTerm = Sum [Prim, Data, App, Lam, FreeVar, Ann]
+type Typed = Sum [Prim, Data, App, Lam, FreeVar, Ann]
 
-class (Network m, PrimMonad m) => UnifyF m f where
-  unifyF :: f (Fix (Typing m)) -> f (Fix (Typing m)) -> m (f (Fix (Typing m)))
+newtype TypeCell m h = TypeCell {unTypeCell :: PrimCell m (Partial h)}
 
-unify :: (Network m, PrimMonad m) => Fix (Typing m) -> Fix (Typing m) -> m (Fix (Typing m))
-unify (x :: Fix (Typing m)) y = maybe empty id $ apply2' @(UnifyF m) (\inj a b -> Fix . inj <$> unifyF a b) (unfix x) (unfix y)
+data RenderST = RenderST {idMap :: IntMap Text, names :: [String]}
 
-instance (Network m, PrimMonad m) => UnifyF m Prim where
-  unifyF (PInt i) (PInt j) = guard (i == j) *> (pure $ PInt i)
-  unifyF (Arr a b) (Arr c d) = Arr <$> unify a c <*> unify b d
-  unifyF _ _ = error "UnifyF not fully implemented for Prim"
+newRenderST :: RenderST
+newRenderST = RenderST mempty ns
+  where
+    ns = Prelude.concat $ iterate (Prelude.zipWith (<>) start) start
+      where
+        start = (: []) <$> ['a' .. 'z']
 
-instance (Network m, PrimMonad m) => UnifyF m Data where
-  unifyF (Struct xs) (Struct ys) = undefined
-  unifyF _ _ = error "UnifyF not fully implemented for Data"
+lookupName :: Members '[State RenderST] es => Int -> Eff es (Maybe Text)
+lookupName i = IntMap.lookup i . idMap <$> get
 
-instance (Network m, PrimMonad m) => UnifyF m App where
-  unifyF (App a b) (App c d) = undefined
+addId :: Members '[State RenderST] es => Int -> Text -> Eff es ()
+addId i t = modify (\st -> st {idMap = IntMap.alter (const . Just $ t) i (idMap st)})
 
-instance (Network m, PrimMonad m) => UnifyF m Lam where
-  unifyF (Lam name1 x) (Lam name2 y) = undefined
+popNextName :: Members '[State RenderST] es => Eff es Text
+popNextName = do
+  name <- (pack . Prelude.head . names) <$> get
+  modify (\st -> st {names = Prelude.tail $ names st})
+  pure name
 
-instance (Network m, PrimMonad m) => UnifyF m FreeVar where
-  unifyF (FreeVar name1) (FreeVar name2) = undefined
+renderHoles :: Partial Hole -> Fix Typed
+renderHoles = asFix . run . evalState newRenderST . traverse go
+  where
+    go :: Members '[State RenderST] es => Hole -> Eff es (Fix Typed)
+    go h =
+      lookupName (unHole h) >>= \case
+        Just name -> pure . asFix $ free name
+        Nothing -> do
+          newName <- popNextName
+          addId (unHole h) newName
+          pure . asFix $ free newName
 
-instance (Network m, PrimMonad m) => UnifyF m Ann where
-  unifyF (Ann val1 ann1) (Ann val2 ann2) = undefined
+myZip ::
+  Free f a ->
+  Free f a ->
+  Wedge
+    (Free f a, a) -- | When a subtree matches a hole
+    (Free f a)    -- | When both trees zip
+myZip = _
 
-instance (Network m, PrimMonad m) => UnifyF m (Hole m) where
-  unifyF x@(Hole (PrimCell xRef)) y@(Hole (PrimCell yRef)) = do
-    (,) <$> content (unHole x) <*> content (unHole y) >>= \case
-      (Info x', Info y') -> do
-        -- Ensure that the available information
-        -- in both holes unify
-        _ <- unify (Fix x') (Fix y')
-        -- Modify one hole to simply refer to the other
-        -- This has the effect of setting x = y
-        backtrackModify xRef (\(_, cs) -> (Info (inject y), cs))
-        pure y
-      (Info x', _) -> do
-        -- Modify the second hole to simply refer to the first
-        -- This has the effect of setting x = y
-        backtrackModify yRef (\(_, cs) -> (Info (inject x), cs))
-        pure x
-      (NoInfo, NoInfo) -> do
-        -- Modify the first hole to simply refer to the second
-        -- This has the effect of setting x = y
-        backtrackModify xRef (\(_, cs) -> (Info (inject y), cs))
-        pure y
-      _ -> empty
+class Zip f where
+  zipF :: f a -> f b -> Maybe (f (a, b))
 
-class (Network m, PrimMonad m) => Zonk m f where
-  zonk :: p m -> f (Fix TypedTerm) -> m (Fix TypedTerm)
-
--- | Used to pass non-hole parts of AST through zonking process
-zonkPass ::
-  (TypedTerm ~ Sum fs, Network m, PrimMonad m, Traversable f, f :< fs) =>
-  p m ->
-  f (Fix TypedTerm) ->
-  m (Fix TypedTerm)
-zonkPass r = fmap (Fix . inject) . sequence . fmap (zonk r . unfix)
-
-applyZonk :: Fix (Typing m) -> m (Fix TypedTerm)
-applyZonk = 
-
-instance (Network m, PrimMonad m, Apply (Zonk m) fs) => Zonk m (Sum fs) where
-  zonk (r :: p m) x = apply @(Zonk m) (zonk r) x
-
-instance (Network m, PrimMonad m) => Zonk m (Hole m) where
-  zonk r (Hole x) = do
-    content x >>= \case
-      Info x' -> zonk r x'
-      _ -> empty
-
-instance (Network m, PrimMonad m) => Zonk m Prim where
-  zonk = zonkPass
-
-instance (Network m, PrimMonad m) => Zonk m Data where
-  zonk = zonkPass
-
-instance (Network m, PrimMonad m) => Zonk m Lam where
-  zonk = zonkPass
-
-instance (Network m, PrimMonad m) => Zonk m App where
-  zonk = zonkPass
-
-instance (Network m, PrimMonad m) => Zonk m FreeVar where
-  zonk = zonkPass
-
-instance (Network m, PrimMonad m) => Zonk m Ann where
-  zonk = zonkPass
-
-class TypeCheck f where
-  checkF :: (Network m, PrimMonad m) => f (Check m) -> Check m
-
-newtype Check m = Check {unCheck :: Vector (Fix (Typing m)) -> m (Fix (Typing m))}
-
-instance Apply TypeCheck fs => TypeCheck (Sum fs) where
-  checkF = apply @TypeCheck checkF
-
-instance TypeCheck Data where
-  checkF (Struct xs) = Check $ \env -> undefined
-
--- Unit being represented by
--- an empty product
--- result <- newPrimCell
--- sub <- struct <$> traverse (\(Check i) -> Fix . inject <$> i env) xs
--- inform (Info sub) result
--- _ result
+instance Apply Zip fs => Zip (Sum fs) where
+  zipF x y = join $ apply2' @Zip (\inj a b -> inj <$> zipF a b) x y

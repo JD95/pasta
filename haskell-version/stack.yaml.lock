@@ -11,6 +11,13 @@ packages:
       sha256: 1c89d4034e6d06e15ff0ec421a95206c030ddc2d35b9eee7f0a02aa30c6051c1
   original:
     hackage: fastsum-0.1.1.1
+- completed:
+    hackage: smash-0.1.0.0@sha256:537cacd049f2522f5196c78662b23aba2ccc3700e1a28a4badea4b7f2a48c350,1960
+    pantry-tree:
+      size: 479
+      sha256: d305df57f87da06367d6b76a1943b728dfa871a2ec121ccab6056745ccb8c9b7
+  original:
+    hackage: smash-0.1.0.0
 snapshots:
 - completed:
     size: 523878

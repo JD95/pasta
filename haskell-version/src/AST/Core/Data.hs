@@ -10,6 +10,7 @@
 
 module AST.Core.Data where
 
+import Control.Monad.Free
 import Data.Foldable
 import Data.Functor.Classes (Eq1 (..), Show1 (..))
 import Data.Functor.Foldable (Fix (..))
@@ -48,17 +49,17 @@ deriving instance Foldable Data
 
 deriving instance Traversable Data
 
-struct :: (Foldable t, Data :< fs) => t (Fix (Sum fs)) -> Fix (Sum fs)
-struct = Fix . inject . Struct . V.fromList . toList
+struct :: (Foldable t, Data :< fs) => t (Free (Sum fs) a) -> Free (Sum fs) a
+struct = Free . inject . Struct . V.fromList . toList
 
-case_ :: (Data :< fs) => Fix (Sum fs) -> [(Natural, Fix (Sum fs))] -> Fix (Sum fs)
-case_ sub = Fix . inject . Case sub . Map.fromList
+case_ :: (Data :< fs) => Free (Sum fs) a -> [(Natural, Free (Sum fs) a)] -> Free (Sum fs) a
+case_ sub = Free . inject . Case sub . Map.fromList
 
-in_ :: (Data :< fs) => Natural -> Fix (Sum fs) -> Fix (Sum fs)
-in_ i = Fix . inject . In i
+in_ :: (Data :< fs) => Natural -> Free (Sum fs) a -> Free (Sum fs) a
+in_ i = Free . inject . In i
 
-out_ :: (Data :< fs) => Natural -> Fix (Sum fs) -> Fix (Sum fs)
-out_ i = Fix . inject . Out i
+out_ :: (Data :< fs) => Natural -> Free (Sum fs) a -> Free (Sum fs) a
+out_ i = Free . inject . Out i
 
 instance Display Data where
   displayF (Struct v) = "(" <> (Text.concat . intersperse ", " . toList $ v) <> ")"
