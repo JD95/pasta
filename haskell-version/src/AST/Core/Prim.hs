@@ -75,6 +75,8 @@ instance Diffable Prim where
   diff f (Arr a b) (Arr c d) = Arr <$> f a c <*> f b d
   diff f (NewTy s x) (NewTy t y) = s `diffEq` t *> (NewTy s <$> f x y)
   diff _ (Type n) (Type m) = Type <$> n `diffEq` m
+  diff _ (PInt n) (PInt m) = PInt <$> n `diffEq` m
+  diff _ IntTy IntTy = Same IntTy
   diff _ _ _ = error "Diffable for Prim not complete"
 
 instance Display Prim where

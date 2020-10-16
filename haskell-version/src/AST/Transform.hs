@@ -61,6 +61,14 @@ class Diffable f where
 instance Apply Diffable fs => Diffable (Sum fs) where
   diff f x y = maybe Conflict id $ apply2' @Diffable (\inj a b -> inj <$> diff f a b) x y
 
+instance Diffable f => Diffable (Free f) where
+  diff f (Free x) (Free y) = Free <$> diff go x y
+    where
+      go a b = diff f a b
+  diff f (Free x) _ = Update $ Free x
+  diff f (Pure _) (Free y) = Update $ Free y
+  diff f (Pure x) (Pure y) = Pure <$> f x y
+
 diffEq :: Eq a => a -> a -> Diff a
 diffEq x y
   | x == y = Same x
@@ -70,3 +78,8 @@ diffToInfo :: Diff a -> Info a
 diffToInfo (Update x) = Info x
 diffToInfo (Same _) = NoInfo
 diffToInfo _ = Contradiction
+
+hasShape :: Diffable f => (a -> a -> Diff a) -> f a -> f a -> Bool
+hasShape f x y
+  | Conflict <- diff f x y = False
+  | otherwise = True

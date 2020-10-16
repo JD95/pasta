@@ -14,6 +14,7 @@ import Logic
 import Logic.Propagator
 import Test.Tasty
 import Test.Tasty.HUnit
+import TypeCheck.Check
 import Prelude hiding (product)
 
 main :: IO ()
@@ -21,16 +22,62 @@ main = defaultMain tests
   where
     tests = testGroup "Jelly" [evalTests, typeCheckTests]
 
-    typeCheckTests = testGroup "TypeCheck" [unifyTests, checkTests]
+    typeCheckTests = testGroup "TypeCheck" [typeMergeTests, unifyTests, checkTests]
       where
+        typeMergeTests =
+          testGroup
+            "TypeMerge"
+            [ testCase "a ~ b" $ do
+                a <- MkTypeMerge <$> newHole
+                b <- MkTypeMerge <$> newHole
+                let answer = Info b
+                let result = merge (OldInfo a) (NewInfo b)
+                result @?= answer,
+              testCase "(a -> b) ~ (Int -> b)" $ do
+                a <- newHole
+                b <- newHole
+                let old = MkTypeMerge $ a -:> b
+                let new = MkTypeMerge $ intTy -:> b
+                let result = merge (OldInfo old) (NewInfo new)
+                result @?= Info new,
+              testCase "(a -> b) ~ (a -> b)" $ do
+                a <- newHole
+                b <- newHole
+                let old = MkTypeMerge $ a -:> b
+                let new = MkTypeMerge $ a -:> b
+                let result = merge (OldInfo old) (NewInfo new)
+                result @?= NoInfo,
+              testCase "x ~ x" $ do
+                a <- newHole
+                assertBool "foo" (hasShape diffEq a a)
+            ]
         checkTests =
           testGroup
             "Check"
             [ testCase "0 : Int" $ do
                 let term = int 0 :: Partial Hole
                 let answer = intTy :: Partial Hole
-                unTypeCell <$> cata check term >>= (fmap . fmap) unTypeMerge . content >>= \case
-                  Info result -> result @?= answer
+                let st = initCheckST
+                runTypeCheck st term >>= \case
+                  (Info (MkTypeMerge result) : _) -> result @?= answer
+                  _ -> undefined,
+              testCase "(\\x -> x) : a -> a" $
+                do
+                  let term = lam "x" (free "x") :: Partial Hole
+                  a <- newHole
+                  let answer = a -:> a :: Partial Hole
+                  let st = initCheckST
+                  runTypeCheck st term >>= \case
+                    (Info (MkTypeMerge result) : _) ->
+                      -- TODO: Figure out a way to test for alpha equivalence
+                      result @?= answer
+                    _ -> undefined,
+              testCase "(\\x -> x) 0 : Int" $ do
+                let term = lam "x" (free "x") `app` int 0 :: Partial Hole
+                let answer = intTy :: Partial Hole
+                let st = initCheckST
+                runTypeCheck st term >>= \case
+                  (Info (MkTypeMerge result) : _) -> result @?= answer
                   _ -> undefined
             ]
         unifyTests =

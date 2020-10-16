@@ -27,21 +27,25 @@ import Control.Monad.Free
 import qualified Control.Monad.Free as Free
 import Control.Monad.Freer
 import Control.Monad.Freer.State
+import Control.Monad.IO.Class
 import Control.Monad.Primitive
 import qualified Control.Monad.Trans.Free as F
 import Data.Eq.Deriving
 import Data.Foldable
 import Data.Functor.Classes
-import Data.Functor.Foldable (Fix (..))
+import Data.Functor.Foldable (Fix (..), cata)
 import Data.Hashable
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Sum
 import Data.Text (Text, pack)
 import Data.Traversable
 import Data.Vector (Vector)
 import Data.Wedge
 import Display
+import Logic
 import Logic.Info
 import Logic.Propagator
 import Logic.Propagator.Class
@@ -110,93 +114,3 @@ renderHoles = asFix . run . evalState newRenderST . traverse go
           newName <- popNextName
           addId (unHole h) newName
           pure . asFix $ free newName
-
-class Zip f where
-  zipF :: f a -> f b -> Maybe (f (a, b))
-
-instance Apply Zip fs => Zip (Sum fs) where
-  zipF x y = join $ apply2' @Zip (\inj a b -> inj <$> zipF a b) x y
-
-newtype TypeMerge = MkTypeMerge {unTypeMerge :: Partial Hole} deriving (Eq)
-
-newtype TypeCell m = TypeCell {unTypeCell :: PrimCell m TypeMerge}
-
-instance Merge TypeMerge where
-  merge (OldInfo old) (NewInfo new) =
-    case (unTypeMerge old, unTypeMerge new) of
-      (Free x, Free y) ->
-        diffToInfo $
-          MkTypeMerge . Free
-            <$> diff (\x y -> if x == y then Same x else Update y) x y
-      (Free x, Pure _) -> Info . MkTypeMerge $ Free x
-      (Pure _, Free x) -> Info . MkTypeMerge $ Free x
-      (Pure x, _) -> Info . MkTypeMerge $ Pure x
-
-  isTop = foldr (&&) True . fmap (const False) . unTypeMerge
-
-class TypeCheck f where
-  check :: (Network m, PrimMonad m) => f (m (TypeCell m)) -> m (TypeCell m)
-
-instance TypeCheck f => TypeCheck (F.FreeF f Hole) where
-  check (F.Free f) = check f
-  check (F.Pure x) = pure . TypeCell =<< newPrimCell
-
-instance Apply TypeCheck fs => TypeCheck (Sum fs) where
-  check = apply @TypeCheck check
-
-instance TypeCheck App where
-  check (App getFunc getInput) = do
-    func <- unTypeCell <$> getFunc
-    input <- unTypeCell <$> getInput
-    output <- newPrimCell
-
-    -- (a,b) ~ (a -> b)
-    funcTy <- newPrimCell @_ @(TypeMerge, TypeMerge)
-
-    -- func ~ (a -> b) ==> funcTy ~ (a, b)
-    waitOn [SomeCell func] $ do
-      flip propagate [funcTy] $ do
-        unTypeMerge <$> content' func >>= \case
-          Free x -> case project x of
-            Just (Arr a b) -> pure $ Info (MkTypeMerge a, MkTypeMerge b)
-            _ -> pure Contradiction
-          Pure h -> pure NoInfo
-
-    -- (input ~ a) /\ (output ~ b) ==> funcTy ~ (a, b)
-    waitOn [SomeCell input, SomeCell output] $ do
-      flip propagate [funcTy] $ do
-        x <- content' input
-        y <- content' output
-        pure . Info $ (x, y)
-
-    -- funcTy ~ (a, b) ==> input ~ a
-    waitOn [SomeCell funcTy] $ do
-      flip propagate [input] $ do
-        (a, _) <- content' funcTy
-        pure . Info $ a
-
-    -- funcTy ~ (a, b) ==> output ~ b
-    waitOn [SomeCell funcTy] $ do
-      flip propagate [output] $ do
-        (_, b) <- content' funcTy
-        pure . Info $ b
-
-    pure $ TypeCell output
-
-instance TypeCheck Prim where
-  check (PInt _) = do
-    ty <- newPrimCell
-    inform (Info . MkTypeMerge . Free . inject $ IntTy) ty
-    pure . TypeCell $ ty
-
-instance TypeCheck Data where
-  check = undefined
-
-instance TypeCheck Lam where
-  check = undefined
-
-instance TypeCheck FreeVar where
-  check = undefined
-
-instance TypeCheck Ann where
-  check = undefined
