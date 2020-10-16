@@ -6,7 +6,8 @@ import AST.Core
 import Control.Applicative
 import Control.Monad.Free
 import Control.Monad.Primitive
-import Data.Functor.Foldable
+import Data.Functor.Foldable (Fix)
+import Data.Sum
 import Display
 import Eval.Stages
 import Lib
@@ -46,10 +47,7 @@ main = defaultMain tests
                 let old = MkTypeMerge $ a -:> b
                 let new = MkTypeMerge $ a -:> b
                 let result = merge (OldInfo old) (NewInfo new)
-                result @?= NoInfo,
-              testCase "x ~ x" $ do
-                a <- newHole
-                assertBool "foo" (hasShape diffEq a a)
+                result @?= NoInfo
             ]
         checkTests =
           testGroup
@@ -69,9 +67,12 @@ main = defaultMain tests
                   let st = initCheckST
                   runTypeCheck st term >>= \case
                     (Info (MkTypeMerge result) : _) ->
-                      -- TODO: Figure out a way to test for alpha equivalence
-                      result @?= answer
-                    _ -> undefined,
+                      case result of
+                        Free x -> case project x of
+                          Just (Arr a b) -> assertBool "input and output did not match" (a == b)
+                          _ -> assertFailure "resulting type wasn't an arrow"
+                        _ -> assertFailure "resulting type was a hole"
+                    _ -> assertFailure "no typing results",
               testCase "(\\x -> x) 0 : Int" $ do
                 let term = lam "x" (free "x") `app` int 0 :: Partial Hole
                 let answer = intTy :: Partial Hole
