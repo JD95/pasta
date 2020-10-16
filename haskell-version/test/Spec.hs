@@ -91,12 +91,6 @@ main = defaultMain tests
                 display result @?= display answer
             ]
 
-    -- testCase "Unit with Unit" $ do
-    --   result <- observeAllT $ do
-    --     uni <- unify (struct []) (struct [])
-    --     zonk (undefined) (unfix uni)
-    --   result @?= [struct []]
-
     evalTests =
       testGroup
         "Eval"

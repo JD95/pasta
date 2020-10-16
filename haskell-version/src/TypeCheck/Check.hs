@@ -64,19 +64,6 @@ instance Merge TypeMerge where
   merge (OldInfo (MkTypeMerge old)) (NewInfo (MkTypeMerge new)) =
     diffToInfo $ MkTypeMerge <$> diff (\x y -> if x == y then Same x else Update y) old new
 
-  -- case (unTypeMerge old, unTypeMerge new) of
-  --   (Free x, Free y) ->
-  --     diffToInfo $
-  --       MkTypeMerge . Free
-  --         <$> diff (\x y -> if x == y then Same x else Update y) x y
-  --   (Free x, Pure _) -> Info . MkTypeMerge $ Free x
-  --   (Pure _, Free x) -> Info . MkTypeMerge $ Free x
-  --   (Pure x, Pure y) ->
-  --     if x /= y
-  --       then -- must use new info else infinite loop
-  --         Info . MkTypeMerge $ Pure y
-  --       else NoInfo
-
   isTop = foldr (&&) True . fmap (const False) . unTypeMerge
 
 data CheckST m = CheckST {symbols :: Map Text (TypeCell m)}
@@ -177,16 +164,19 @@ instance TypeCheck App where
             _ -> pure Contradiction
           Pure h -> pure NoInfo
 
+    -- funcTy ~ (a, b) ==> func ~ (a -> b)
     waitOn [SomeCell funcTy] $ do
       flip propagate [func] $ do
         (MkTypeMerge a, MkTypeMerge b) <- content' funcTy
         pure . Info . MkTypeMerge $ a -:> b
 
+    -- funcTy ~ (a, b) ==> output ~ a
     waitOn [SomeCell funcTy] $ do
       flip propagate [output] $ do
         (_, b) <- content' funcTy
         pure . Info $ b
 
+    --  (input ~ a) /\ (output ~ a) ==> funcTy ~ (a, b)
     waitOn [SomeCell input, SomeCell output] $ do
       flip propagate [funcTy] $ do
         a <- content' input
@@ -265,14 +255,3 @@ runTypeCheck st t = observeAllT . flip evalStateT st . runTypeT $ result
       TypeCell r <- cata check t
       x <- content r
       pure x
-
-test :: IO ()
-test = do
-  let term = lam "x" (free "x") `app` int 0 :: Partial Hole
-  a <- newHole
-  let st = initCheckST
-  runTypeCheck st term >>= \case
-    (Info (MkTypeMerge result) : _) ->
-      -- TODO: Figure out a way to test for alpha equivalence
-      print $ renderHoles result
-    _ -> undefined
