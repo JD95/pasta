@@ -80,6 +80,7 @@ instance Diffable Prim where
   diff _ (Type n) (Type m) = Type <$> n `diffEq` m
   diff _ (PInt n) (PInt m) = PInt <$> n `diffEq` m
   diff _ IntTy IntTy = Same IntTy
+  diff _ NatTy NatTy = Same NatTy
   diff _ x y = error $ "Diffable for Prim not complete: " <> show (() <$ x) <> " =/= " <> show (() <$ y)
 
 instance Display Prim where
@@ -107,6 +108,8 @@ instance Display Prim where
 (-:>) :: (Prim :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
 i -:> o = Free . inject $ Arr Nothing i o
 
+infixr 2 -:>
+
 pi :: (Prim :< fs) => Text -> Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
 pi s i o = Free . inject $ Arr (Just s) i o
 
@@ -121,3 +124,6 @@ int = Free . inject . PInt
 
 intTy :: (Prim :< fs) => Free (Sum fs) a
 intTy = Free $ inject IntTy
+
+natTy :: (Prim :< fs) => Free (Sum fs) a
+natTy = Free $ inject NatTy

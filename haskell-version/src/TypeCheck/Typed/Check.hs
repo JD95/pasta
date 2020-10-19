@@ -19,7 +19,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module TypeCheck.Check where
+module TypeCheck.Typed.Check where
 
 import AST.Core
 import AST.Transform
@@ -37,8 +37,6 @@ import Data.Foldable
 import Data.Functor.Classes
 import Data.Functor.Foldable (Fix (..), cata, para)
 import Data.Hashable
-import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Sum
@@ -54,8 +52,11 @@ import Logic.Propagator.Class
 import Logic.Propagator.PrimCell
 import Numeric.Natural
 import Text.Show.Deriving
-import TypeCheck.Typed
+import TypeCheck.Typed.Eval
+import TypeCheck.Typed.Render
+import TypeCheck.Typed.Stages
 import Unique
+import Prelude hiding (pi)
 
 newtype TypeMerge = MkTypeMerge {unTypeMerge :: Partial Hole} deriving (Eq, Show)
 
@@ -157,47 +158,34 @@ instance Apply TypeCheck fs => TypeCheck (Sum fs) where
   check = apply @TypeCheck check
 
 instance TypeCheck App where
-  check (App (_, getFunc) (_, getInput)) = do
+  check (App (_, getFunc) (input, getInputTy)) = do
     func <- unTypeCell <$> getFunc
-    input <- unTypeCell <$> getInput
+    inputTy <- unTypeCell <$> getInputTy
     output <- newPrimCell
 
     holeA <- newHole
     holeB <- newHole
 
-    inform (Info . MkTypeMerge $ intTy -:> intTy) func
+    inform (Info . MkTypeMerge $ holeA -:> holeB) func
 
-    -- (a,b) ~ (a -> b)
-    funcTy <- newPrimCell @_ @(TypeMerge, TypeMerge)
-
-    -- func ~ (a -> b) ==> funcTy ~ (a, b)
+    -- func ~ ((x : a) -> b) ==> output ~ b [x/input]
     waitOn [SomeCell func] $ do
-      flip propagate [funcTy] $ do
+      flip propagate [output] $ do
         unTypeMerge <$> content' func >>= \case
           Free x -> case project x of
-            Just (Arr _ a b) -> do
-              pure $ Info (MkTypeMerge a, MkTypeMerge b)
+            Just (Arr s a b) -> do
+              pure . Info . MkTypeMerge $ case s of
+                Just name -> para (tySubst name input) b
+                Nothing -> b
             _ -> pure Contradiction
           Pure h -> pure NoInfo
 
-    -- funcTy ~ (a, b) ==> func ~ (a -> b)
-    waitOn [SomeCell funcTy] $ do
+    -- (inputTy ~ a) ==> funcTy ~ a -> _
+    waitOn [SomeCell inputTy] $ do
       flip propagate [func] $ do
-        (MkTypeMerge a, MkTypeMerge b) <- content' funcTy
-        pure . Info . MkTypeMerge $ a -:> b
-
-    -- funcTy ~ (a, b) ==> output ~ a
-    waitOn [SomeCell funcTy] $ do
-      flip propagate [output] $ do
-        (_, b) <- content' funcTy
-        pure . Info $ b
-
-    --  (input ~ a) /\ (output ~ a) ==> funcTy ~ (a, b)
-    waitOn [SomeCell input, SomeCell output] $ do
-      flip propagate [funcTy] $ do
-        a <- content' input
-        b <- content' output
-        pure . Info $ (a, b)
+        a <- unTypeMerge <$> content' inputTy
+        outHole <- newHole
+        pure . Info . MkTypeMerge $ a -:> outHole
 
     pure $ TypeCell output
 
@@ -219,6 +207,10 @@ instance TypeCheck Prim where
     inform (Info . MkTypeMerge . ty $ n + 1) result
     pure . TypeCell $ result
   check IntTy = do
+    result <- newPrimCell
+    inform (Info . MkTypeMerge $ ty 0) result
+    pure . TypeCell $ result
+  check NatTy = do
     result <- newPrimCell
     inform (Info . MkTypeMerge $ ty 0) result
     pure . TypeCell $ result
@@ -297,3 +289,15 @@ runTypeCheck st t = observeAllT . flip evalStateT st . runTypeT $ result
       TypeCell r <- para check t
       x <- content r
       pure x
+
+test :: IO ()
+test = do
+  let exp = (lam "a" $ lam "x" $ free "x") :: Partial Hole
+  let expTy = pi "in1" (ty 0) (free "in1" -:> free "in1") :: Partial Hole
+  let term = (exp `ann` expTy) `app` intTy :: Partial Hole
+  let answer = (intTy -:> intTy) :: Partial Hole
+  let st = initCheckST
+  runTypeCheck st term >>= \case
+    (Info (MkTypeMerge result) : _) -> print . display $ renderHoles result
+    (NoInfo : _) -> print "Not enough info"
+    _ -> putStrLn "Type error!"
