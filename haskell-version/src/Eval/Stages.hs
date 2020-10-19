@@ -29,12 +29,20 @@ data Thunk b a = Thunk [b] a
 
 deriving instance Functor (Thunk b)
 
+deriving instance Foldable (Thunk b)
+
+deriving instance Traversable (Thunk b)
+
 thunk :: (Thunk b :< fs) => [b] -> Fix (Sum fs) -> Fix (Sum fs)
 thunk st = Fix . inject . Thunk st
 
 newtype Bound a = Bound Natural
 
 deriving instance Functor Bound
+
+deriving instance Foldable Bound
+
+deriving instance Traversable Bound
 
 bnd :: (Bound :< fs) => Natural -> Fix (Sum fs)
 bnd = Fix . inject . Bound
@@ -63,13 +71,17 @@ type TermComps b = Sum [Prim, Data, Thunk b, Ref b, Bound, Norm]
 -- | Expressions during and after eval
 newtype Term a = Term {unTerm :: TermComps (Fix Term) a}
 
+deriving instance Functor Term
+
+deriving instance Foldable Term
+
+deriving instance Traversable Term
+
 term :: (fs ~ TermComps (Fix Term)) => Fix fs -> Fix Term
 term = Fix . Term . fmap term . unfix
 
 alloc :: (fs ~ TermComps (Fix Term)) => Fix fs -> IO (Fix Term)
 alloc = fmap (term . ref) . newIORef . term
-
-deriving instance Functor Term
 
 type Norm = Const (Fix NF)
 
