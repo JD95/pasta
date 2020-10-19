@@ -13,6 +13,7 @@
 module AST.Core.Prim where
 
 import AST.Transform
+import Control.Applicative
 import Control.Monad.Free
 import Data.Eq.Deriving
 import Data.Functor.Classes (Eq1 (..), Show1 (..))
@@ -39,7 +40,7 @@ data Usage
   deriving (Eq, Ord, Show)
 
 data Prim a
-  = Arr a a
+  = Arr !(Maybe Text) a a
   | NewTy !Text a
   | Type !Natural
   | Pole !Polarity
@@ -60,6 +61,8 @@ data Prim a
     PChar !Char
   | CharTy
 
+deriving instance Show a => Show (Prim a)
+
 deriving instance Functor Prim
 
 deriving instance Foldable Prim
@@ -72,15 +75,16 @@ deriveEq1 ''Prim
 deriveShow1 ''Prim
 
 instance Diffable Prim where
-  diff f (Arr a b) (Arr c d) = Arr <$> f a c <*> f b d
+  diff f (Arr s a b) (Arr t c d) = Arr (s <|> t) <$> f a c <*> f b d
   diff f (NewTy s x) (NewTy t y) = s `diffEq` t *> (NewTy s <$> f x y)
   diff _ (Type n) (Type m) = Type <$> n `diffEq` m
   diff _ (PInt n) (PInt m) = PInt <$> n `diffEq` m
   diff _ IntTy IntTy = Same IntTy
-  diff _ _ _ = error "Diffable for Prim not complete"
+  diff _ x y = error $ "Diffable for Prim not complete: " <> show (() <$ x) <> " =/= " <> show (() <$ y)
 
 instance Display Prim where
-  displayF (Arr i o) = i <> " -> " <> o
+  displayF (Arr (Just s) i o) = "(" <> s <> " : " <> i <> ") -> " <> o
+  displayF (Arr Nothing i o) = i <> " -> " <> o
   displayF (NewTy n _) = n
   displayF (Type _) = "Type"
   displayF (Pole Deep) = "!"
@@ -101,7 +105,10 @@ instance Display Prim where
   displayF (CharTy) = "Char"
 
 (-:>) :: (Prim :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
-i -:> o = Free . inject $ Arr i o
+i -:> o = Free . inject $ Arr Nothing i o
+
+pi :: (Prim :< fs) => Text -> Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
+pi s i o = Free . inject $ Arr (Just s) i o
 
 new_ :: (Prim :< fs) => Text -> Free (Sum fs) a -> Free (Sum fs) a
 new_ name = Free . inject . NewTy name

@@ -16,7 +16,7 @@ import Logic.Propagator
 import Test.Tasty
 import Test.Tasty.HUnit
 import TypeCheck.Check
-import Prelude hiding (product)
+import Prelude hiding (pi, product)
 
 main :: IO ()
 main = defaultMain tests
@@ -59,7 +59,7 @@ main = defaultMain tests
                 runTypeCheck st term >>= \case
                   (Info (MkTypeMerge result) : _) -> result @?= answer
                   _ -> undefined,
-              testCase "(\\x -> x) : a -> a" $
+              testCase "Holes for unannotated lambdas" $
                 do
                   let term = lam "x" (free "x") :: Partial Hole
                   a <- newHole
@@ -69,17 +69,35 @@ main = defaultMain tests
                     (Info (MkTypeMerge result) : _) ->
                       case result of
                         Free x -> case project x of
-                          Just (Arr a b) -> assertBool "input and output did not match" (a == b)
+                          Just (Arr _ a b) -> assertBool "input and output did not match" (a == b)
                           _ -> assertFailure "resulting type wasn't an arrow"
                         _ -> assertFailure "resulting type was a hole"
                     _ -> assertFailure "no typing results",
-              testCase "(\\x -> x) 0 : Int" $ do
+              testCase "Holes filled by application" $ do
                 let term = lam "x" (free "x") `app` int 0 :: Partial Hole
                 let answer = intTy :: Partial Hole
                 let st = initCheckST
                 runTypeCheck st term >>= \case
                   (Info (MkTypeMerge result) : _) -> result @?= answer
-                  _ -> undefined
+                  _ -> undefined,
+              testCase "Identity function" $ do
+                let term = (lam "a" $ lam "x" $ free "x") :: Partial Hole
+                let givenTy = pi "a" (ty 0) (free "a" -:> free "a") :: Partial Hole
+                let input = term `ann` givenTy :: Partial Hole
+                let answer = givenTy
+                let st = initCheckST
+                runTypeCheck st input >>= \case
+                  (Info (MkTypeMerge result) : _) -> result @?= answer
+                  _ -> assertFailure "no type results",
+              testCase "Application of input to type" $ do
+                let exp = (lam "a" $ lam "x" $ free "x") :: Partial Hole
+                let expTy = pi "a" (ty 0) (free "a" -:> free "a") :: Partial Hole
+                let term = (exp `ann` expTy) `app` intTy :: Partial Hole
+                let answer = (intTy -:> intTy) :: Partial Hole
+                let st = initCheckST
+                runTypeCheck st term >>= \case
+                  (Info (MkTypeMerge result) : _) -> result @?= answer
+                  _ -> assertFailure "no type results"
             ]
         unifyTests =
           testGroup

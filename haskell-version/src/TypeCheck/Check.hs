@@ -35,7 +35,7 @@ import qualified Control.Monad.Trans.Free as F
 import Data.Eq.Deriving
 import Data.Foldable
 import Data.Functor.Classes
-import Data.Functor.Foldable (Fix (..), cata)
+import Data.Functor.Foldable (Fix (..), cata, para)
 import Data.Hashable
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -52,6 +52,7 @@ import Logic.Info
 import Logic.Propagator
 import Logic.Propagator.Class
 import Logic.Propagator.PrimCell
+import Numeric.Natural
 import Text.Show.Deriving
 import TypeCheck.Typed
 import Unique
@@ -74,6 +75,10 @@ initCheckST = CheckST mempty
 lookupSymbol :: MonadState (CheckST m) m => Text -> m (Maybe (TypeCell m))
 lookupSymbol t = Map.lookup t . symbols <$> get
 
+removeSymbol :: MonadState (CheckST m) m => Text -> m ()
+removeSymbol k = do
+  ST.modify $ \st -> st {symbols = Map.delete k (symbols st)}
+
 addSymbol :: MonadState (CheckST m) m => Text -> TypeCell m -> m ()
 addSymbol k v = do
   ST.modify $ \st -> st {symbols = Map.alter (const $ Just v) k (symbols st)}
@@ -86,6 +91,17 @@ existingOrNewCell t =
       x <- TypeCell <$> newPrimCell
       addSymbol t x
       pure x
+
+withBound :: MonadState (CheckST m) m => Text -> TypeCell m -> m a -> m a
+withBound t newTy action = do
+  restore <-
+    lookupSymbol t >>= \case
+      Just oldTy -> pure $ addSymbol t oldTy
+      Nothing -> pure $ removeSymbol t
+  addSymbol t newTy
+  result <- action
+  restore
+  pure result
 
 newtype TypeT a = TypeT
   {runTypeT :: StateT (CheckST TypeT) (LogicT IO) a}
@@ -130,7 +146,7 @@ class TypeCheck f where
       PrimMonad m,
       MonadState (CheckST m) m
     ) =>
-    f (m (TypeCell m)) ->
+    f (Partial Hole, m (TypeCell m)) ->
     m (TypeCell m)
 
 instance TypeCheck f => TypeCheck (F.FreeF f Hole) where
@@ -141,7 +157,7 @@ instance Apply TypeCheck fs => TypeCheck (Sum fs) where
   check = apply @TypeCheck check
 
 instance TypeCheck App where
-  check (App getFunc getInput) = do
+  check (App (_, getFunc) (_, getInput)) = do
     func <- unTypeCell <$> getFunc
     input <- unTypeCell <$> getInput
     output <- newPrimCell
@@ -159,7 +175,7 @@ instance TypeCheck App where
       flip propagate [funcTy] $ do
         unTypeMerge <$> content' func >>= \case
           Free x -> case project x of
-            Just (Arr a b) -> do
+            Just (Arr _ a b) -> do
               pure $ Info (MkTypeMerge a, MkTypeMerge b)
             _ -> pure Contradiction
           Pure h -> pure NoInfo
@@ -186,16 +202,36 @@ instance TypeCheck App where
     pure $ TypeCell output
 
 instance TypeCheck Prim where
+  check (Arr name' (depIn, getDepInTy) (_, getOutTy)) = do
+    depInTy <- unTypeCell <$> getDepInTy
+    outTy <-
+      unTypeCell <$> case name' of
+        Just name -> do
+          depInCell <- newPrimCell
+          inform (Info . MkTypeMerge $ depIn) depInCell
+          withBound name (TypeCell depInCell) getOutTy
+        Nothing -> getOutTy
+    result <- newPrimCell
+    inform (Info . MkTypeMerge $ ty 0) result
+    pure (TypeCell result)
+  check (Type n) = do
+    result <- newPrimCell
+    inform (Info . MkTypeMerge . ty $ n + 1) result
+    pure . TypeCell $ result
+  check IntTy = do
+    result <- newPrimCell
+    inform (Info . MkTypeMerge $ ty 0) result
+    pure . TypeCell $ result
   check (PInt _) = do
-    ty <- newPrimCell
-    inform (Info . MkTypeMerge . Free . inject $ IntTy) ty
-    pure . TypeCell $ ty
+    result <- newPrimCell
+    inform (Info . MkTypeMerge $ intTy) result
+    pure . TypeCell $ result
 
 instance TypeCheck Data where
   check = undefined
 
 instance TypeCheck Lam where
-  check (Lam input getBody) = do
+  check (Lam input (_, getBody)) = do
     body <- unTypeCell <$> getBody
     inputTy <- unTypeCell <$> existingOrNewCell input
     lamType <- newPrimCell @_ @(TypeMerge, TypeMerge)
@@ -235,7 +271,7 @@ instance TypeCheck Lam where
       flip propagate [lamType] $ do
         unTypeMerge <$> content' ty >>= \case
           Free x -> case project x of
-            Just (Arr a b) -> pure $ Info (MkTypeMerge a, MkTypeMerge b)
+            Just (Arr _ a b) -> pure $ Info (MkTypeMerge a, MkTypeMerge b)
             _ -> pure Contradiction
           Pure h -> pure NoInfo
 
@@ -245,13 +281,19 @@ instance TypeCheck FreeVar where
   check (FreeVar name) = existingOrNewCell name
 
 instance TypeCheck Ann where
-  check = undefined
+  check (Ann (_, getTermTy) (givenTy, getT)) = do
+    termTy <- unTypeCell <$> getTermTy
+    t <- unTypeCell <$> getT
+    inform (Info . MkTypeMerge $ ty 0) t
+    -- termTy ~ givenTy
+    inform (Info . MkTypeMerge $ givenTy) termTy
+    pure $ TypeCell termTy
 
 runTypeCheck :: CheckST TypeT -> Partial Hole -> IO [Info TypeMerge]
 runTypeCheck st t = observeAllT . flip evalStateT st . runTypeT $ result
   where
     result :: TypeT (Info TypeMerge)
     result = do
-      TypeCell r <- cata check t
+      TypeCell r <- para check t
       x <- content r
       pure x

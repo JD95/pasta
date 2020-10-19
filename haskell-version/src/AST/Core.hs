@@ -80,7 +80,7 @@ instance Display App where
 newtype FreeVar a = FreeVar Text deriving (Eq, Show)
 
 instance Diffable FreeVar where
-  diff f (FreeVar _) (FreeVar _) = undefined
+  diff f (FreeVar x) (FreeVar y) = FreeVar <$> x `diffEq` y
 
 deriving instance Functor FreeVar
 
