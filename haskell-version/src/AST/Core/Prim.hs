@@ -81,7 +81,7 @@ instance Diffable Prim where
   diff _ (PInt n) (PInt m) = PInt <$> n `diffEq` m
   diff _ IntTy IntTy = Same IntTy
   diff _ NatTy NatTy = Same NatTy
-  diff _ x y = error $ "Diffable for Prim not complete: " <> show (() <$ x) <> " =/= " <> show (() <$ y)
+  diff _ x y = Conflict
 
 instance Display Prim where
   displayF (Arr (Just s) i o) = "(" <> s <> " : " <> i <> ") -> " <> o

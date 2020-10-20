@@ -38,7 +38,8 @@ import Data.Hashable
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.Sum
-import Data.Text (Text, pack)
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Data.Traversable
 import Data.Vector (Vector)
 import Display
@@ -74,7 +75,29 @@ instance Display Ann where
 hole :: Functor f => Int -> Free f Hole
 hole i = Pure $ Hole i
 
+data Err a = Errs [Err a] | Mismatch a a deriving (Eq, Functor, Foldable, Traversable)
+
+deriveEq1 ''Err
+deriveShow1 ''Err
+
+instance Diffable Err where
+  diff f x y = Update $ Errs [x, y]
+
+instance Display Err where
+  displayF (Errs xs) = Text.unlines $ displayF <$> xs
+  displayF (Mismatch expected actual) =
+    "Error! Mismatch between:\nExpected: "
+      <> expected
+      <> "\nActual: "
+      <> actual
+
+errs :: (Err :< fs) => [Err (Free (Sum fs) a)] -> Free (Sum fs) a
+errs = Free . inject . Errs
+
+mismatch :: (Err :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
+mismatch x = Free . inject . Mismatch x
+
 type Partial h = Free Typed h
 
 -- | Expressions with Types and free variables
-type Typed = Sum [Prim, Data, App, Lam, FreeVar, Ann]
+type Typed = Sum [Prim, Data, App, Lam, FreeVar, Ann, Err]

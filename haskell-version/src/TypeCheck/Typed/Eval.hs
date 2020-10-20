@@ -59,6 +59,9 @@ instance TySubst FreeVar where
 instance TySubst Ann where
   tySubst = undefined
 
+instance TySubst Err where
+  tySubst = undefined
+
 class ToTerm f where
   toTermF :: f (IO (Maybe (Fix Term))) -> IO (Maybe (Fix Term))
 
@@ -95,6 +98,9 @@ instance ToTerm FreeVar where
 
 instance ToTerm Ann where
   toTermF (Ann x _) = x
+
+instance ToTerm Err where
+  toTermF _ = pure Nothing
 
 toTerm :: Partial Hole -> IO (Maybe (Fix Term))
 toTerm = cata toTermF
