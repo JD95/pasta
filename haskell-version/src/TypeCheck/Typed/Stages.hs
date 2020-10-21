@@ -75,7 +75,21 @@ instance Display Ann where
 hole :: Functor f => Int -> Free f Hole
 hole i = Pure $ Hole i
 
-data Err a = Errs [Err a] | Mismatch a a deriving (Eq, Functor, Foldable, Traversable)
+newtype Given a = Given {unGiven :: a} deriving (Eq, Show, Functor, Foldable, Traversable)
+
+deriveEq1 ''Given
+deriveShow1 ''Given
+
+newtype Expected a = Expected {unExpected :: a} deriving (Eq, Show, Functor, Foldable, Traversable)
+
+deriveEq1 ''Expected
+deriveShow1 ''Expected
+
+data Err a
+  = Errs [Err a]
+  | Mismatch (Expected a) (Given a)
+  | ConflictErr a a
+  deriving (Eq, Functor, Foldable, Traversable)
 
 deriveEq1 ''Err
 deriveShow1 ''Err
@@ -85,17 +99,25 @@ instance Diffable Err where
 
 instance Display Err where
   displayF (Errs xs) = Text.unlines $ displayF <$> xs
-  displayF (Mismatch expected actual) =
+  displayF (Mismatch (Expected expected) (Given actual)) =
     "Error! Mismatch between:\nExpected: "
       <> expected
       <> "\nActual: "
       <> actual
+  displayF (ConflictErr x y) =
+    "Error! Conflict between:\n> "
+      <> x
+      <> "\n> "
+      <> y
 
 errs :: (Err :< fs) => [Err (Free (Sum fs) a)] -> Free (Sum fs) a
 errs = Free . inject . Errs
 
-mismatch :: (Err :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
+mismatch :: (Err :< fs) => Expected (Free (Sum fs) a) -> Given (Free (Sum fs) a) -> Free (Sum fs) a
 mismatch x = Free . inject . Mismatch x
+
+conflict :: (Err :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
+conflict x = Free . inject . ConflictErr x
 
 type Partial h = Free Typed h
 
