@@ -93,12 +93,12 @@ instance Merge TypeMerge where
         let diffHoles x y = if x == y then Same x else Update y
             result = diff diffHoles old new
          in case result of
-              Conflict ->
+              Conflict -> learn $
                 case (oldSource, newSource) of
-                  (Learned, Learned) -> learn $ conflict old new
-                  (Learned, IsExpected) -> learn $ mismatch (Expected new) (Given old)
-                  (IsExpected, Learned) -> learn $ mismatch (Expected old) (Given new)
-                  (IsExpected, IsExpected) -> learn $ conflict old new
+                  (Learned, Learned) -> conflict old new
+                  (Learned, IsExpected) -> mismatch (Expected new) (Given old)
+                  (IsExpected, Learned) -> mismatch (Expected old) (Given new)
+                  (IsExpected, IsExpected) -> conflict old new
               _ -> diffToInfo $ MkTypeMerge (oldSource <> newSource) <$> result
 
   isTop = foldr (&&) True . fmap (const False) . unTypeMerge
