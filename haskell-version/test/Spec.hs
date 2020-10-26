@@ -49,6 +49,14 @@ main = defaultMain tests
               testCase "Double Quote" $ do
                 let result = Lex.dblQuote "\""
                 let answer = Just $ Lex.TDblQuote
+                result @?= answer,
+              testCase "Lambda" $ do
+                let result = Lex.lambda "\\"
+                let answer = Just $ Lex.TLambda
+                result @?= answer,
+              testCase "Arrow" $ do
+                let result = Lex.arrow "->"
+                let answer = Just $ Lex.TArrow
                 result @?= answer
             ]
 

@@ -17,6 +17,8 @@ data Token
   | TDbl Double
   | TQuote
   | TDblQuote
+  | TLambda
+  | TArrow
   deriving (Eq, Show)
 
 toMaybe :: Either e a -> Maybe a
@@ -36,3 +38,9 @@ quote t = guard ("'" == t) *> Just TQuote
 
 dblQuote :: Text -> Maybe Token
 dblQuote t = guard ("\"" == t) *> Just TDblQuote
+
+lambda :: Text -> Maybe Token
+lambda t = guard ("\\" == t) *> Just TLambda
+
+arrow :: Text -> Maybe Token
+arrow t = guard ("->" == t) *> Just TArrow
