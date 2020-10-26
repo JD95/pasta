@@ -14,6 +14,7 @@ import Eval.Stages
 import Lib
 import Logic
 import Logic.Propagator
+import Parser.Lexer
 import Test.Tasty
 import Test.Tasty.HUnit
 import TypeCheck.Typed
@@ -22,7 +23,26 @@ import Prelude hiding (pi, product)
 main :: IO ()
 main = defaultMain tests
   where
-    tests = testGroup "Jelly" [evalTests, typeCheckTests]
+    tests = testGroup "Jelly" [parsingTests, evalTests, typeCheckTests]
+
+    parsingTests = testGroup "Parsing" [lexingTests]
+      where
+        lexingTests =
+          testGroup
+            "Lexing"
+            [ testCase "Natural Number" $ do
+                let result = natNum "123"
+                let answer = Just $ TNat 123
+                result @?= answer,
+              testCase "Integer Number" $ do
+                let result = intNum "-123"
+                let answer = Just $ TInt (-123)
+                result @?= answer,
+              testCase "Double Number" $ do
+                let result = dblNum "1.23"
+                let answer = Just $ TDbl 1.23
+                result @?= answer
+            ]
 
     typeCheckTests = testGroup "TypeCheck" [typeMergeTests, unifyTests, checkTests]
       where
