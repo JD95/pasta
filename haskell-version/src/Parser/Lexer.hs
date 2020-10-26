@@ -1,5 +1,8 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Parser.Lexer where
 
+import Control.Monad
 import Data.Char
 import Data.Either
 import Data.Text (Text)
@@ -12,6 +15,8 @@ data Token
   = TNat Natural
   | TInt Int
   | TDbl Double
+  | TQuote
+  | TDblQuote
   deriving (Eq, Show)
 
 toMaybe :: Either e a -> Maybe a
@@ -25,3 +30,9 @@ intNum = fmap (TInt . fst) . toMaybe . Text.signed Text.decimal
 
 dblNum :: Text -> Maybe Token
 dblNum = fmap (TDbl . fst) . toMaybe . Text.signed Text.double
+
+quote :: Text -> Maybe Token
+quote t = guard ("'" == t) *> Just TQuote
+
+dblQuote :: Text -> Maybe Token
+dblQuote t = guard ("\"" == t) *> Just TDblQuote

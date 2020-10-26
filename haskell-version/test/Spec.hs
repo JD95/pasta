@@ -14,7 +14,7 @@ import Eval.Stages
 import Lib
 import Logic
 import Logic.Propagator
-import Parser.Lexer
+import qualified Parser.Lexer as Lex
 import Test.Tasty
 import Test.Tasty.HUnit
 import TypeCheck.Typed
@@ -31,16 +31,24 @@ main = defaultMain tests
           testGroup
             "Lexing"
             [ testCase "Natural Number" $ do
-                let result = natNum "123"
-                let answer = Just $ TNat 123
+                let result = Lex.natNum "123"
+                let answer = Just $ Lex.TNat 123
                 result @?= answer,
               testCase "Integer Number" $ do
-                let result = intNum "-123"
-                let answer = Just $ TInt (-123)
+                let result = Lex.intNum "-123"
+                let answer = Just $ Lex.TInt (-123)
                 result @?= answer,
               testCase "Double Number" $ do
-                let result = dblNum "1.23"
-                let answer = Just $ TDbl 1.23
+                let result = Lex.dblNum "1.23"
+                let answer = Just $ Lex.TDbl 1.23
+                result @?= answer,
+              testCase "Quote" $ do
+                let result = Lex.quote "'"
+                let answer = Just $ Lex.TQuote
+                result @?= answer,
+              testCase "Double Quote" $ do
+                let result = Lex.dblQuote "\""
+                let answer = Just $ Lex.TDblQuote
                 result @?= answer
             ]
 
