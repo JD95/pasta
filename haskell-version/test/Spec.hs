@@ -30,33 +30,24 @@ main = defaultMain tests
         lexingTests =
           testGroup
             "Lexing"
-            [ testCase "Natural Number" $ do
-                let result = Lex.natNum "123"
-                let answer = Just $ Lex.TNat 123
-                result @?= answer,
-              testCase "Integer Number" $ do
-                let result = Lex.intNum "-123"
-                let answer = Just $ Lex.TInt (-123)
-                result @?= answer,
-              testCase "Double Number" $ do
-                let result = Lex.dblNum "1.23"
-                let answer = Just $ Lex.TDbl 1.23
-                result @?= answer,
-              testCase "Quote" $ do
-                let result = Lex.quote "'"
-                let answer = Just $ Lex.TQuote
-                result @?= answer,
-              testCase "Double Quote" $ do
-                let result = Lex.dblQuote "\""
-                let answer = Just $ Lex.TDblQuote
-                result @?= answer,
-              testCase "Lambda" $ do
-                let result = Lex.lambda "\\"
-                let answer = Just $ Lex.TLambda
-                result @?= answer,
-              testCase "Arrow" $ do
-                let result = Lex.arrow "->"
-                let answer = Just $ Lex.TArrow
+            [ testCase "Can Lex '(\\x ->  x):Int->Int'" $ do
+                let input = "(\\x ->  x):Int->Int"
+                let result = Lex.lex input
+                let answer =
+                      Just $
+                        [ Lex.TLParen,
+                          Lex.TLambda,
+                          Lex.TSymbol "x",
+                          Lex.TWhiteSpace 1,
+                          Lex.TArrow,
+                          Lex.TWhiteSpace 2,
+                          Lex.TSymbol "x",
+                          Lex.TRParen,
+                          Lex.TColon,
+                          Lex.TSymbol "Int",
+                          Lex.TArrow,
+                          Lex.TSymbol "Int"
+                        ]
                 result @?= answer
             ]
 
