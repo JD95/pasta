@@ -1,10 +1,17 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parser.Lexer (Token (..), lex) where
+module Parser.Lexer (Lexeme (..), Row (..), Col (..), Token (..), lex) where
 
 import Control.Applicative
 import Control.Arrow
 import Control.Monad
+import Control.Monad.Freer
+import Control.Monad.Freer.Error (Error)
+import qualified Control.Monad.Freer.Error as Err
+import Control.Monad.Freer.State (State)
+import qualified Control.Monad.Freer.State as ST
 import Data.Char
 import Data.Either
 import Data.List
@@ -29,7 +36,14 @@ data Token
   | TColon
   | TSymbol Text
   | TWhiteSpace Natural
+  | TNewLine
   deriving (Eq, Show)
+
+newtype Row = Row {unRow :: Natural} deriving (Num, Enum, Eq, Ord, Show)
+
+newtype Col = Col {unCol :: Natural} deriving (Num, Enum, Eq, Ord, Show)
+
+data Lexeme = Lexeme Token Row Col deriving (Eq, Show)
 
 toMaybe :: Either e a -> Maybe a
 toMaybe = either (const Nothing) Just
@@ -71,6 +85,9 @@ symbol t = do
   guard . all isAlphaNum $ Text.unpack rest
   pure $ TSymbol t
 
+newLine :: Text -> Maybe Token
+newLine t = guard ("\n" == t) *> Just TNewLine
+
 splits :: Text -> [(Text, Text)]
 splits t = flip Text.splitAt t . (-) len <$> [0 .. len]
   where
@@ -82,13 +99,18 @@ lexLargest t
   | otherwise =
     Right $ fmap swap . foldl' (<|>) Nothing $ fmap (\(chunk, rest) -> (,) rest <$> attempt chunk) (splits t)
 
-lexSpaces :: Text -> [Token] -> (Text, [Token])
-lexSpaces input tokens = (rest, tokens')
-  where
-    (spaces, rest) = Text.break ((/=) ' ') input
-    tokens' = if len > 0 then TWhiteSpace len : tokens else tokens
-      where
-        len = fromIntegral $ Text.length spaces
+lexSpaces :: Members '[State LexST] es => Eff es ()
+lexSpaces = do
+  st <- ST.get
+  let (spaces, rest) = Text.break ((/=) ' ') $ input st
+  let len = fromIntegral $ Text.length spaces
+  when (len > 0) $ do
+    ST.modify $ \st ->
+      st
+        { tokens = Lexeme (TWhiteSpace len) (row st) (col st) : tokens st,
+          col = col st + Col len
+        }
+  ST.modify (\st -> st {input = rest})
 
 attempt t =
   natNum t
@@ -101,20 +123,45 @@ attempt t =
     <|> rParen t
     <|> colon t
     <|> symbol t
+    <|> newLine t
 
-lex :: Text -> Maybe [Token]
-lex t = reverse <$> go t []
+data LexST = LexST {row :: Row, col :: Col, input :: Text, tokens :: [Lexeme]}
+
+data LexError = CannotLex Text Row Col deriving (Eq, Show)
+
+breakInput :: Members '[State LexST] es => (Char -> Bool) -> Eff es Text
+breakInput pred = do
+  (chunk, input') <- Text.break pred . input <$> ST.get
+  ST.modify $ \st -> st {input = input'}
+  pure chunk
+
+lex :: Text -> Either LexError [Lexeme]
+lex t = run . Err.runError . fmap (reverse . tokens) . ST.execState (LexST (Row 0) (Col 0) t []) $ go
   where
-    go :: Text -> [Token] -> Maybe [Token]
-    go input tokens
-      | Text.null input = Just tokens
-      | otherwise = do
-        let (input', tokens') = lexSpaces input tokens
-        let (curr, rest) = Text.break ((==) ' ') input'
-        results <- step curr
-        go rest (reverse results <> tokens')
+    go :: Members '[State LexST, Error LexError] es => Eff es ()
+    go = do
+      st <- ST.get
+      unless (Text.null $ input st) $ do
+        lexSpaces
+        chunk <- breakInput ((==) ' ')
+        step chunk
+        go
+
+    step :: Members '[State LexST, Error LexError] es => Text -> Eff es ()
     step t = do
+      st <- ST.get
       case lexLargest t of
-        Left _ -> Just []
-        Right (Just (next, rest)) -> (next :) <$> step rest
-        Right Nothing -> Nothing
+        Left _ -> pure ()
+        Right (Just (next, rest)) -> do
+          ST.modify $ \st ->
+            st
+              { tokens = Lexeme next (row st) (col st) : tokens st,
+                col = case next of
+                  TNewLine -> 0
+                  _ -> (col st) + Col (fromIntegral $ Text.length t - Text.length rest),
+                row = case next of
+                  TNewLine -> succ (row st)
+                  _ -> row st
+              }
+          step rest
+        Right Nothing -> Err.throwError $ CannotLex t (row st) (col st)

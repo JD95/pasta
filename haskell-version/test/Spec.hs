@@ -14,7 +14,7 @@ import Eval.Stages
 import Lib
 import Logic
 import Logic.Propagator
-import qualified Parser.Lexer as Lex
+import Parser.Lexer
 import Test.Tasty
 import Test.Tasty.HUnit
 import TypeCheck.Typed
@@ -31,22 +31,23 @@ main = defaultMain tests
           testGroup
             "Lexing"
             [ testCase "Can Lex '(\\x ->  x):Int->Int'" $ do
-                let input = "(\\x ->  x):Int->Int"
-                let result = Lex.lex input
+                let input = "(\\x ->\n  x):Int->Int"
+                let result = Parser.Lexer.lex input
                 let answer =
-                      Just $
-                        [ Lex.TLParen,
-                          Lex.TLambda,
-                          Lex.TSymbol "x",
-                          Lex.TWhiteSpace 1,
-                          Lex.TArrow,
-                          Lex.TWhiteSpace 2,
-                          Lex.TSymbol "x",
-                          Lex.TRParen,
-                          Lex.TColon,
-                          Lex.TSymbol "Int",
-                          Lex.TArrow,
-                          Lex.TSymbol "Int"
+                      Right $
+                        [ Lexeme TLParen (Row 0) (Col 0),
+                          Lexeme TLambda (Row 0) (Col 1),
+                          Lexeme (TSymbol "x") (Row 0) (Col 2),
+                          Lexeme (TWhiteSpace 1) (Row 0) (Col 3),
+                          Lexeme TArrow (Row 0) (Col 4),
+                          Lexeme TNewLine (Row 0) (Col 6),
+                          Lexeme (TWhiteSpace 2) (Row 1) (Col 0),
+                          Lexeme (TSymbol "x") (Row 1) (Col 2),
+                          Lexeme TRParen (Row 1) (Col 3),
+                          Lexeme TColon (Row 1) (Col 4),
+                          Lexeme (TSymbol "Int") (Row 1) (Col 5),
+                          Lexeme TArrow (Row 1) (Col 8),
+                          Lexeme (TSymbol "Int") (Row 1) (Col 10)
                         ]
                 result @?= answer
             ]
