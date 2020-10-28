@@ -43,7 +43,7 @@ newtype Row = Row {unRow :: Natural} deriving (Num, Enum, Eq, Ord, Show)
 
 newtype Col = Col {unCol :: Natural} deriving (Num, Enum, Eq, Ord, Show)
 
-data Lexeme = Lexeme Token Row Col deriving (Eq, Show)
+data Lexeme = Lexeme !Token !Row !Col deriving (Eq, Show)
 
 toMaybe :: Either e a -> Maybe a
 toMaybe = either (const Nothing) Just
@@ -125,9 +125,9 @@ attempt t =
     <|> symbol t
     <|> newLine t
 
-data LexST = LexST {row :: Row, col :: Col, input :: Text, tokens :: [Lexeme]}
+data LexST = LexST {row :: !Row, col :: !Col, input :: !Text, tokens :: ![Lexeme]}
 
-data LexError = CannotLex Text Row Col deriving (Eq, Show)
+data LexError = CannotLex !Text !Row !Col deriving (Eq, Show)
 
 breakInput :: Members '[State LexST] es => (Char -> Bool) -> Eff es Text
 breakInput pred = do

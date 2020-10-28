@@ -36,9 +36,9 @@ data Data a where
   -- | A grouping of values
   Struct :: Vector a -> Data a
   -- | Indexing into a struct
-  Out :: Natural -> a -> Data a
+  Out :: !Natural -> a -> Data a
   -- | A tag for union types
-  In :: Natural -> a -> Data a
+  In :: !Natural -> a -> Data a
   -- | Branching on a value
   Case :: a -> Map Natural a -> Data a
 

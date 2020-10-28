@@ -39,7 +39,7 @@ import RIO hiding (Data)
 import Text.Show.Deriving
 
 -- | Lambda Terms
-data Lam a = Lam Text a deriving (Eq, Show)
+data Lam a = Lam !Text a deriving (Eq, Show)
 
 deriving instance Functor Lam
 
