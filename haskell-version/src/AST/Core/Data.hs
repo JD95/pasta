@@ -8,6 +8,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
 module AST.Core.Data where
@@ -59,17 +60,23 @@ instance Diffable Data where
   diff f (Case _ _) (Case _ _) = undefined
   diff _ _ _ = undefined
 
-struct :: (Foldable t, Data :< fs) => t (Free (Sum fs) a) -> Free (Sum fs) a
-struct = Free . inject . Struct . V.fromList . toList
+class InjData f where
+  injData :: Data a -> f a
 
-case_ :: (Data :< fs) => Free (Sum fs) a -> [(Natural, Free (Sum fs) a)] -> Free (Sum fs) a
-case_ sub = Free . inject . Case sub . Map.fromList
+instance Data :< f => InjData (Sum f) where
+  injData = inject
 
-in_ :: (Data :< fs) => Natural -> Free (Sum fs) a -> Free (Sum fs) a
-in_ i = Free . inject . In i
+struct :: (Foldable t, InjData f) => t (Free f a) -> Free f a
+struct = Free . injData . Struct . V.fromList . toList
 
-out_ :: (Data :< fs) => Natural -> Free (Sum fs) a -> Free (Sum fs) a
-out_ i = Free . inject . Out i
+case_ :: (InjData f) => Free f a -> [(Natural, Free f a)] -> Free f a
+case_ sub = Free . injData . Case sub . Map.fromList
+
+in_ :: (InjData f) => Natural -> Free f a -> Free f a
+in_ i = Free . injData . In i
+
+out_ :: (InjData f) => Natural -> Free f a -> Free f a
+out_ i = Free . injData . Out i
 
 instance DisplayF Data where
   displayF (Struct v) = "(" <> (Text.concat . intersperse ", " . toList $ v) <> ")"

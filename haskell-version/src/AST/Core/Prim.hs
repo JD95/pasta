@@ -107,25 +107,31 @@ instance DisplayF Prim where
   displayF (PChar c) = pack . show $ c
   displayF (CharTy) = "Char"
 
-(-:>) :: (Prim :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
-i -:> o = Free . inject $ Arr Nothing i o
+class InjPrim f where
+  injPrim :: Prim a -> f a
+
+instance Prim :< f => InjPrim (Sum f) where
+  injPrim = inject
+
+(-:>) :: (InjPrim f) => Free f a -> Free f a -> Free f a
+i -:> o = Free . injPrim $ Arr Nothing i o
 
 infixr 2 -:>
 
-pi :: (Prim :< fs) => Text -> Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
-pi s i o = Free . inject $ Arr (Just s) i o
+pi :: InjPrim f => Text -> Free f a -> Free f a -> Free f a
+pi s i o = Free . injPrim $ Arr (Just s) i o
 
-new_ :: (Prim :< fs) => Text -> Free (Sum fs) a -> Free (Sum fs) a
-new_ name = Free . inject . NewTy name
+new_ :: (InjPrim f) => Text -> Free f a -> Free f a
+new_ name = Free . injPrim . NewTy name
 
-ty :: (Prim :< fs) => Natural -> Free (Sum fs) a
-ty = Free . inject . Type
+ty :: (InjPrim f) => Natural -> Free f a
+ty = Free . injPrim . Type
 
-int :: (Prim :< fs) => Int -> Free (Sum fs) a
-int = Free . inject . PInt
+int :: (InjPrim f) => Int -> Free f a
+int = Free . injPrim . PInt
 
-intTy :: (Prim :< fs) => Free (Sum fs) a
-intTy = Free $ inject IntTy
+intTy :: (InjPrim f) => Free f a
+intTy = Free $ injPrim IntTy
 
-natTy :: (Prim :< fs) => Free (Sum fs) a
-natTy = Free $ inject NatTy
+natTy :: (InjPrim f) => Free f a
+natTy = Free $ injPrim NatTy

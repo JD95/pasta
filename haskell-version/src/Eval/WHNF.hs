@@ -44,7 +44,7 @@ instance Whnf (Ref (Fix Term)) where
     val <- send $ readIORef r
     result <- cata whnf val
     send $ writeIORef r result
-    pure (term $ ref r)
+    pure $ ref r
 
 instance Whnf (Thunk (Fix Term)) where
   whnf (Thunk st a) = local (const st) a

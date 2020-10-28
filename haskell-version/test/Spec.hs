@@ -201,21 +201,21 @@ main = defaultMain tests
         [ testGroup
             "Int"
             [ testCase "eval is idempotent" $ do
-                result <- runNormal [] . term . asFix . int $ 1
-                result @?= nf (asFix $ int 1)
+                result <- runNormal [] . asFix . int $ 1
+                result @?= (asFix $ int 1)
             ],
           testGroup
             "Bound"
             [ testCase "can lookup value" $ do
-                let r = term . asFix . int $ 1
-                let t = term . thunk [r] . bnd $ 0
+                let r = asFix . int $ 1 :: Fix Term
+                let t = thunk [r] . bnd $ 0
                 result <- runNormal [] t
-                result @?= nf (asFix $ int 1),
+                result @?= (asFix $ int 1),
               testCase "looks up proper value" $ do
-                let r0 = term . asFix . int $ 0
-                let r1 = term . asFix . int $ 1
-                let t = term $ thunk [r0, r1] (bnd 1)
+                let r0 = asFix . int $ 0 :: Fix Term
+                let r1 = asFix . int $ 1
+                let t = thunk [r0, r1] (bnd 1)
                 result <- runNormal [] t
-                result @?= nf (asFix $ int 1)
+                result @?= (asFix $ int 1)
             ]
         ]

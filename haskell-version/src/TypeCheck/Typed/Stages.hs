@@ -66,8 +66,14 @@ instance Diffable Ann where
 deriveEq1 ''Ann
 deriveShow1 ''Ann
 
-ann :: (Ann :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
-ann val = Free . inject . Ann val
+class InjAnn f where
+  injAnn :: Ann a -> f a
+
+instance Ann :< f => InjAnn (Sum f) where
+  injAnn = inject
+
+ann :: (InjAnn f) => Free f a -> Free f a -> Free f a
+ann val = Free . injAnn . Ann val
 
 newtype Hole = Hole {unHole :: Int} deriving (Eq, Show)
 
@@ -112,14 +118,20 @@ instance DisplayF Err where
       <> "\n> "
       <> y
 
-errs :: (Err :< fs) => [Err (Free (Sum fs) a)] -> Free (Sum fs) a
-errs = Free . inject . Errs
+class InjErr f where
+  injErr :: Err a -> f a
 
-mismatch :: (Err :< fs) => Expected (Free (Sum fs) a) -> Given (Free (Sum fs) a) -> Free (Sum fs) a
-mismatch x = Free . inject . Mismatch x
+instance Err :< fs => InjErr (Sum fs) where
+  injErr = inject
 
-conflict :: (Err :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
-conflict x = Free . inject . ConflictErr x
+errs :: (InjErr f) => [Err (Free f a)] -> Free f a
+errs = Free . injErr . Errs
+
+mismatch :: (InjErr f) => Expected (Free f a) -> Given (Free f a) -> Free f a
+mismatch x = Free . injErr . Mismatch x
+
+conflict :: (InjErr f) => Free f a -> Free f a -> Free f a
+conflict x = Free . injErr . ConflictErr x
 
 type Partial h = Free Typed h
 

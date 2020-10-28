@@ -11,6 +11,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
 module Eval.Stages where
@@ -34,8 +35,14 @@ deriving instance Foldable (Thunk b)
 
 deriving instance Traversable (Thunk b)
 
-thunk :: (Thunk b :< fs) => [b] -> Fix (Sum fs) -> Fix (Sum fs)
-thunk st = Fix . inject . Thunk st
+class InjThunk b f where
+  injThunk :: Thunk b a -> f a
+
+instance Thunk b :< fs => InjThunk b (Sum fs) where
+  injThunk = inject
+
+thunk :: (InjThunk b f) => [b] -> Fix f -> Fix f
+thunk st = Fix . injThunk . Thunk st
 
 newtype Bound a = Bound Natural
 
@@ -45,8 +52,14 @@ deriving instance Foldable Bound
 
 deriving instance Traversable Bound
 
-bnd :: (Bound :< fs) => Natural -> Fix (Sum fs)
-bnd = Fix . inject . Bound
+class InjBound f where
+  injBound :: Bound a -> f a
+
+instance Bound :< fs => InjBound (Sum fs) where
+  injBound = inject
+
+bnd :: (InjBound f) => Natural -> Fix f
+bnd = Fix . injBound . Bound
 
 newtype Ref b a = Ref (IORef b)
 
@@ -64,8 +77,14 @@ instance Eq1 (Ref b) where
 instance DisplayF (Ref (Fix NF)) where
   displayF _ = "#ref"
 
-ref :: (Ref b :< fs) => IORef b -> Fix (Sum fs)
-ref = Fix . inject . Ref
+class InjRef b f where
+  injRef :: Ref b a -> f a
+
+instance Ref b :< fs => InjRef b (Sum fs) where
+  injRef = inject
+
+ref :: (InjRef b f) => IORef b -> Fix f
+ref = Fix . injRef . Ref
 
 type TermComps b = Sum [Prim, Data, Thunk b, Ref b, Bound, Norm]
 
@@ -78,11 +97,23 @@ deriving instance Foldable Term
 
 deriving instance Traversable Term
 
-term :: (fs ~ TermComps (Fix Term)) => Fix fs -> Fix Term
-term = Fix . Term . fmap term . unfix
+instance InjPrim Term where
+  injPrim = Term . inject
 
-alloc :: (fs ~ TermComps (Fix Term)) => Fix fs -> IO (Fix Term)
-alloc = fmap (term . ref) . newIORef . term
+instance InjData Term where
+  injData = Term . inject
+
+instance InjThunk (Fix Term) Term where
+  injThunk = Term . inject
+
+instance InjRef (Fix Term) Term where
+  injRef = Term . inject
+
+instance InjBound Term where
+  injBound = Term . inject
+
+alloc :: Fix Term -> IO (Fix Term)
+alloc = fmap ref . newIORef
 
 type Norm = Const (Fix NF)
 
@@ -106,5 +137,11 @@ instance Eq1 NF where
 instance Show1 NF where
   liftShowsPrec f _ _ p = unpack . displayF . fmap pack . traverse (f 0) p
 
-nf :: (fs ~ NfComps (Fix NF)) => Fix fs -> Fix NF
-nf = Fix . NF . fmap nf . unfix
+instance InjPrim NF where
+  injPrim = NF . inject
+
+instance InjData NF where
+  injData = NF . inject
+
+instance InjRef (Fix NF) NF where
+  injRef = NF . inject

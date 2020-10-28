@@ -41,7 +41,7 @@ instance Normal (Ref (Fix Term)) where
     result <- cata normal val
     send $ writeIORef r (Fix . Term . inject . Const $ result)
     r' <- send $ newIORef result
-    pure . nf . ref $ r'
+    pure $ ref r'
 
 instance Normal Prim where
   normal = gpass NF

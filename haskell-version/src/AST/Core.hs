@@ -8,6 +8,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
 module AST.Core
@@ -49,8 +50,14 @@ deriving instance Traversable Lam
 instance DisplayF Lam where
   displayF (Lam input body) = "\\" <> input <> " -> " <> body
 
-lam :: (Lam :< fs) => Text -> Free (Sum fs) a -> Free (Sum fs) a
-lam input = Free . inject . Lam input
+class InjLam f where
+  injLam :: Lam a -> f a
+
+instance Lam :< fs => InjLam (Sum fs) where
+  injLam = inject
+
+lam :: InjLam f => Text -> Free f a -> Free f a
+lam input = Free . injLam . Lam input
 
 deriveShow1 ''Lam
 deriveEq1 ''Lam
@@ -73,8 +80,14 @@ deriveEq1 ''App
 instance Diffable App where
   diff f (App _ _) (App _ _) = undefined
 
-app :: (App :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
-app func = Free . inject . App func
+class InjApp f where
+  injApp :: App a -> f a
+
+instance App :< fs => InjApp (Sum fs) where
+  injApp = inject
+
+app :: InjApp f => Free f a -> Free f a -> Free f a
+app func = Free . injApp . App func
 
 instance DisplayF App where
   displayF (App func input) = "(" <> func <> " " <> input <> ")"
@@ -96,7 +109,13 @@ instance DisplayF FreeVar where
 deriveShow1 ''FreeVar
 deriveEq1 ''FreeVar
 
-free :: (FreeVar :< fs) => Text -> Free (Sum fs) a
-free var = Free . inject $ FreeVar var
+class InjFreeVar f where
+  injFreeVar :: FreeVar a -> f a
+
+instance (FreeVar :< f) => InjFreeVar (Sum f) where
+  injFreeVar = inject
+
+free :: InjFreeVar f => Text -> Free f a
+free var = Free . injFreeVar $ FreeVar var
 
 type Core = Sum [Prim, Data, Lam, App, FreeVar]
