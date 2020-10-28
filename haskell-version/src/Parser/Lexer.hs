@@ -28,13 +28,13 @@ data Token
   | TInt Int
   | TDbl Double
   | TQuote
-  | TDblQuote
   | TLambda
   | TArrow
   | TLParen
   | TRParen
   | TColon
   | TSymbol Text
+  | TString Text
   | TWhiteSpace Natural
   | TNewLine
   deriving (Eq, Show)
@@ -59,9 +59,6 @@ dblNum = fmap (TDbl . fst) . toMaybe . Read.signed Read.double
 
 quote :: Text -> Maybe Token
 quote t = guard ("'" == t) *> Just TQuote
-
-dblQuote :: Text -> Maybe Token
-dblQuote t = guard ("\"" == t) *> Just TDblQuote
 
 lambda :: Text -> Maybe Token
 lambda t = guard ("\\" == t) *> Just TLambda
@@ -112,11 +109,23 @@ lexSpaces = do
         }
   ST.modify (\st -> st {input = rest})
 
+lexString :: Members '[State LexST] es => Eff es ()
+lexString = do
+  st <- ST.get
+  let (string, rest) = Text.break ((==) '"') $ input st
+  let len = fromIntegral $ Text.length string
+  let endQuote = 1
+  ST.modify $ \st ->
+    st
+      { tokens = Lexeme (TString string) (row st) (col st) : tokens st,
+        col = col st + Col len + endQuote
+      }
+  ST.modify (\st -> st {input = Text.drop 1 rest})
+
 attempt t =
   natNum t
     <|> intNum t
     <|> quote t
-    <|> dblQuote t
     <|> lambda t
     <|> arrow t
     <|> lParen t
@@ -143,25 +152,34 @@ lex t = run . Err.runError . fmap (reverse . tokens) . ST.execState (LexST (Row 
       st <- ST.get
       unless (Text.null $ input st) $ do
         lexSpaces
-        chunk <- breakInput ((==) ' ')
-        step chunk
-        go
+        st' <- ST.get
+        case Text.uncons (input st') of
+          Just ('"', _) -> do
+            ST.modify $ \x -> x {input = Text.drop 1 (input x)}
+            lexString
+            go
+          Just _ -> do
+            chunk <- breakInput ((==) ' ')
+            step chunk
+            go
 
     step :: Members '[State LexST, Error LexError] es => Text -> Eff es ()
     step t = do
       st <- ST.get
-      case lexLargest t of
-        Left _ -> pure ()
-        Right (Just (next, rest)) -> do
-          ST.modify $ \st ->
-            st
-              { tokens = Lexeme next (row st) (col st) : tokens st,
-                col = case next of
-                  TNewLine -> 0
-                  _ -> (col st) + Col (fromIntegral $ Text.length t - Text.length rest),
-                row = case next of
-                  TNewLine -> row st + 1
-                  _ -> row st
-              }
-          step rest
-        Right Nothing -> Err.throwError $ CannotLex t (row st) (col st)
+      case Text.uncons t of
+        Just ('"', _) -> ST.modify $ \x -> x {input = t <> (input x)}
+        _ -> case lexLargest t of
+          Left _ -> pure ()
+          Right (Just (next, rest)) -> do
+            ST.modify $ \st ->
+              st
+                { tokens = Lexeme next (row st) (col st) : tokens st,
+                  col = case next of
+                    TNewLine -> 0
+                    _ -> (col st) + Col (fromIntegral $ Text.length t - Text.length rest),
+                  row = case next of
+                    TNewLine -> row st + 1
+                    _ -> row st
+                }
+            step rest
+          Right Nothing -> Err.throwError $ CannotLex t (row st) (col st)

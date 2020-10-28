@@ -49,6 +49,16 @@ main = defaultMain tests
                           Lexeme TArrow (Row 1) (Col 8),
                           Lexeme (TSymbol "Int") (Row 1) (Col 10)
                         ]
+                result @?= answer,
+              testCase "Can Lex '(\"hello\")'" $ do
+                let input = "(\"hello\")"
+                let result = Parser.Lexer.lex input
+                let answer =
+                      Right $
+                        [ Lexeme TLParen (Row 0) (Col 0),
+                          Lexeme (TString "hello") (Row 0) (Col 1),
+                          Lexeme TRParen (Row 0) (Col 7)
+                        ]
                 result @?= answer
             ]
 
