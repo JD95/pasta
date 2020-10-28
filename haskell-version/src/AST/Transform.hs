@@ -9,6 +9,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module AST.Transform where
 
@@ -16,6 +17,7 @@ import Control.Monad.Free
 import Data.Functor.Foldable (Fix (..), cata)
 import Data.Sum
 import Logic.Info
+import RIO
 
 -- | Allows for unchanging parts of the AST to pass through a transform
 pass :: (f :< g, Monad m, Traversable f) => f (m (Fix (Sum g))) -> m (Fix (Sum g))

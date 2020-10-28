@@ -8,6 +8,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module AST.Core.Data where
 
@@ -18,8 +19,6 @@ import Data.Foldable
 import Data.Functor.Classes (Eq1 (..), Show1 (..))
 import Data.Functor.Foldable (Fix (..))
 import Data.List hiding (concat)
-import Data.Map (Map)
-import qualified Data.Map as Map
 import Data.Sum
 import Data.Text (pack, unpack)
 import qualified Data.Text as Text
@@ -27,6 +26,9 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Display
 import Numeric.Natural (Natural)
+import RIO hiding (Data)
+import RIO.Map (Map)
+import qualified RIO.Map as Map
 import Text.Show.Deriving
 
 data Data a where
@@ -69,7 +71,7 @@ in_ i = Free . inject . In i
 out_ :: (Data :< fs) => Natural -> Free (Sum fs) a -> Free (Sum fs) a
 out_ i = Free . inject . Out i
 
-instance Display Data where
+instance DisplayF Data where
   displayF (Struct v) = "(" <> (Text.concat . intersperse ", " . toList $ v) <> ")"
   displayF (Case sub paths) = "case " <> sub <> " of { " <> cases <> "}"
     where

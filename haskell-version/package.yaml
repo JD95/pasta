@@ -20,27 +20,24 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/githubuser/jelly#readme>
 
 dependencies:
+- Logic
 - base >= 4.7 && < 5
-- containers
 - data-default
 - deriving-compat
 - exceptions
 - fastsum
 - free
 - freer-simple
+- fsnotify
+- text
+- microlens-th 
 - ghc-prim
 - hashable
-- Logic
 - microlens-platform
-- mtl
-- primitive
 - recursion-schemes
+- rio
 - smash
-- text
 - transformers
-- unordered-containers
-- vector
-- fsnotify
 
 library:
   source-dirs: src

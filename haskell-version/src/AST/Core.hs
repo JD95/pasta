@@ -8,6 +8,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module AST.Core
   ( module AST.Core.Prim,
@@ -33,6 +34,7 @@ import Data.Sum
 import Data.Text (Text)
 import Display
 import Numeric.Natural (Natural)
+import RIO hiding (Data)
 import Text.Show.Deriving
 
 -- | Lambda Terms
@@ -44,7 +46,7 @@ deriving instance Foldable Lam
 
 deriving instance Traversable Lam
 
-instance Display Lam where
+instance DisplayF Lam where
   displayF (Lam input body) = "\\" <> input <> " -> " <> body
 
 lam :: (Lam :< fs) => Text -> Free (Sum fs) a -> Free (Sum fs) a
@@ -74,7 +76,7 @@ instance Diffable App where
 app :: (App :< fs) => Free (Sum fs) a -> Free (Sum fs) a -> Free (Sum fs) a
 app func = Free . inject . App func
 
-instance Display App where
+instance DisplayF App where
   displayF (App func input) = "(" <> func <> " " <> input <> ")"
 
 newtype FreeVar a = FreeVar Text deriving (Eq, Show)
@@ -88,7 +90,7 @@ deriving instance Foldable FreeVar
 
 deriving instance Traversable FreeVar
 
-instance Display FreeVar where
+instance DisplayF FreeVar where
   displayF (FreeVar v) = v
 
 deriveShow1 ''FreeVar

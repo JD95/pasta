@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Eval.Normal where
 
@@ -19,7 +20,8 @@ import Data.Functor.Foldable (Fix (..), cata)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Sum
 import Eval.Stages
-import Prelude hiding (lookup)
+import RIO hiding (Data, Reader, ask, local, newIORef, readIORef, runReader, writeIORef)
+import RIO.List
 
 class Normal f where
   normal ::
@@ -55,7 +57,9 @@ instance Normal (Thunk (Fix Term)) where
 instance Normal Bound where
   normal (Bound i) = do
     st <- ask @[Fix NF]
-    pure $ st !! fromIntegral i
+    pure $ case lastMaybe $ take (fromIntegral i + 1) st of
+      Just x -> x
+      Nothing -> undefined
 
 instance Normal Norm where
   normal = pure . getConst

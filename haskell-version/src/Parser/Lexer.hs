@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Parser.Lexer (Lexeme (..), Row (..), Col (..), Token (..), lex) where
 
@@ -15,13 +16,12 @@ import qualified Control.Monad.Freer.State as ST
 import Data.Char
 import Data.Either
 import Data.List
-import Data.Text (Text)
-import qualified Data.Text as Text
-import qualified Data.Text.Read as Text
+import qualified Data.Text.Read as Read
 import Data.Tuple
 import Numeric.Natural
+import RIO
+import qualified RIO.Text as Text
 import Text.Read (readMaybe)
-import Prelude hiding (lex)
 
 data Token
   = TNat Natural
@@ -49,13 +49,13 @@ toMaybe :: Either e a -> Maybe a
 toMaybe = either (const Nothing) Just
 
 natNum :: Text -> Maybe Token
-natNum = fmap (TNat . fst) . toMaybe . Text.decimal
+natNum = fmap (TNat . fst) . toMaybe . Read.decimal
 
 intNum :: Text -> Maybe Token
-intNum = fmap (TInt . fst) . toMaybe . Text.signed Text.decimal
+intNum = fmap (TInt . fst) . toMaybe . Read.signed Read.decimal
 
 dblNum :: Text -> Maybe Token
-dblNum = fmap (TDbl . fst) . toMaybe . Text.signed Text.double
+dblNum = fmap (TDbl . fst) . toMaybe . Read.signed Read.double
 
 quote :: Text -> Maybe Token
 quote t = guard ("'" == t) *> Just TQuote
@@ -160,7 +160,7 @@ lex t = run . Err.runError . fmap (reverse . tokens) . ST.execState (LexST (Row 
                   TNewLine -> 0
                   _ -> (col st) + Col (fromIntegral $ Text.length t - Text.length rest),
                 row = case next of
-                  TNewLine -> succ (row st)
+                  TNewLine -> row st + 1
                   _ -> row st
               }
           step rest

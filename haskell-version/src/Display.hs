@@ -2,22 +2,23 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Display where
 
 import Data.Functor.Const
 import Data.Functor.Foldable (Fix, cata)
 import Data.Sum
-import Data.Text
+import RIO
 
-class Display f where
+class DisplayF f where
   displayF :: f Text -> Text
 
-instance Apply Display fs => Display (Sum fs) where
-  displayF = apply @Display displayF
+instance Apply DisplayF fs => DisplayF (Sum fs) where
+  displayF = apply @DisplayF displayF
 
-instance Display (Const Text) where
+instance DisplayF (Const Text) where
   displayF = getConst
 
-display :: (Functor f, Display f) => Fix f -> Text
+display :: (Functor f, DisplayF f) => Fix f -> Text
 display = cata displayF

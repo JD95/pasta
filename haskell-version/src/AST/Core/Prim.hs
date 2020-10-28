@@ -9,6 +9,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module AST.Core.Prim where
 
@@ -22,6 +23,7 @@ import Data.Text (Text, pack, unpack)
 import Display
 import Logic.Info
 import Numeric.Natural (Natural)
+import RIO
 import Text.Show.Deriving
 
 data Polarity
@@ -83,7 +85,7 @@ instance Diffable Prim where
   diff _ NatTy NatTy = Same NatTy
   diff _ x y = Conflict
 
-instance Display Prim where
+instance DisplayF Prim where
   displayF (Arr (Just s) i o) = "(" <> s <> " : " <> i <> ") -> " <> o
   displayF (Arr Nothing i o) = i <> " -> " <> o
   displayF (NewTy n _) = n

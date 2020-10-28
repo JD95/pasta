@@ -16,6 +16,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module TypeCheck.Typed.Stages where
 
@@ -35,8 +36,6 @@ import Data.Foldable
 import Data.Functor.Classes
 import Data.Functor.Foldable (Fix (..), cata)
 import Data.Hashable
-import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
 import Data.Sum
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -48,6 +47,9 @@ import Logic.Info
 import Logic.Propagator
 import Logic.Propagator.Class
 import Logic.Propagator.PrimCell
+import RIO hiding (Data)
+import RIO.HashMap (HashMap)
+import qualified RIO.HashMap as HashMap
 import Text.Show.Deriving
 
 data Ann a = Ann a a deriving (Eq, Show)
@@ -69,7 +71,7 @@ ann val = Free . inject . Ann val
 
 newtype Hole = Hole {unHole :: Int} deriving (Eq, Show)
 
-instance Display Ann where
+instance DisplayF Ann where
   displayF (Ann x y) = x <> " : " <> y
 
 hole :: Functor f => Int -> Free f Hole
@@ -97,7 +99,7 @@ deriveShow1 ''Err
 instance Diffable Err where
   diff f x y = Update $ Errs [x, y]
 
-instance Display Err where
+instance DisplayF Err where
   displayF (Errs xs) = Text.unlines $ displayF <$> xs
   displayF (Mismatch (Expected expected) (Given actual)) =
     "Error! Mismatch between:\nExpected: "

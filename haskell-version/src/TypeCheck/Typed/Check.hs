@@ -19,6 +19,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module TypeCheck.Typed.Check where
 
@@ -38,8 +39,6 @@ import Data.Foldable
 import Data.Functor.Classes
 import Data.Functor.Foldable (Fix (..), cata, para)
 import Data.Hashable
-import Data.Map (Map)
-import qualified Data.Map as Map
 import Data.Maybe
 import Data.Sum
 import Data.Text (Text, pack)
@@ -54,6 +53,9 @@ import Logic.Propagator
 import Logic.Propagator.Class
 import Logic.Propagator.PrimCell
 import Numeric.Natural
+import RIO hiding (Data, display)
+import RIO.Map (Map)
+import qualified RIO.Map as Map
 import Text.Show.Deriving
 import TypeCheck.Typed.Eval
 import TypeCheck.Typed.Render

@@ -9,12 +9,12 @@ import Control.Monad.Free
 import Control.Monad.Freer
 import Control.Monad.Freer.State
 import Data.Functor.Foldable
-import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
 import Data.Text
+import RIO.HashMap (HashMap)
+import qualified RIO.HashMap as HashMap
 import TypeCheck.Typed.Stages
 
-data RenderST = RenderST {idMap :: IntMap Text, names :: [String]}
+data RenderST = RenderST {idMap :: HashMap Int Text, names :: [String]}
 
 newRenderST :: RenderST
 newRenderST = RenderST mempty ns
@@ -24,10 +24,10 @@ newRenderST = RenderST mempty ns
         start = (: []) <$> ['a' .. 'z']
 
 lookupName :: Members '[State RenderST] es => Int -> Eff es (Maybe Text)
-lookupName i = IntMap.lookup i . idMap <$> get
+lookupName i = HashMap.lookup i . idMap <$> get
 
 addId :: Members '[State RenderST] es => Int -> Text -> Eff es ()
-addId i t = modify (\st -> st {idMap = IntMap.alter (const . Just $ t) i (idMap st)})
+addId i t = modify (\st -> st {idMap = HashMap.alter (const . Just $ t) i (idMap st)})
 
 popNextName :: Members '[State RenderST] es => Eff es Text
 popNextName = do

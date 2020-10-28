@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Eval.WHNF where
 
@@ -17,7 +18,8 @@ import Data.Functor.Foldable (Fix (..), cata)
 import Data.IORef (readIORef, writeIORef)
 import Data.Sum
 import Eval.Stages
-import Prelude hiding (lookup)
+import RIO hiding (Data, Reader, ask, local, readIORef, runReader, writeIORef)
+import RIO.List
 
 class Whnf f where
   whnf ::
@@ -50,7 +52,9 @@ instance Whnf (Thunk (Fix Term)) where
 instance Whnf Bound where
   whnf (Bound i) = do
     st <- ask @[Fix Term]
-    let val = st !! fromIntegral i
+    let val = case lastMaybe $ take (fromIntegral i + 1) st of
+          Just x -> x
+          Nothing -> undefined
     pure val
 
 instance Whnf Norm where

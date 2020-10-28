@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Eval.Flatten where
 
@@ -16,10 +17,9 @@ import Control.Monad.Freer
 import Control.Monad.Freer.Reader
 import Data.Functor.Const
 import Data.Functor.Foldable (Fix (..), cata)
-import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Sum
 import Eval.Stages
-import Prelude hiding (lookup)
+import RIO hiding (Data)
 
 type Flat = Sum '[Prim, Data]
 

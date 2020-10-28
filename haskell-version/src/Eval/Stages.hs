@@ -11,6 +11,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Eval.Stages where
 
@@ -18,11 +19,11 @@ import AST.Core
 import Data.Functor.Classes
 import Data.Functor.Const
 import Data.Functor.Foldable (Fix (..), unfix)
-import Data.IORef (IORef, newIORef)
 import Data.Sum
 import Data.Text (pack, unpack)
 import Display
 import Numeric.Natural
+import RIO hiding (Data)
 
 -- | The runtime stack, holding pointers to closures
 data Thunk b a = Thunk [b] a
@@ -60,7 +61,7 @@ deriving instance Eq (Ref b a)
 instance Eq1 (Ref b) where
   liftEq _ (Ref a) (Ref b) = a == b
 
-instance Display (Ref (Fix NF)) where
+instance DisplayF (Ref (Fix NF)) where
   displayF _ = "#ref"
 
 ref :: (Ref b :< fs) => IORef b -> Fix (Sum fs)
@@ -96,7 +97,7 @@ deriving instance Foldable NF
 
 deriving instance Traversable NF
 
-instance Display NF where
+instance DisplayF NF where
   displayF (NF val) = displayF val
 
 instance Eq1 NF where
