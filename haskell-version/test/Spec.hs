@@ -25,8 +25,28 @@ main = defaultMain tests
   where
     tests = testGroup "Jelly" [parsingTests, evalTests, typeCheckTests]
 
-    parsingTests = testGroup "Parsing" [lexingTests]
+    parsingTests = testGroup "Parsing" [lexingTests, parsingTests]
       where
+        parsingTests =
+          testGroup
+            "Parsing"
+            [ testCase "Can Parse: '\\x -> x'" $ do
+                let input = "\\x -> x"
+                case parse input of
+                  Right _ -> pure ()
+                  Left _ -> assertFailure "did not parse",
+              testCase "Can Parse: 'f x y" $ do
+                let input = "f x y"
+                case parse input of
+                  Right _ -> pure ()
+                  Left _ -> assertFailure "did not parse",
+              testCase "Can Parse: '((f x) y)" $ do
+                let input = "((f x) y)"
+                case parse input of
+                  Right _ -> pure ()
+                  Left _ -> assertFailure "did not parse"
+            ]
+
         lexingTests =
           testGroup
             "Lexing"
@@ -200,7 +220,7 @@ main = defaultMain tests
             "Unify"
             [ testCase "render holes" $ do
                 let term = struct [hole 0, hole 5, hole 2, hole 1] :: Partial Hole
-                let answer = asFix $ struct [free "a", free "b", free "c", free "d"] :: Fix Typed
+                let answer = struct [free "a", free "b", free "c", free "d"] :: Fix Typed
                 let result = renderHoles term
                 display result @?= display answer
             ]
@@ -210,22 +230,23 @@ main = defaultMain tests
         "Eval"
         [ testGroup
             "Int"
-            [ testCase "eval is idempotent" $ do
-                result <- runNormal [] . asFix . int $ 1
-                result @?= (asFix $ int 1)
+            [ testCase "eval is idempotent" $
+                do
+                  result <- runNormal [] . int $ 1
+                  result @?= int 1
             ],
           testGroup
             "Bound"
             [ testCase "can lookup value" $ do
-                let r = asFix . int $ 1 :: Fix Term
+                let r = int 1 :: Fix Term
                 let t = thunk [r] . bnd $ 0
                 result <- runNormal [] t
-                result @?= (asFix $ int 1),
+                result @?= int 1,
               testCase "looks up proper value" $ do
-                let r0 = asFix . int $ 0 :: Fix Term
-                let r1 = asFix . int $ 1
+                let r0 = int 0 :: Fix Term
+                let r1 = int 1
                 let t = thunk [r0, r1] (bnd 1)
                 result <- runNormal [] t
-                result @?= (asFix $ int 1)
+                result @?= int 1
             ]
         ]

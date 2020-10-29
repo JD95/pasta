@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Parser.Lexer (Lexeme (..), Row (..), Col (..), Token (..), lex) where
+module Parser.Lexer (LexError (..), Lexeme (..), Row (..), Col (..), Token (..), lex) where
 
 import Control.Applicative
 import Control.Arrow
@@ -37,13 +37,13 @@ data Token
   | TString Text
   | TWhiteSpace Natural
   | TNewLine
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 newtype Row = Row {unRow :: Natural} deriving (Num, Enum, Eq, Ord, Show)
 
 newtype Col = Col {unCol :: Natural} deriving (Num, Enum, Eq, Ord, Show)
 
-data Lexeme = Lexeme !Token !Row !Col deriving (Eq, Show)
+data Lexeme = Lexeme !Token !Row !Col deriving (Eq, Ord, Show)
 
 toMaybe :: Either e a -> Maybe a
 toMaybe = either (const Nothing) Just
@@ -136,7 +136,7 @@ attempt t =
 
 data LexST = LexST {row :: !Row, col :: !Col, input :: !Text, tokens :: ![Lexeme]}
 
-data LexError = CannotLex !Text !Row !Col deriving (Eq, Show)
+data LexError = CannotLex !Text !Row !Col deriving (Eq, Ord, Show)
 
 breakInput :: Members '[State LexST] es => (Char -> Bool) -> Eff es Text
 breakInput pred = do

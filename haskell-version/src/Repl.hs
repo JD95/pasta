@@ -8,6 +8,7 @@ module Repl where
 import Control.Concurrent (forkIO)
 import Control.Monad
 import Lens.Micro.TH
+import Parser
 import Parser.Lexer
 import RIO
 import RIO.Text (isPrefixOf, isSuffixOf, pack)
@@ -33,7 +34,7 @@ repl = do
           content <-
             readFileUtf8 p `catchIO` \e -> do
               pure $ "Could not read from " <> pack p
-          print $ lex content
+          print $ parse content
       _ -> pure ()
 
   liftIO

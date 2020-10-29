@@ -35,6 +35,7 @@ dependencies:
 - hashable
 - microlens-platform
 - recursion-schemes
+- megaparsec
 - rio
 - smash
 - transformers

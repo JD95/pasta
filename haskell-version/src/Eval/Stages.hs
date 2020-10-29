@@ -17,6 +17,7 @@
 module Eval.Stages where
 
 import AST.Core
+import AST.Transform
 import Data.Functor.Classes
 import Data.Functor.Const
 import Data.Functor.Foldable (Fix (..), unfix)
@@ -41,8 +42,8 @@ class InjThunk b f where
 instance Thunk b :< fs => InjThunk b (Sum fs) where
   injThunk = inject
 
-thunk :: (InjThunk b f) => [b] -> Fix f -> Fix f
-thunk st = Fix . injThunk . Thunk st
+thunk :: (AST f a, InjThunk b f) => [b] -> a -> a
+thunk st = form . injThunk . Thunk st
 
 newtype Bound a = Bound Natural
 
@@ -58,8 +59,8 @@ class InjBound f where
 instance Bound :< fs => InjBound (Sum fs) where
   injBound = inject
 
-bnd :: (InjBound f) => Natural -> Fix f
-bnd = Fix . injBound . Bound
+bnd :: (AST f a, InjBound f) => Natural -> a
+bnd = form . injBound . Bound
 
 newtype Ref b a = Ref (IORef b)
 
@@ -83,8 +84,8 @@ class InjRef b f where
 instance Ref b :< fs => InjRef b (Sum fs) where
   injRef = inject
 
-ref :: (InjRef b f) => IORef b -> Fix f
-ref = Fix . injRef . Ref
+ref :: (AST f a, InjRef b f) => IORef b -> a
+ref = form . injRef . Ref
 
 type TermComps b = Sum [Prim, Data, Thunk b, Ref b, Bound, Norm]
 

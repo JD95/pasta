@@ -17,6 +17,9 @@ module AST.Core
     App (..),
     Lam (..),
     FreeVar (..),
+    InjFreeVar (..),
+    InjLam (..),
+    InjApp (..),
     Core,
     app,
     lam,
@@ -56,8 +59,8 @@ class InjLam f where
 instance Lam :< fs => InjLam (Sum fs) where
   injLam = inject
 
-lam :: InjLam f => Text -> Free f a -> Free f a
-lam input = Free . injLam . Lam input
+lam :: (AST f a, InjLam f) => Text -> a -> a
+lam input = form . injLam . Lam input
 
 deriveShow1 ''Lam
 deriveEq1 ''Lam
@@ -86,8 +89,8 @@ class InjApp f where
 instance App :< fs => InjApp (Sum fs) where
   injApp = inject
 
-app :: InjApp f => Free f a -> Free f a -> Free f a
-app func = Free . injApp . App func
+app :: (AST f a, InjApp f) => a -> a -> a
+app func = form . injApp . App func
 
 instance DisplayF App where
   displayF (App func input) = "(" <> func <> " " <> input <> ")"
@@ -115,7 +118,7 @@ class InjFreeVar f where
 instance (FreeVar :< f) => InjFreeVar (Sum f) where
   injFreeVar = inject
 
-free :: InjFreeVar f => Text -> Free f a
-free var = Free . injFreeVar $ FreeVar var
+free :: (AST f a, InjFreeVar f) => Text -> a
+free var = form . injFreeVar $ FreeVar var
 
 type Core = Sum [Prim, Data, Lam, App, FreeVar]

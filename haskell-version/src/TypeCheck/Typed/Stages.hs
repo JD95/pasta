@@ -72,8 +72,8 @@ class InjAnn f where
 instance Ann :< f => InjAnn (Sum f) where
   injAnn = inject
 
-ann :: (InjAnn f) => Free f a -> Free f a -> Free f a
-ann val = Free . injAnn . Ann val
+ann :: (AST f a, InjAnn f) => a -> a -> a
+ann val = form . injAnn . Ann val
 
 newtype Hole = Hole {unHole :: Int} deriving (Eq, Show)
 
@@ -124,14 +124,14 @@ class InjErr f where
 instance Err :< fs => InjErr (Sum fs) where
   injErr = inject
 
-errs :: (InjErr f) => [Err (Free f a)] -> Free f a
-errs = Free . injErr . Errs
+errs :: (AST f a, InjErr f) => [Err a] -> a
+errs = form . injErr . Errs
 
-mismatch :: (InjErr f) => Expected (Free f a) -> Given (Free f a) -> Free f a
-mismatch x = Free . injErr . Mismatch x
+mismatch :: (AST f a, InjErr f) => Expected a -> Given a -> a
+mismatch x = form . injErr . Mismatch x
 
-conflict :: (InjErr f) => Free f a -> Free f a -> Free f a
-conflict x = Free . injErr . ConflictErr x
+conflict :: (AST f a, InjErr f) => a -> a -> a
+conflict x = form . injErr . ConflictErr x
 
 type Partial h = Free Typed h
 

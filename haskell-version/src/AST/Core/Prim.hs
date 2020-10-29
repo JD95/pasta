@@ -113,25 +113,25 @@ class InjPrim f where
 instance Prim :< f => InjPrim (Sum f) where
   injPrim = inject
 
-(-:>) :: (InjPrim f) => Free f a -> Free f a -> Free f a
-i -:> o = Free . injPrim $ Arr Nothing i o
+(-:>) :: (AST f a, InjPrim f) => a -> a -> a
+i -:> o = form . injPrim $ Arr Nothing i o
 
 infixr 2 -:>
 
-pi :: InjPrim f => Text -> Free f a -> Free f a -> Free f a
-pi s i o = Free . injPrim $ Arr (Just s) i o
+pi :: (AST f a, InjPrim f) => Text -> a -> a -> a
+pi s i o = form . injPrim $ Arr (Just s) i o
 
-new_ :: (InjPrim f) => Text -> Free f a -> Free f a
-new_ name = Free . injPrim . NewTy name
+new_ :: (AST f a, InjPrim f) => Text -> a -> a
+new_ name = form . injPrim . NewTy name
 
-ty :: (InjPrim f) => Natural -> Free f a
-ty = Free . injPrim . Type
+ty :: (AST f a, InjPrim f) => Natural -> a
+ty = form . injPrim . Type
 
-int :: (InjPrim f) => Int -> Free f a
-int = Free . injPrim . PInt
+int :: (AST f a, InjPrim f) => Int -> a
+int = form . injPrim . PInt
 
-intTy :: (InjPrim f) => Free f a
-intTy = Free $ injPrim IntTy
+intTy :: (AST f a, InjPrim f) => a
+intTy = form $ injPrim IntTy
 
-natTy :: (InjPrim f) => Free f a
-natTy = Free $ injPrim NatTy
+natTy :: (AST f a, InjPrim f) => a
+natTy = form $ injPrim NatTy

@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
@@ -70,6 +71,15 @@ instance Diffable f => Diffable (Free f) where
   diff f (Free x) _ = Update $ Free x
   diff f (Pure _) (Free y) = Update $ Free y
   diff f (Pure x) (Pure y) = Pure <$> f x y
+
+class AST f a | a -> f where
+  form :: f a -> a
+
+instance AST f (Free f a) where
+  form = Free
+
+instance AST f (Fix f) where
+  form = Fix
 
 diffEq :: Eq a => a -> a -> Diff a
 diffEq x y

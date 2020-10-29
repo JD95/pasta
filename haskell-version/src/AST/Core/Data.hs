@@ -66,17 +66,17 @@ class InjData f where
 instance Data :< f => InjData (Sum f) where
   injData = inject
 
-struct :: (Foldable t, InjData f) => t (Free f a) -> Free f a
-struct = Free . injData . Struct . V.fromList . toList
+struct :: (Foldable t, AST f a, InjData f) => t a -> a
+struct = form . injData . Struct . V.fromList . toList
 
-case_ :: (InjData f) => Free f a -> [(Natural, Free f a)] -> Free f a
-case_ sub = Free . injData . Case sub . Map.fromList
+case_ :: (AST f a, InjData f) => a -> [(Natural, a)] -> a
+case_ sub = form . injData . Case sub . Map.fromList
 
-in_ :: (InjData f) => Natural -> Free f a -> Free f a
-in_ i = Free . injData . In i
+in_ :: (AST f a, InjData f) => Natural -> a -> a
+in_ i = form . injData . In i
 
-out_ :: (InjData f) => Natural -> Free f a -> Free f a
-out_ i = Free . injData . Out i
+out_ :: (AST f a, InjData f) => Natural -> a -> a
+out_ i = form . injData . Out i
 
 instance DisplayF Data where
   displayF (Struct v) = "(" <> (Text.concat . intersperse ", " . toList $ v) <> ")"
