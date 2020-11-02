@@ -6,6 +6,7 @@ import AST.Core
 import Control.Applicative
 import Control.Monad.Free
 import Control.Monad.Primitive
+import Data.Foldable
 import Data.Functor.Foldable (Fix)
 import Data.Maybe
 import Data.Sum
@@ -15,8 +16,11 @@ import Lib
 import Logic
 import Logic.Propagator
 import Parser.Lexer
+import RIO.List
+import RIO.Text (unpack)
 import Test.Tasty
 import Test.Tasty.HUnit
+import Text.Megaparsec (ParseErrorBundle (..), parseErrorPretty)
 import TypeCheck.Typed
 import Prelude hiding (pi, product)
 
@@ -27,24 +31,28 @@ main = defaultMain tests
 
     parsingTests = testGroup "Parsing" [lexingTests, parsingTests]
       where
+        displayParseErr e = foldr (<>) "" . intersperse "\n" . toList $ parseErrorPretty <$> bundleErrors e
+        parseCase t = testCase ("Can Parse: '" <> unpack t <> "'") $ do
+          case parse t of
+            Right _ -> pure ()
+            Left e -> assertFailure $ displayParseErr e
+
         parsingTests =
           testGroup
             "Parsing"
-            [ testCase "Can Parse: '\\x -> x'" $ do
-                let input = "\\x -> x"
-                case parse input of
-                  Right _ -> pure ()
-                  Left _ -> assertFailure "did not parse",
-              testCase "Can Parse: 'f x y" $ do
-                let input = "f x y"
-                case parse input of
-                  Right _ -> pure ()
-                  Left _ -> assertFailure "did not parse",
-              testCase "Can Parse: '((f x) y)" $ do
-                let input = "((f x) y)"
-                case parse input of
-                  Right _ -> pure ()
-                  Left _ -> assertFailure "did not parse"
+            [ parseCase "\\x -> x",
+              parseCase "f x y",
+              parseCase "f (x) y",
+              parseCase "f (x y)",
+              parseCase "((f x) y)",
+              parseCase "x : y",
+              parseCase "(x) : y",
+              parseCase "(x) : y",
+              parseCase "x : (y)",
+              parseCase "(x : y)",
+              parseCase "(x) : (y)",
+              parseCase "(\\x -> x) : y",
+              parseCase "(\\x -> x : z) : y"
             ]
 
         lexingTests =

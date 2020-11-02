@@ -121,4 +121,4 @@ instance (FreeVar :< f) => InjFreeVar (Sum f) where
 free :: (AST f a, InjFreeVar f) => Text -> a
 free var = form . injFreeVar $ FreeVar var
 
-type Core = Sum [Prim, Data, Lam, App, FreeVar]
+type Core = Sum '[Prim, Data, Lam, App, FreeVar]

@@ -5,6 +5,7 @@
 
 module Parser.Lexer (LexError (..), Lexeme (..), Row (..), Col (..), Token (..), lex) where
 
+import AST.Transform
 import Control.Applicative
 import Control.Arrow
 import Control.Monad
@@ -39,11 +40,16 @@ data Token
   | TNewLine
   deriving (Eq, Ord, Show)
 
-newtype Row = Row {unRow :: Natural} deriving (Num, Enum, Eq, Ord, Show)
-
-newtype Col = Col {unCol :: Natural} deriving (Num, Enum, Eq, Ord, Show)
+instance RIO.Display Token where
+  textDisplay (TNat n) = textDisplay $ (fromIntegral n :: Int)
+  textDisplay (TLParen) = "("
+  textDisplay (TRParen) = ")"
+  textDisplay (TSymbol t) = t
 
 data Lexeme = Lexeme !Token !Row !Col deriving (Eq, Ord, Show)
+
+instance RIO.Display Lexeme where
+  textDisplay (Lexeme t _ _) = textDisplay t
 
 toMaybe :: Either e a -> Maybe a
 toMaybe = either (const Nothing) Just

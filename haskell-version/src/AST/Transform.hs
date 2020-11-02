@@ -1,12 +1,16 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -14,11 +18,16 @@
 
 module AST.Transform where
 
+import Control.Comonad.Cofree
 import Control.Monad.Free
-import Data.Functor.Foldable (Fix (..), cata)
+import Data.Eq.Deriving
+import Data.Functor.Compose
+import Data.Functor.Foldable (Base (..), Fix (..), Recursive (..), cata)
+import qualified Data.Functor.Foldable as Rec
 import Data.Sum
 import Logic.Info
 import RIO
+import Text.Show.Deriving
 
 -- | Allows for unchanging parts of the AST to pass through a transform
 pass :: (f :< g, Monad m, Traversable f) => f (m (Fix (Sum g))) -> m (Fix (Sum g))
@@ -95,3 +104,45 @@ hasShape :: Diffable f => (a -> a -> Diff a) -> f a -> f a -> Bool
 hasShape f x y
   | Conflict <- diff f x y = False
   | otherwise = True
+
+data Tagged t e a = Tagged (t a) e
+  deriving (Eq, Show, Functor, Foldable, Traversable)
+
+deriveShow1 ''Tagged
+deriveEq1 ''Tagged
+
+data PosInfo = Range (Row, Col) (Row, Col) | Point Row Col deriving (Show, Eq, Ord)
+
+class HasPosInfo a where
+  getPosInfo :: a -> PosInfo
+
+instance HasPosInfo PosInfo where
+  getPosInfo = id
+
+start :: HasPosInfo e => Tagged t e a -> (Row, Col)
+start (Tagged _ e) = case getPosInfo e of
+  (Range x _) -> x
+  (Point r c) -> (r, c)
+
+end :: HasPosInfo e => Tagged t e a -> (Row, Col)
+end (Tagged _ e) = case getPosInfo e of
+  (Range _ y) -> y
+  (Point r c) -> (r, c)
+
+newtype Row = Row {unRow :: Natural} deriving (Num, Enum, Eq, Ord, Show)
+
+newtype Col = Col {unCol :: Natural} deriving (Num, Enum, Eq, Ord, Show)
+
+untag :: Tagged t e a -> t a
+untag (Tagged x _) = x
+
+tagHisto ::
+  (Recursive t) =>
+  (Base t (t, a) -> a) ->
+  t ->
+  Cofree (Base t) a
+tagHisto f x = result :< inner
+  where
+    subs = ((,) <*> tagHisto f) <$> Rec.project x
+    inner = fmap snd subs
+    result = f $ fmap (second $ \(x :< _) -> x) subs

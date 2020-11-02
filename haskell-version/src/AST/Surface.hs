@@ -16,24 +16,36 @@ import AST.Core.Data
 import AST.Core.Prim
 import AST.Transform
 import Control.Monad.Free
-import Data.Eq.Deriving
+import Data.Functor.Foldable
 import Data.Sum
 import Parser.Lexer
 import RIO hiding (Data)
-import Text.Show.Deriving
+import TypeCheck.Typed.Stages
 
-type SurfComps = Sum '[Prim, Data, Lam, App, FreeVar]
+type SurfComps = Sum '[Prim, Data, Lam, App, FreeVar, Ann]
 
-data Surface a = Parent (SurfComps a) (Row, Col) (Row, Col) | Node (SurfComps a) Row Col
-  deriving (Eq, Show, Functor, Foldable, Traversable)
+type Surface = Tagged SurfComps PosInfo
 
-deriveShow1 ''Surface
-deriveEq1 ''Surface
+surface :: SurfComps (Fix Surface) -> PosInfo -> Fix Surface
+surface a e = Fix $ Tagged a e
 
-start :: Surface a -> (Row, Col)
-start (Parent _ x _) = x
-start (Node _ r c) = (r, c)
+class Desugar f where
+  desugarF :: e -> f (Fix (Tagged Typed e)) -> Fix (Tagged Typed e)
 
-end :: Surface a -> (Row, Col)
-end (Parent _ _ y) = y
-end (Node _ r c) = (r, c)
+instance Desugar Prim where
+  desugarF e p = Fix $ Tagged (inject p) e
+
+instance Desugar Data where
+  desugarF e p = Fix $ Tagged (inject p) e
+
+instance Desugar Lam where
+  desugarF e p = Fix $ Tagged (inject p) e
+
+instance Desugar App where
+  desugarF e p = Fix $ Tagged (inject p) e
+
+instance Desugar FreeVar where
+  desugarF e p = Fix $ Tagged (inject p) e
+
+instance Desugar Ann where
+  desugarF e p = Fix $ Tagged (inject p) e
