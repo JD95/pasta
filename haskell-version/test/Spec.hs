@@ -97,31 +97,31 @@ main = defaultMain tests
           testGroup
             "TypeMerge"
             [ testCase "a ~ b" $ do
-                a <- MkTypeMerge Learned <$> newHole
-                b <- MkTypeMerge Learned <$> newHole
+                a <- MkTypeMerge mempty Learned <$> newHole
+                b <- MkTypeMerge mempty Learned <$> newHole
                 let answer = Info b
                 let result = merge (OldInfo a) (NewInfo b)
                 result @?= answer,
               testCase "(a -> b) ~ (Int -> b)" $ do
                 a <- newHole
                 b <- newHole
-                let old = MkTypeMerge Learned $ a -:> b
-                let new = MkTypeMerge Learned $ intTy -:> b
+                let old = MkTypeMerge mempty Learned $ a -:> b
+                let new = MkTypeMerge mempty Learned $ intTy -:> b
                 let result = merge (OldInfo old) (NewInfo new)
                 result @?= Info new,
               testCase "(a -> b) ~ (a -> b)" $ do
                 a <- newHole
                 b <- newHole
-                let old = MkTypeMerge Learned $ a -:> b
-                let new = MkTypeMerge Learned $ a -:> b
+                let old = MkTypeMerge mempty Learned $ a -:> b
+                let new = MkTypeMerge mempty Learned $ a -:> b
                 let result = merge (OldInfo old) (NewInfo new)
                 result @?= NoInfo,
               testCase "(Int -> Int) ~/ (Type 0 -> b)" $ do
                 b <- newHole
-                let old = intTy -:> intTy
+                let old = intTy -:> intTy :: Partial Hole
                 let new = ty 0 -:> b
-                let result = merge (OldInfo $ MkTypeMerge Learned old) (NewInfo $ MkTypeMerge Learned new)
-                result @?= (learn $ conflict old new)
+                let result = merge (OldInfo $ MkTypeMerge mempty Learned old) (NewInfo $ MkTypeMerge mempty Learned new)
+                result @?= (learn mempty $ conflict mempty old new)
             ]
         checkTests =
           testGroup
@@ -131,7 +131,7 @@ main = defaultMain tests
                 let answer = intTy :: Cofree Typed PosInfo
                 let st = initCheckST
                 runTypeCheck st term >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> result @?= uncofree answer
+                  (Info (MkTypeMerge _ _ result) : _) -> result @?= uncofree answer
                   _ -> undefined,
               testCase "Holes for unannotated lambdas" $
                 do
@@ -139,7 +139,7 @@ main = defaultMain tests
                   a <- newHole
                   let st = initCheckST
                   runTypeCheck st term >>= \case
-                    (Info (MkTypeMerge _ result) : _) ->
+                    (Info (MkTypeMerge _ _ result) : _) ->
                       case result of
                         Free x -> case project x of
                           Just (Arr _ a b) -> assertBool "input and output did not match" (a == b)
@@ -151,14 +151,14 @@ main = defaultMain tests
                 let answer = intTy :: Partial Hole
                 let st = initCheckST
                 runTypeCheck st term >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> result @?= answer
+                  (Info (MkTypeMerge _ _ result) : _) -> result @?= answer
                   _ -> undefined,
               testCase "Annotated lambdas" $ do
                 let term = lam "x" (free "x") `ann` (intTy -:> intTy) :: Cofree Typed PosInfo
                 let answer = intTy -:> intTy :: Partial Hole
                 let st = initCheckST
                 runTypeCheck st term >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> result @?= answer
+                  (Info (MkTypeMerge _ _ result) : _) -> result @?= answer
                   _ -> assertFailure "no type results",
               testCase "Identity function" $ do
                 let term = lam "a" $ lam "x" $ free "x" :: Cofree Typed PosInfo
@@ -167,7 +167,7 @@ main = defaultMain tests
                 let answer = uncofree givenTy
                 let st = initCheckST
                 runTypeCheck st input >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> result @?= answer
+                  (Info (MkTypeMerge _ _ result) : _) -> result @?= answer
                   _ -> assertFailure "no type results",
               testCase "Application of input to type" $ do
                 let exp = lam "a" $ lam "x" $ free "x" :: Cofree Typed PosInfo
@@ -176,7 +176,7 @@ main = defaultMain tests
                 let answer = intTy -:> intTy :: Partial Hole
                 let st = initCheckST
                 runTypeCheck st term >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> result @?= answer
+                  (Info (MkTypeMerge _ _ result) : _) -> result @?= answer
                   _ -> assertFailure "no type results",
               testCase "Const function" $ do
                 let exp = lam "a" $ lam "b" $ lam "x" $ lam "y" $ free "x" :: Cofree Typed PosInfo
@@ -185,7 +185,7 @@ main = defaultMain tests
                 let answer = intTy -:> natTy -:> intTy :: Partial Hole
                 let st = initCheckST
                 runTypeCheck st term >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> result @?= answer
+                  (Info (MkTypeMerge _ _ result) : _) -> result @?= answer
                   _ -> assertFailure "no type results",
               testCase "Const with input" $ do
                 let exp = lam "a" $ lam "b" $ lam "x" $ lam "y" $ free "x" :: Cofree Typed PosInfo
@@ -194,33 +194,33 @@ main = defaultMain tests
                 let answer = natTy -:> intTy :: Partial Hole
                 let st = initCheckST
                 runTypeCheck st term >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> result @?= answer
+                  (Info (MkTypeMerge _ _ result) : _) -> result @?= answer
                   _ -> assertFailure "no type results",
               testCase "Errors give result" $ do
-                let exp = mismatch (Expected $ free "x") (Given $ free "y") :: Cofree Typed PosInfo
+                let exp = mismatch mempty (Expected $ free "x") (Given $ free "y") :: Cofree Typed PosInfo
                 let st = initCheckST
                 runTypeCheck st exp >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> pure ()
+                  (Info (MkTypeMerge _ _ result) : _) -> pure ()
                   _ -> assertFailure "no type results",
               testCase "Type mismatch gives error" $ do
                 let exp = int 0 `ann` ty 0 :: Cofree Typed PosInfo
                 let st = initCheckST
                 runTypeCheck st exp >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> assertBool "should have thrown error" (isJust $ isErr result)
+                  (Info (MkTypeMerge _ _ result) : _) -> assertBool "should have thrown error" (isJust $ isErr result)
                   _ -> assertFailure "no type results",
               testCase "Wrong input type gives error" $ do
                 let exp = ((lam "x" (free "x")) `ann` (intTy -:> intTy)) :: Cofree Typed PosInfo
                 let term = exp `app` (ty 0)
                 let st = initCheckST
                 runTypeCheck st term >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> assertBool "should have thrown error" (isJust $ isErr result)
+                  (Info (MkTypeMerge _ _ result) : _) -> assertBool "should have thrown error" (isJust $ isErr result)
                   _ -> assertFailure "no type results",
               testCase "Application to non-function gives error" $ do
                 let exp = free "x" `ann` intTy :: Cofree Typed PosInfo
                 let term = exp `app` (ty 0)
                 let st = initCheckST
                 runTypeCheck st term >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> assertBool "should have thrown error" (isJust $ isErr result)
+                  (Info (MkTypeMerge _ _ result) : _) -> assertBool "should have thrown error" (isJust $ isErr result)
                   _ -> assertFailure "no type results"
             ]
         unifyTests =

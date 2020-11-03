@@ -67,18 +67,18 @@ import Prelude hiding (pi)
 
 data Source = IsExpected | Learned deriving (Eq, Show)
 
-learn :: Partial Hole -> Info TypeMerge
-learn = Info . MkTypeMerge Learned
+learn :: PosInfo -> Partial Hole -> Info TypeMerge
+learn p = Info . MkTypeMerge p Learned
 
-expected :: Partial Hole -> Info TypeMerge
-expected = Info . MkTypeMerge IsExpected
+expected :: PosInfo -> Partial Hole -> Info TypeMerge
+expected p = Info . MkTypeMerge p IsExpected
 
 instance Semigroup Source where
   Learned <> _ = Learned
   _ <> Learned = Learned
   _ <> _ = IsExpected
 
-data TypeMerge = MkTypeMerge {source :: Source, unTypeMerge :: Partial Hole} deriving (Eq, Show)
+data TypeMerge = MkTypeMerge {pos :: PosInfo, source :: Source, unTypeMerge :: Partial Hole} deriving (Eq, Show)
 
 newtype TypeCell m = TypeCell {unTypeCell :: PrimCell m TypeMerge}
 
@@ -87,23 +87,23 @@ isErr (Free x) = project x
 isErr _ = Nothing
 
 instance Merge TypeMerge where
-  merge (OldInfo (MkTypeMerge oldSource old)) (NewInfo (MkTypeMerge newSource new)) =
+  merge (OldInfo (MkTypeMerge oldPos oldSource old)) (NewInfo (MkTypeMerge newPos newSource new)) =
     case (isErr old, isErr new) of
       (Just xs, Just ys) ->
-        if xs /= ys then learn $ errs [xs, ys] else NoInfo
+        if xs /= ys then learn oldPos $ errs [xs, ys] else NoInfo
       (Just x, Nothing) -> NoInfo
-      (Nothing, Just x) -> learn new
+      (Nothing, Just x) -> learn newPos new
       (Nothing, Nothing) ->
         let diffHoles x y = if x == y then Same x else Update y
             result = diff diffHoles old new
          in case result of
-              Conflict -> learn $
+              Conflict -> learn mempty $
                 case (oldSource, newSource) of
-                  (Learned, Learned) -> conflict old new
-                  (Learned, IsExpected) -> mismatch (Expected new) (Given old)
-                  (IsExpected, Learned) -> mismatch (Expected old) (Given new)
-                  (IsExpected, IsExpected) -> conflict old new
-              _ -> diffToInfo $ MkTypeMerge (oldSource <> newSource) <$> result
+                  (Learned, Learned) -> conflict (oldPos <> newPos) old new
+                  (Learned, IsExpected) -> mismatch oldPos (Expected new) (Given old)
+                  (IsExpected, Learned) -> mismatch newPos (Expected old) (Given new)
+                  (IsExpected, IsExpected) -> conflict (oldPos <> newPos) old new
+              _ -> diffToInfo $ MkTypeMerge (oldPos <> newPos) (oldSource <> newSource) <$> result
 
   isTop = foldr (&&) True . fmap (const False) . unTypeMerge
 
@@ -200,18 +200,18 @@ instance Apply TypeCheck fs => TypeCheck (Sum fs) where
 instance TypeCheck Err where
   check _ (Errs xs) = do
     result <- newPrimCell
-    inform (learn $ errs $ fmap fst <$> xs) result
+    inform (learn mempty $ errs $ fmap fst <$> xs) result
     pure $ TypeCell result
-  check _ (Mismatch (Expected (x, _)) (Given (y, _))) = do
+  check _ (Mismatch p (Expected (x, _)) (Given (y, _))) = do
     result <- newPrimCell
-    inform (learn $ mismatch (Expected x) (Given y)) result
+    inform (learn p $ mismatch p (Expected x) (Given y)) result
     pure $ TypeCell result
 
 displayContent :: (MonadIO m, Network m, PrimMonad m) => PrimCell m TypeMerge -> m ()
 displayContent cell = liftIO . print . fmap (display . renderHoles . unTypeMerge) =<< content cell
 
 instance TypeCheck App where
-  check _ (App (_, getFuncTy) (input, getInputTy)) = do
+  check pos (App (_, getFuncTy) (input, getInputTy)) = do
     funcTy <- unTypeCell <$> getFuncTy
     inputTy <- unTypeCell <$> getInputTy
     outputTy <- newPrimCell
@@ -219,21 +219,21 @@ instance TypeCheck App where
     holeA <- newHole
     holeB <- newHole
 
-    inform (expected $ holeA -:> holeB) funcTy
+    inform (expected pos $ holeA -:> holeB) funcTy
 
     -- funcTy ~ ((x : a) -> b) ==> output ~ b [x/input]
     waitOn [SomeCell funcTy] $ do
       unTypeMerge <$> content' funcTy >>= \case
         Free x -> case project x of
           Just (Arr s a b) -> do
-            flip propagate [inputTy] $ pure . expected $ a
+            flip propagate [inputTy] $ pure . expected pos $ a
             flip propagate [outputTy] $ do
-              pure . learn $ case s of
+              pure . learn mempty $ case s of
                 Just name -> para (tySubst name input) b
                 Nothing -> b
           _ -> case isErr (Free x) of
             Just _ -> do
-              flip propagate [outputTy] $ pure . learn $ Free x
+              flip propagate [outputTy] $ pure . learn mempty $ Free x
         Pure h -> pure ()
 
     -- (inputTy ~ a) ==> funcTy ~ a -> _
@@ -241,70 +241,70 @@ instance TypeCheck App where
       flip propagate [funcTy] $ do
         a <- unTypeMerge <$> content' inputTy
         case isErr a of
-          Just _ -> pure . learn $ a
+          Just _ -> pure . learn mempty $ a
           Nothing -> do
             outHole <- newHole
-            pure . expected $ a -:> outHole
+            pure . expected pos $ a -:> outHole
 
     pure $ TypeCell outputTy
 
 instance TypeCheck Prim where
-  check _ (Arr name' (depIn, getDepInTy) (_, getOutTy)) = do
+  check pos (Arr name' (depIn, getDepInTy) (_, getOutTy)) = do
     depInTy <- unTypeCell <$> getDepInTy
     outTy <-
       unTypeCell <$> case name' of
         Just name -> do
           depInCell <- newPrimCell
-          inform (expected depIn) depInCell
+          inform (expected pos depIn) depInCell
           withBound name (TypeCell depInCell) getOutTy
         Nothing -> getOutTy
     result <- newPrimCell
-    inform (learn $ ty 0) result
+    inform (learn pos $ ty 0) result
     pure (TypeCell result)
-  check _ (Type n) = do
+  check pos (Type n) = do
     result <- newPrimCell
-    inform (learn . ty $ n + 1) result
+    inform (learn pos . ty $ n + 1) result
     pure $ TypeCell result
-  check _ IntTy = do
+  check pos IntTy = do
     result <- newPrimCell
-    inform (learn $ ty 0) result
+    inform (learn pos $ ty 0) result
     pure $ TypeCell result
-  check _ NatTy = do
+  check pos NatTy = do
     result <- newPrimCell
-    inform (learn $ ty 0) result
+    inform (learn pos $ ty 0) result
     pure $ TypeCell result
-  check _ (PInt _) = do
+  check pos (PInt _) = do
     result <- newPrimCell
-    inform (learn $ intTy) result
+    inform (learn pos $ intTy) result
     pure $ TypeCell result
 
 instance TypeCheck Data where
-  check _ = undefined
+  check _ _ = undefined
 
 instance TypeCheck Lam where
-  check _ (Lam input (_, getBodyTy)) = do
+  check pos (Lam input (_, getBodyTy)) = do
     bodyTy <- unTypeCell <$> getBodyTy
     inputTy <- unTypeCell <$> existingOrNewCell input
     ty <- newPrimCell
 
     holeA <- newHole
     holeB <- newHole
-    inform (learn $ holeA -:> holeB) ty
+    inform (learn pos $ holeA -:> holeB) ty
 
     -- (inputTy ~ a) /\ (bodyTy ~ b) ==> lamType ~ (a,b)
     waitOn [SomeCell inputTy, SomeCell bodyTy] $ do
       flip propagate [ty] $ do
         a <- unTypeMerge <$> content' inputTy
         b <- unTypeMerge <$> content' bodyTy
-        pure $ learn $ a -:> b
+        pure $ learn pos $ a -:> b
 
     -- ty ~ (a -> b) ==> inputTy ~ a /\ bodyTy ~ b
     waitOn [SomeCell ty] $ do
       unTypeMerge <$> content' ty >>= \case
         Free x -> case project x of
           Just (Arr _ a b) -> do
-            flip propagate [inputTy] . pure $expected a
-            flip propagate [bodyTy] . pure $ expected b
+            flip propagate [inputTy] . pure $expected pos a
+            flip propagate [bodyTy] . pure $ expected pos b
           _ -> pure ()
         Pure h -> pure ()
 
@@ -314,12 +314,12 @@ instance TypeCheck FreeVar where
   check _ (FreeVar name) = existingOrNewCell name
 
 instance TypeCheck Ann where
-  check _ (Ann (_, getTermTy) (givenTy, getT)) = do
+  check pos (Ann (_, getTermTy) (givenTy, getT)) = do
     termTy <- unTypeCell <$> getTermTy
     t <- unTypeCell <$> getT
-    inform (expected $ ty 0) t
+    inform (expected pos $ ty 0) t
     -- termTy ~ givenTy
-    inform (expected givenTy) termTy
+    inform (expected pos givenTy) termTy
     pure $ TypeCell termTy
 
 runTypeCheck :: CheckST TypeT -> Cofree Typed PosInfo -> IO [Info TypeMerge]

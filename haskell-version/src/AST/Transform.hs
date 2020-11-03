@@ -24,6 +24,7 @@ import Data.Eq.Deriving
 import Data.Functor.Compose
 import Data.Functor.Foldable (Base (..), Fix (..), Recursive (..), cata)
 import qualified Data.Functor.Foldable as Rec
+import Data.Ord
 import Data.Sum
 import Logic.Info
 import RIO
@@ -92,6 +93,34 @@ instance AST f (Fix f) where
 
 data PosInfo = Range (Row, Col) (Row, Col) | Point Row Col deriving (Show, Eq, Ord)
 
+instance Semigroup PosInfo where
+  (Range (aRow, aCol) (bRow, bCol)) <> (Range (cRow, cCol) (dRow, dCol)) = Range start end
+    where
+      start = case compare aRow cRow of
+        GT -> (cRow, cCol)
+        EQ -> (aRow, min aCol cCol)
+        LT -> (aRow, aCol)
+      end = case compare bRow dRow of
+        GT -> (bRow, bCol)
+        EQ -> (bRow, max bCol dCol)
+        LT -> (dRow, dCol)
+  (Range (xRow, xCol) (yRow, yCol)) <> (Point pRow pCol) =
+    case compare xRow pRow of
+      GT -> Range (pRow, pCol) (yRow, yCol)
+      EQ -> Range (pRow, min xCol pCol) (yRow, yCol)
+      LT -> case compare yRow pRow of
+        GT -> Range (xRow, xCol) (yRow, yCol)
+        EQ -> Range (xRow, xCol) (yRow, max yCol pCol)
+        LT -> Range (xRow, xCol) (pRow, pCol)
+  x@(Point _ _) <> y@(Range _ _) = y <> x
+  x@(Point xRow xCol) <> y@(Point yRow yCol)
+    | x == y = x
+    | x < y = Range (xRow, xCol) (yRow, yCol)
+    | otherwise = Range (yRow, yCol) (xRow, xCol)
+
+instance Monoid PosInfo where
+  mempty = Point (Row 0) (Col 0)
+
 class HasPosInfo a where
   getPosInfo :: a -> PosInfo
 
@@ -112,8 +141,8 @@ newtype Row = Row {unRow :: Natural} deriving (Num, Enum, Eq, Ord, Show)
 
 newtype Col = Col {unCol :: Natural} deriving (Num, Enum, Eq, Ord, Show)
 
-instance AST f (Cofree f PosInfo) where
-  form = (:<) (Point (Row 0) (Col 0))
+instance Monoid a => AST f (Cofree f a) where
+  form = (:<) mempty
 
 diffEq :: Eq a => a -> a -> Diff a
 diffEq x y

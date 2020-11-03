@@ -95,8 +95,8 @@ deriveShow1 ''Expected
 
 data Err a
   = Errs [Err a]
-  | Mismatch (Expected a) (Given a)
-  | ConflictErr a a
+  | Mismatch PosInfo (Expected a) (Given a)
+  | ConflictErr PosInfo a a
   deriving (Eq, Functor, Foldable, Traversable)
 
 deriveEq1 ''Err
@@ -107,12 +107,12 @@ instance Diffable Err where
 
 instance DisplayF Err where
   displayF (Errs xs) = Text.unlines $ displayF <$> xs
-  displayF (Mismatch (Expected expected) (Given actual)) =
+  displayF (Mismatch _ (Expected expected) (Given actual)) =
     "Error! Mismatch between:\nExpected: "
       <> expected
       <> "\nActual: "
       <> actual
-  displayF (ConflictErr x y) =
+  displayF (ConflictErr _ x y) =
     "Error! Conflict between:\n> "
       <> x
       <> "\n> "
@@ -127,11 +127,11 @@ instance Err :< fs => InjErr (Sum fs) where
 errs :: (AST f a, InjErr f) => [Err a] -> a
 errs = form . injErr . Errs
 
-mismatch :: (AST f a, InjErr f) => Expected a -> Given a -> a
-mismatch x = form . injErr . Mismatch x
+mismatch :: (AST f a, InjErr f) => PosInfo -> Expected a -> Given a -> a
+mismatch p x = form . injErr . Mismatch p x
 
-conflict :: (AST f a, InjErr f) => a -> a -> a
-conflict x = form . injErr . ConflictErr x
+conflict :: (AST f a, InjErr f) => PosInfo -> a -> a -> a
+conflict p x = form . injErr . ConflictErr p x
 
 type Partial h = Free Typed h
 
