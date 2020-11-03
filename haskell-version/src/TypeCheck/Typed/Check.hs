@@ -303,7 +303,7 @@ instance TypeCheck Lam where
       unTypeMerge <$> content' ty >>= \case
         Free x -> case project x of
           Just (Arr _ a b) -> do
-            flip propagate [inputTy] . pure $expected pos a
+            flip propagate [inputTy] . pure $ expected pos a
             flip propagate [bodyTy] . pure $ expected pos b
           _ -> pure ()
         Pure h -> pure ()

@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE NoImplicitPrelude #-}
@@ -15,6 +16,7 @@ import AST.Core
 import AST.Core.Data
 import AST.Core.Prim
 import AST.Transform
+import Control.Comonad.Cofree
 import Control.Monad.Free
 import Data.Functor.Foldable
 import Data.Sum
@@ -24,28 +26,34 @@ import TypeCheck.Typed.Stages
 
 type SurfComps = Sum '[Prim, Data, Lam, App, FreeVar, Ann]
 
-type Surface = Tagged SurfComps PosInfo
+type Surface = Cofree SurfComps PosInfo
 
-surface :: SurfComps (Fix Surface) -> PosInfo -> Fix Surface
-surface a e = Fix $ Tagged a e
+surface :: SurfComps Surface -> PosInfo -> Surface
+surface a e = e :< a
 
 class Desugar f where
-  desugarF :: e -> f (Fix (Tagged Typed e)) -> Fix (Tagged Typed e)
+  desugarF :: f a -> Typed a
+
+instance Apply Desugar fs => Desugar (Sum fs) where
+  desugarF = apply @Desugar desugarF
 
 instance Desugar Prim where
-  desugarF e p = Fix $ Tagged (inject p) e
+  desugarF = inject
 
 instance Desugar Data where
-  desugarF e p = Fix $ Tagged (inject p) e
+  desugarF = inject
 
 instance Desugar Lam where
-  desugarF e p = Fix $ Tagged (inject p) e
+  desugarF = inject
 
 instance Desugar App where
-  desugarF e p = Fix $ Tagged (inject p) e
+  desugarF = inject
 
 instance Desugar FreeVar where
-  desugarF e p = Fix $ Tagged (inject p) e
+  desugarF = inject
 
 instance Desugar Ann where
-  desugarF e p = Fix $ Tagged (inject p) e
+  desugarF = inject
+
+desugar :: (Functor f, Desugar f) => Cofree f a -> Cofree Typed a
+desugar (x :< fs) = x :< desugarF (desugar <$> fs)

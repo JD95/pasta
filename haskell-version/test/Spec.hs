@@ -32,7 +32,6 @@ main = defaultMain tests
 
     parsingTests = testGroup "Parsing" [lexingTests, parsingTests]
       where
-        displayParseErr e = foldr (<>) "" . intersperse "\n" . toList $ parseErrorPretty <$> bundleErrors e
         parseCase t = testCase ("Can Parse: '" <> unpack t <> "'") $ do
           case parse t of
             Right _ -> pure ()
@@ -53,7 +52,9 @@ main = defaultMain tests
               parseCase "(x : y)",
               parseCase "(x) : (y)",
               parseCase "(\\x -> x) : y",
-              parseCase "(\\x -> x : z) : y"
+              parseCase "(\\x -> x : z) : y",
+              parseCase "x : a -> a",
+              parseCase "Int"
             ]
 
         lexingTests =

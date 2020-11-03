@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Parser (parse) where
+module Parser (parse, displayParseErr) where
 
 import AST.Core hiding (app)
 import AST.Surface
@@ -17,7 +17,7 @@ import RIO.List
 import RIO.Text (unpack)
 import Text.Megaparsec (Parsec)
 import qualified Text.Megaparsec as MP
-import Text.Megaparsec.Error (ParseErrorBundle, ShowErrorComponent (..))
+import Text.Megaparsec.Error (ParseErrorBundle, ShowErrorComponent (..), parseErrorPretty)
 import TypeCheck.Typed.Stages hiding (ann)
 
 data ParseErr = LErr LexError deriving (Eq, Ord, Show)
@@ -52,10 +52,12 @@ symbol = MP.token go mempty
       (Lexeme (TSymbol t) r c) -> Just (t, r, c)
       _ -> Nothing
 
-freeVar :: Parser (Fix Surface)
+freeVar :: Parser Surface
 freeVar = do
   (t, r, c) <- symbol
-  pure $ surface (inject $ FreeVar t) (Point r c)
+  case t of
+    "Int" -> pure $ surface (inject IntTy) (Point r c)
+    _ -> pure $ surface (inject $ FreeVar t) (Point r c)
 
 tok :: Token -> Parser (Row, Col)
 tok given = MP.token go mempty
@@ -63,7 +65,7 @@ tok given = MP.token go mempty
     go (Lexeme x r c) =
       if x == given then Just (r, c) else Nothing
 
-lambda :: Parser (Fix Surface) -> Parser (Fix Surface)
+lambda :: Parser Surface -> Parser Surface
 lambda inner = do
   (r, c) <- tok TLambda
   _ <- optional space
@@ -71,11 +73,11 @@ lambda inner = do
   _ <- optional space
   _ <- tok TArrow
   _ <- optional space
-  Fix body <- inner
+  body <- inner
   _ <- optional space
-  pure $ surface (inject $ Lam x (Fix body)) (Range (r, c) (end body))
+  pure $ surface (inject $ Lam x body) (Range (r, c) (end body))
 
-ann :: Parser (Fix Surface) -> Parser (Fix Surface) -> Parser (Fix Surface)
+ann :: Parser Surface -> Parser Surface -> Parser Surface
 ann l r = do
   term <- MP.try (paren r) <|> l
   asAnn term <|> pure term
@@ -85,7 +87,7 @@ ann l r = do
       _ <- tok TColon
       _ <- optional space
       ty <- r
-      pure $ surface (inject $ Ann x ty) (Range (start $ unfix x) (end $ unfix ty))
+      pure $ surface (inject $ Ann x ty) (Range (start x) (end ty))
 
 space :: Parser ()
 space = do
@@ -93,16 +95,27 @@ space = do
     (Lexeme (TWhiteSpace _) _ _) -> Just ()
     _ -> Nothing
 
-app :: Parser (Fix Surface) -> Parser (Fix Surface) -> Parser (Fix Surface)
+app :: Parser Surface -> Parser Surface -> Parser Surface
 app l r = do
   func <- MP.try (paren r) <|> l
   _ <- space
   inputs <- r `MP.sepBy1` space
   pure $ foldl' applyInput func inputs
   where
-    applyInput x y = surface (inject $ App x y) (Range (start $ unfix x) (end $ unfix y))
+    applyInput x y = surface (inject $ App x y) (Range (start x) (end y))
 
-paren :: Parser (Fix Surface) -> Parser (Fix Surface)
+arr :: Parser Surface -> Parser Surface -> Parser Surface
+arr l r = do
+  input <- MP.try (paren r) <|> l
+  _ <- optional space
+  _ <- tok TArrow
+  _ <- optional space
+  output <- r
+  pure $ applyInput input output
+  where
+    applyInput x y = surface (inject $ Arr Nothing x y) (Range (start x) (end y))
+
+paren :: Parser Surface -> Parser Surface
 paren f = do
   _ <- tok TLParen
   _ <- optional space
@@ -111,14 +124,16 @@ paren f = do
   _ <- tok TRParen
   pure x
 
-lang :: Parsec ParseErr [Lexeme] (Fix Surface)
+lang :: Parsec ParseErr [Lexeme] Surface
 lang = MP.try (paren lvl1) <|> lvl1
   where
-    lvl1 = MP.try (lvl0 `app` lvl1) <|> MP.try (lvl0 `ann` lvl1) <|> lvl0
+    lvl1 = MP.try (lvl0 `arr` lvl1) <|> MP.try (lvl0 `app` lvl1) <|> MP.try (lvl0 `ann` lvl1) <|> lvl0
     lvl0 = MP.try (paren lvl0) <|> MP.try (lambda lvl1) <|> freeVar
 
-parse :: Text -> Either (ParseErrorBundle [Lexeme] ParseErr) (Fix Surface)
+parse :: Text -> Either (ParseErrorBundle [Lexeme] ParseErr) Surface
 parse input =
   case lex input of
     Right xs -> MP.parse lang "" xs
     Left e -> Left undefined
+
+displayParseErr e = foldr (<>) "" . intersperse "\n" . toList $ parseErrorPretty <$> MP.bundleErrors e

@@ -127,13 +127,13 @@ class HasPosInfo a where
 instance HasPosInfo PosInfo where
   getPosInfo = id
 
-start :: HasPosInfo e => Tagged t e a -> (Row, Col)
-start (Tagged _ e) = case getPosInfo e of
+start :: HasPosInfo e => Cofree f e -> (Row, Col)
+start (e :< _) = case getPosInfo e of
   (Range x _) -> x
   (Point r c) -> (r, c)
 
-end :: HasPosInfo e => Tagged t e a -> (Row, Col)
-end (Tagged _ e) = case getPosInfo e of
+end :: HasPosInfo e => Cofree f e -> (Row, Col)
+end (e :< _) = case getPosInfo e of
   (Range _ y) -> y
   (Point r c) -> (r, c)
 

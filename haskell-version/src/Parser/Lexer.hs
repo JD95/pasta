@@ -42,9 +42,10 @@ data Token
 
 instance RIO.Display Token where
   textDisplay (TNat n) = textDisplay $ (fromIntegral n :: Int)
-  textDisplay (TLParen) = "("
-  textDisplay (TRParen) = ")"
+  textDisplay TLParen = "("
+  textDisplay TRParen = ")"
   textDisplay (TSymbol t) = t
+  textDisplay TArrow = "->"
 
 data Lexeme = Lexeme !Token !Row !Col deriving (Eq, Ord, Show)
 

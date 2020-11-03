@@ -107,13 +107,13 @@ instance Diffable Err where
 
 instance DisplayF Err where
   displayF (Errs xs) = Text.unlines $ displayF <$> xs
-  displayF (Mismatch _ (Expected expected) (Given actual)) =
-    "Error! Mismatch between:\nExpected: "
+  displayF (Mismatch pos (Expected expected) (Given actual)) =
+    "Error (" <> Text.pack (show pos) <> ") Mismatch between:\n> "
       <> expected
       <> "\nActual: "
       <> actual
-  displayF (ConflictErr _ x y) =
-    "Error! Conflict between:\n> "
+  displayF (ConflictErr pos x y) =
+    "Error (" <> Text.pack (show pos) <> ") Conflict between:\n> "
       <> x
       <> "\n> "
       <> y
