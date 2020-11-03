@@ -32,6 +32,7 @@ dependencies:
 - text
 - microlens-th 
 - ghc-prim
+- comonad
 - hashable
 - microlens-platform
 - recursion-schemes

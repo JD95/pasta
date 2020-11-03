@@ -90,27 +90,6 @@ instance AST f (Free f a) where
 instance AST f (Fix f) where
   form = Fix
 
-diffEq :: Eq a => a -> a -> Diff a
-diffEq x y
-  | x == y = Same x
-  | otherwise = Conflict
-
-diffToInfo :: Diff a -> Info a
-diffToInfo (Update x) = Info x
-diffToInfo (Same _) = NoInfo
-diffToInfo _ = Contradiction
-
-hasShape :: Diffable f => (a -> a -> Diff a) -> f a -> f a -> Bool
-hasShape f x y
-  | Conflict <- diff f x y = False
-  | otherwise = True
-
-data Tagged t e a = Tagged (t a) e
-  deriving (Eq, Show, Functor, Foldable, Traversable)
-
-deriveShow1 ''Tagged
-deriveEq1 ''Tagged
-
 data PosInfo = Range (Row, Col) (Row, Col) | Point Row Col deriving (Show, Eq, Ord)
 
 class HasPosInfo a where
@@ -133,6 +112,30 @@ newtype Row = Row {unRow :: Natural} deriving (Num, Enum, Eq, Ord, Show)
 
 newtype Col = Col {unCol :: Natural} deriving (Num, Enum, Eq, Ord, Show)
 
+instance AST f (Cofree f PosInfo) where
+  form = (:<) (Point (Row 0) (Col 0))
+
+diffEq :: Eq a => a -> a -> Diff a
+diffEq x y
+  | x == y = Same x
+  | otherwise = Conflict
+
+diffToInfo :: Diff a -> Info a
+diffToInfo (Update x) = Info x
+diffToInfo (Same _) = NoInfo
+diffToInfo _ = Contradiction
+
+hasShape :: Diffable f => (a -> a -> Diff a) -> f a -> f a -> Bool
+hasShape f x y
+  | Conflict <- diff f x y = False
+  | otherwise = True
+
+data Tagged t e a = Tagged (t a) e
+  deriving (Eq, Show, Functor, Foldable, Traversable)
+
+deriveShow1 ''Tagged
+deriveEq1 ''Tagged
+
 untag :: Tagged t e a -> t a
 untag (Tagged x _) = x
 
@@ -146,3 +149,6 @@ tagHisto f x = result :< inner
     subs = ((,) <*> tagHisto f) <$> Rec.project x
     inner = fmap snd subs
     result = f $ fmap (second $ \(x :< _) -> x) subs
+
+uncofree :: Functor f => Cofree f a -> Free f b
+uncofree (_ :< f) = Free $ uncofree <$> f

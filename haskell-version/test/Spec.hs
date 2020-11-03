@@ -4,6 +4,7 @@
 
 import AST.Core
 import Control.Applicative
+import Control.Comonad.Cofree
 import Control.Monad.Free
 import Control.Monad.Primitive
 import Data.Foldable
@@ -126,17 +127,16 @@ main = defaultMain tests
           testGroup
             "Check"
             [ testCase "0 : Int" $ do
-                let term = int 0 :: Partial Hole
-                let answer = intTy :: Partial Hole
+                let term = int 0 :: Cofree Typed PosInfo
+                let answer = intTy :: Cofree Typed PosInfo
                 let st = initCheckST
                 runTypeCheck st term >>= \case
-                  (Info (MkTypeMerge _ result) : _) -> result @?= answer
+                  (Info (MkTypeMerge _ result) : _) -> result @?= uncofree answer
                   _ -> undefined,
               testCase "Holes for unannotated lambdas" $
                 do
-                  let term = lam "x" (free "x") :: Partial Hole
+                  let term = lam "x" (free "x") :: Cofree Typed PosInfo
                   a <- newHole
-                  let answer = a -:> a :: Partial Hole
                   let st = initCheckST
                   runTypeCheck st term >>= \case
                     (Info (MkTypeMerge _ result) : _) ->
@@ -147,76 +147,76 @@ main = defaultMain tests
                         _ -> assertFailure "resulting type was a hole"
                     _ -> assertFailure "no typing results",
               testCase "Holes filled by application" $ do
-                let term = lam "x" (free "x") `app` int 0 :: Partial Hole
+                let term = lam "x" (free "x") `app` int 0 :: Cofree Typed PosInfo
                 let answer = intTy :: Partial Hole
                 let st = initCheckST
                 runTypeCheck st term >>= \case
                   (Info (MkTypeMerge _ result) : _) -> result @?= answer
                   _ -> undefined,
               testCase "Annotated lambdas" $ do
-                let term = lam "x" (free "x") `ann` (intTy -:> intTy) :: Partial Hole
+                let term = lam "x" (free "x") `ann` (intTy -:> intTy) :: Cofree Typed PosInfo
                 let answer = intTy -:> intTy :: Partial Hole
                 let st = initCheckST
                 runTypeCheck st term >>= \case
                   (Info (MkTypeMerge _ result) : _) -> result @?= answer
                   _ -> assertFailure "no type results",
               testCase "Identity function" $ do
-                let term = lam "a" $ lam "x" $ free "x" :: Partial Hole
-                let givenTy = pi "a" (ty 0) (free "a" -:> free "a") :: Partial Hole
-                let input = term `ann` givenTy :: Partial Hole
-                let answer = givenTy
+                let term = lam "a" $ lam "x" $ free "x" :: Cofree Typed PosInfo
+                let givenTy = pi "a" (ty 0) (free "a" -:> free "a") :: Cofree Typed PosInfo
+                let input = term `ann` givenTy :: Cofree Typed PosInfo
+                let answer = uncofree givenTy
                 let st = initCheckST
                 runTypeCheck st input >>= \case
                   (Info (MkTypeMerge _ result) : _) -> result @?= answer
                   _ -> assertFailure "no type results",
               testCase "Application of input to type" $ do
-                let exp = lam "a" $ lam "x" $ free "x" :: Partial Hole
-                let expTy = pi "in1" (ty 0) $ free "in1" -:> free "in1" :: Partial Hole
-                let term = (exp `ann` expTy) `app` intTy :: Partial Hole
+                let exp = lam "a" $ lam "x" $ free "x" :: Cofree Typed PosInfo
+                let expTy = pi "in1" (ty 0) $ free "in1" -:> free "in1" :: Cofree Typed PosInfo
+                let term = (exp `ann` expTy) `app` intTy :: Cofree Typed PosInfo
                 let answer = intTy -:> intTy :: Partial Hole
                 let st = initCheckST
                 runTypeCheck st term >>= \case
                   (Info (MkTypeMerge _ result) : _) -> result @?= answer
                   _ -> assertFailure "no type results",
               testCase "Const function" $ do
-                let exp = lam "a" $ lam "b" $ lam "x" $ lam "y" $ free "x" :: Partial Hole
-                let expTy = pi "a" (ty 0) $ pi "b" (ty 0) $ free "a" -:> free "b" -:> free "a" :: Partial Hole
-                let term = ((exp `ann` expTy) `app` intTy) `app` natTy :: Partial Hole
+                let exp = lam "a" $ lam "b" $ lam "x" $ lam "y" $ free "x" :: Cofree Typed PosInfo
+                let expTy = pi "a" (ty 0) $ pi "b" (ty 0) $ free "a" -:> free "b" -:> free "a" :: Cofree Typed PosInfo
+                let term = ((exp `ann` expTy) `app` intTy) `app` natTy :: Cofree Typed PosInfo
                 let answer = intTy -:> natTy -:> intTy :: Partial Hole
                 let st = initCheckST
                 runTypeCheck st term >>= \case
                   (Info (MkTypeMerge _ result) : _) -> result @?= answer
                   _ -> assertFailure "no type results",
               testCase "Const with input" $ do
-                let exp = lam "a" $ lam "b" $ lam "x" $ lam "y" $ free "x" :: Partial Hole
-                let expTy = pi "a" (ty 0) $ pi "b" (ty 0) $ free "a" -:> free "b" -:> free "a" :: Partial Hole
-                let term = (exp `ann` expTy) `app` intTy `app` natTy `app` int 0 :: Partial Hole
+                let exp = lam "a" $ lam "b" $ lam "x" $ lam "y" $ free "x" :: Cofree Typed PosInfo
+                let expTy = pi "a" (ty 0) $ pi "b" (ty 0) $ free "a" -:> free "b" -:> free "a" :: Cofree Typed PosInfo
+                let term = (exp `ann` expTy) `app` intTy `app` natTy `app` int 0 :: Cofree Typed PosInfo
                 let answer = natTy -:> intTy :: Partial Hole
                 let st = initCheckST
                 runTypeCheck st term >>= \case
                   (Info (MkTypeMerge _ result) : _) -> result @?= answer
                   _ -> assertFailure "no type results",
               testCase "Errors give result" $ do
-                let exp = mismatch (Expected $ free "x") (Given $ free "y") :: Partial Hole
+                let exp = mismatch (Expected $ free "x") (Given $ free "y") :: Cofree Typed PosInfo
                 let st = initCheckST
                 runTypeCheck st exp >>= \case
                   (Info (MkTypeMerge _ result) : _) -> pure ()
                   _ -> assertFailure "no type results",
               testCase "Type mismatch gives error" $ do
-                let exp = int 0 `ann` ty 0 :: Partial Hole
+                let exp = int 0 `ann` ty 0 :: Cofree Typed PosInfo
                 let st = initCheckST
                 runTypeCheck st exp >>= \case
                   (Info (MkTypeMerge _ result) : _) -> assertBool "should have thrown error" (isJust $ isErr result)
                   _ -> assertFailure "no type results",
               testCase "Wrong input type gives error" $ do
-                let exp = ((lam "x" (free "x")) `ann` (intTy -:> intTy)) :: Partial Hole
+                let exp = ((lam "x" (free "x")) `ann` (intTy -:> intTy)) :: Cofree Typed PosInfo
                 let term = exp `app` (ty 0)
                 let st = initCheckST
                 runTypeCheck st term >>= \case
                   (Info (MkTypeMerge _ result) : _) -> assertBool "should have thrown error" (isJust $ isErr result)
                   _ -> assertFailure "no type results",
               testCase "Application to non-function gives error" $ do
-                let exp = free "x" `ann` intTy :: Partial Hole
+                let exp = free "x" `ann` intTy :: Cofree Typed PosInfo
                 let term = exp `app` (ty 0)
                 let st = initCheckST
                 runTypeCheck st term >>= \case

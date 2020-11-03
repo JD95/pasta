@@ -26,6 +26,8 @@ module TypeCheck.Typed.Check where
 import AST.Core
 import AST.Transform
 import Control.Applicative
+import Control.Comonad
+import Control.Comonad.Cofree
 import Control.Monad
 import Control.Monad.Free
 import qualified Control.Monad.Free as Free
@@ -184,22 +186,23 @@ class TypeCheck f where
       PrimMonad m,
       MonadState (CheckST m) m
     ) =>
+    PosInfo ->
     f (Partial Hole, m (TypeCell m)) ->
     m (TypeCell m)
 
 instance TypeCheck f => TypeCheck (F.FreeF f Hole) where
-  check (F.Free f) = check f
-  check (F.Pure x) = pure . TypeCell =<< newPrimCell
+  check env (F.Free f) = check env f
+  check _ (F.Pure x) = pure . TypeCell =<< newPrimCell
 
 instance Apply TypeCheck fs => TypeCheck (Sum fs) where
-  check = apply @TypeCheck check
+  check env = apply @TypeCheck (check env)
 
 instance TypeCheck Err where
-  check (Errs xs) = do
+  check _ (Errs xs) = do
     result <- newPrimCell
     inform (learn $ errs $ fmap fst <$> xs) result
     pure $ TypeCell result
-  check (Mismatch (Expected (x, _)) (Given (y, _))) = do
+  check _ (Mismatch (Expected (x, _)) (Given (y, _))) = do
     result <- newPrimCell
     inform (learn $ mismatch (Expected x) (Given y)) result
     pure $ TypeCell result
@@ -208,7 +211,7 @@ displayContent :: (MonadIO m, Network m, PrimMonad m) => PrimCell m TypeMerge ->
 displayContent cell = liftIO . print . fmap (display . renderHoles . unTypeMerge) =<< content cell
 
 instance TypeCheck App where
-  check (App (_, getFuncTy) (input, getInputTy)) = do
+  check _ (App (_, getFuncTy) (input, getInputTy)) = do
     funcTy <- unTypeCell <$> getFuncTy
     inputTy <- unTypeCell <$> getInputTy
     outputTy <- newPrimCell
@@ -246,7 +249,7 @@ instance TypeCheck App where
     pure $ TypeCell outputTy
 
 instance TypeCheck Prim where
-  check (Arr name' (depIn, getDepInTy) (_, getOutTy)) = do
+  check _ (Arr name' (depIn, getDepInTy) (_, getOutTy)) = do
     depInTy <- unTypeCell <$> getDepInTy
     outTy <-
       unTypeCell <$> case name' of
@@ -258,28 +261,28 @@ instance TypeCheck Prim where
     result <- newPrimCell
     inform (learn $ ty 0) result
     pure (TypeCell result)
-  check (Type n) = do
+  check _ (Type n) = do
     result <- newPrimCell
     inform (learn . ty $ n + 1) result
     pure $ TypeCell result
-  check IntTy = do
+  check _ IntTy = do
     result <- newPrimCell
     inform (learn $ ty 0) result
     pure $ TypeCell result
-  check NatTy = do
+  check _ NatTy = do
     result <- newPrimCell
     inform (learn $ ty 0) result
     pure $ TypeCell result
-  check (PInt _) = do
+  check _ (PInt _) = do
     result <- newPrimCell
     inform (learn $ intTy) result
     pure $ TypeCell result
 
 instance TypeCheck Data where
-  check = undefined
+  check _ = undefined
 
 instance TypeCheck Lam where
-  check (Lam input (_, getBodyTy)) = do
+  check _ (Lam input (_, getBodyTy)) = do
     bodyTy <- unTypeCell <$> getBodyTy
     inputTy <- unTypeCell <$> existingOrNewCell input
     ty <- newPrimCell
@@ -308,10 +311,10 @@ instance TypeCheck Lam where
     pure $ TypeCell ty
 
 instance TypeCheck FreeVar where
-  check (FreeVar name) = existingOrNewCell name
+  check _ (FreeVar name) = existingOrNewCell name
 
 instance TypeCheck Ann where
-  check (Ann (_, getTermTy) (givenTy, getT)) = do
+  check _ (Ann (_, getTermTy) (givenTy, getT)) = do
     termTy <- unTypeCell <$> getTermTy
     t <- unTypeCell <$> getT
     inform (expected $ ty 0) t
@@ -319,20 +322,31 @@ instance TypeCheck Ann where
     inform (expected givenTy) termTy
     pure $ TypeCell termTy
 
-runTypeCheck :: CheckST TypeT -> Partial Hole -> IO [Info TypeMerge]
+runTypeCheck :: CheckST TypeT -> Cofree Typed PosInfo -> IO [Info TypeMerge]
 runTypeCheck st t = observeAllT . flip evalStateT st . runTypeT $ result
   where
     result :: TypeT (Info TypeMerge)
     result = do
-      TypeCell r <- para check t
+      TypeCell r <- foo check t
       x <- content r
       pure x
 
-test :: IO ()
-test = do
-  let f = (lam "x" $ free "x") `ann` (intTy -:> intTy)
-  let term = f `app` ty 0
-  let st = initCheckST
-  runTypeCheck st term >>= \case
-    (Info (MkTypeMerge _ result) : _) -> Text.putStrLn . display $ renderHoles result
-    _ -> Text.putStrLn "no typing results"
+-- | A recursion scheme that provides the tags from a Cofree structure
+-- along with the original untagged structure and the result from
+-- that branch. Essentially a paramorphism over a Cofree but with the
+-- values added as an extra input instead of pattern matched out of the
+-- Cofree structure.
+foo :: (Monad m, Traversable f, Functor f) => (a -> f (Free f x, m b) -> m b) -> Cofree f a -> m b
+foo go (env :< f) = do
+  go env $
+    fmap
+      ( \x ->
+          ( -- It would be nice if I could deconstruct
+            -- the Cofree structure into Free only once.
+            -- This makes using the original structure
+            -- more expensive than it should be.
+            uncofree x,
+            foo go x
+          )
+      )
+      f
