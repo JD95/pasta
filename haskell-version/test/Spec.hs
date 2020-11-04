@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
@@ -10,6 +11,7 @@ import Control.Monad.Primitive
 import Data.Foldable
 import Data.Functor.Foldable (Fix)
 import Data.Maybe
+import Data.Proxy
 import Data.Sum
 import Display
 import Eval.Stages
@@ -19,14 +21,17 @@ import Logic.Propagator
 import Parser.Lexer
 import RIO.List
 import RIO.Text (unpack)
+import System.Environment
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.Tasty.Ingredients.Basic
+import Test.Tasty.Options
 import Text.Megaparsec (ParseErrorBundle (..), parseErrorPretty)
 import TypeCheck.Typed
 import Prelude hiding (pi, product)
 
 main :: IO ()
-main = defaultMain tests
+main = withArgs ["--hide-successes"] $ defaultMain $ tests
   where
     tests = testGroup "Jelly" [parsingTests, evalTests, typeCheckTests]
 
