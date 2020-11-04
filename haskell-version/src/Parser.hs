@@ -80,14 +80,11 @@ lambda inner = do
 ann :: Parser Surface -> Parser Surface -> Parser Surface
 ann l r = do
   term <- MP.try (paren r) <|> l
-  asAnn term <|> pure term
-  where
-    asAnn x = do
-      _ <- optional space
-      _ <- tok TColon
-      _ <- optional space
-      ty <- r
-      pure $ surface (inject $ Ann x ty) (Range (start x) (end ty))
+  _ <- optional space
+  _ <- tok TColon
+  _ <- optional space
+  ty <- r
+  pure $ surface (inject $ Ann term ty) (Range (start term) (end ty))
 
 space :: Parser ()
 space = do
@@ -125,9 +122,9 @@ paren f = do
   pure x
 
 lang :: Parsec ParseErr [Lexeme] Surface
-lang = MP.try (paren lvl1) <|> lvl1
+lang = lvl1
   where
-    lvl1 = MP.try (lvl0 `arr` lvl1) <|> MP.try (lvl0 `app` lvl1) <|> MP.try (lvl0 `ann` lvl1) <|> lvl0
+    lvl1 = MP.try (lvl0 `arr` lvl1) <|> MP.try (lvl0 `app` lvl1) <|> MP.try (lvl0 `ann` lvl1) <|> MP.try (paren lvl1) <|> lvl0
     lvl0 = MP.try (paren lvl0) <|> MP.try (lambda lvl1) <|> freeVar
 
 parse :: Text -> Either (ParseErrorBundle [Lexeme] ParseErr) Surface
@@ -136,4 +133,5 @@ parse input =
     Right xs -> MP.parse lang "" xs
     Left e -> Left undefined
 
+displayParseErr :: ParseErrorBundle [Lexeme] ParseErr -> String
 displayParseErr e = foldr (<>) "" . intersperse "\n" . toList $ parseErrorPretty <$> MP.bundleErrors e

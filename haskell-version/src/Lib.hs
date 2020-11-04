@@ -29,12 +29,13 @@ import TypeCheck.Typed
 
 test :: IO ()
 test = do
-  case parse "(x : a -> a) (y : b)" of
+  let str = "(x : a -> b -> c) (y : d)"
+  putStrLn $ unpack str
+  case parse str of
     Right exp -> do
-      print $ exp
       let input = desugar exp
       let st = initCheckST
       runTypeCheck st input >>= \case
-        (Info (MkTypeMerge _ _ result) : _) -> print $ unpack $ display $ renderHoles result
+        (Info (MkTypeMerge _ _ result) : _) -> putStrLn $ unpack $ display $ renderHoles result
         _ -> print "No Type results"
     Left e -> putStrLn $ displayParseErr e
