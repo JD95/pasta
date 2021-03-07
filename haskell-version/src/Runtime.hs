@@ -99,13 +99,13 @@ rtEval (RtThunk x frees) frame = readRef =<< go (RtEnv frame frees) x
   where
     go :: (Log m, Ref m r) => RtEnv r -> RtCtl -> m (r (RtClo r))
     -- Allocations
-    go env (RtAllocThunk f frees) = do
-      newRef . RtThunk f =<< traverse (go env) frees
-    go env (RtAllocProd xs) =
-      newRef . RtWhnf . RtProd =<< traverse (go env) xs
-    go env (RtAllocCon tag x) =
-      newRef . RtWhnf . RtCon tag =<< go env x
+    go env (RtAllocThunk f frees) = newRef . RtThunk f =<< traverse (go env) frees
+    go env (RtAllocProd xs) = newRef . RtWhnf . RtProd =<< traverse (go env) xs
+    go env (RtAllocCon tag x) = newRef . RtWhnf . RtCon tag =<< go env x
     go env (RtAllocPrim x) = newRef . RtWhnf . RtPrim $ x
+    -- Variable Access
+    go env (RtFreeVar i) = pure $ rtFrees env Vec.! fromIntegral i
+    go env (RtStackVar i) = pure $ rtStackFrame env Vec.! fromIntegral i
     -- Indexing
     go env (RtIndex x i) = do
       go env x >>= readRef >>= \case
@@ -135,8 +135,6 @@ rtEval (RtThunk x frees) frame = readRef =<< go (RtEnv frame frees) x
           -- Create a new thunk with access to the frees from this
           -- closure
           newRef $ RtThunk (check x' $ Vec.toList alts) (rtFrees env)
-    go env (RtFreeVar i) = pure $ rtFrees env Vec.! fromIntegral i
-    go env (RtStackVar i) = pure $ rtStackFrame env Vec.! fromIntegral i
 rtEval r _ = pure r
 
 normalize :: (Log m, Ref m r) => RtClo r -> m (Fix RtVal)
