@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -6,6 +7,7 @@
 
 module Runtime () where
 
+import Data.Functor.Foldable (Fix(..), cata) 
 import Data.List
 import Control.Monad
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -23,35 +25,26 @@ data Match
 data RtCtl
   = -- | Check for path, branch
     RtBranch RtCtl (Vector (Match, RtCtl))
-  | -- | Eval a closure,
+  | -- | Evaluate second with the side effects
+    -- of evaluating the first
     RtEval RtCtl RtCtl
   | -- | Index into a product
     RtIndex RtCtl Natural
-  | -- |
+  | -- | Push args onto stack and eval func
     RtApp RtCtl (Vector RtCtl)
   | -- | Allocate a new closure
     RtAllocThunk RtCtl (Vector RtCtl)
-  | -- |
+  | -- | Allocate a new product
     RtAllocProd (Vector RtCtl)
-  | -- |
+  | -- | Allocate a new tagged value
     RtAllocCon Natural RtCtl
-  | -- |
+  | -- | Allocate a primitive value
     RtAllocPrim PrimVal
   | -- | Reference to a variable on the stack frame
     RtStackVar Natural
   | -- | Reference to a free variable
     RtFreeVar Natural
     deriving Show
-
-parens :: String -> String
-parens x = "(" <> x <> ")"
-
-rtDisplayCtl :: RtCtl -> String
-rtDisplayCtl x = go x where
-  go (RtApp f xs) = "(" <> go f <> ") " <> intercalate " " (Vec.toList $ parens . go <$> xs)
-  go (RtStackVar i) = "#" <> show i
-  go (RtAllocPrim x) = show x
-  go (RtAllocThunk f frees) = concat ["(", go f, ") {", intercalate " " (Vec.toList $ parens . go <$> frees), "}"] 
 
 data RtClo r
   = -- | An unevaluated thunk, result of application
@@ -61,28 +54,19 @@ data RtClo r
       -- | Captured Free Variables
       (Vector (r (RtClo r)))
   | -- | An evaluated thunk
-    RtWhnf (RtVal r)
+    RtWhnf (RtVal (r (RtClo r)))
 
 data PrimVal
   = RtInt Int
     deriving Show
 
-data RtVal r
+data RtVal a
   = RtPrim PrimVal
-  | RtProd (Vector (r (RtClo r)))
-  | RtCon Natural (r (RtClo r))
+  | RtProd (Vector a) 
+  | RtCon Natural a
+    deriving Functor
 
-rtDisplay :: RtClo r -> String
-rtDisplay (RtWhnf (RtPrim (RtInt i))) = show i
-rtDisplay (RtWhnf (RtCon tag _)) = "Con " <> show tag <> " _"
-rtDisplay (RtThunk _ _) = "Thunk"
-
-rtDisplay' :: (Log m, Ref m r) => RtClo r -> m String
-rtDisplay' (RtWhnf (RtPrim (RtInt i))) = pure $ show i
-rtDisplay' (RtWhnf (RtCon tag x)) = do
-  x' <- rtDisplay' =<< readRef x
-  pure $ concat ["Con ", show tag, " ", x']
-rtDisplay' thunk@(RtThunk _ _) = rtDisplay' =<< rtEval thunk (Vec.empty)
+data RtEnv r = RtEnv {rtStackFrame :: Vector (r (RtClo r)), rtFrees :: Vector (r (RtClo r))}
 
 class Monad m => Ref m r where
   newRef :: a -> m (r a)
@@ -94,6 +78,12 @@ instance Ref IO IORef where
   readRef = readIORef
   writeRef = writeIORef
 
+class Monad m => Log m where
+  log :: String -> m ()
+
+instance Log IO where
+  log = putStrLn
+
 rtMatch :: RtVal r -> Match -> Bool
 rtMatch _ MAny = True
 rtMatch (RtPrim (RtInt i)) (MInt j) = i == j
@@ -103,21 +93,6 @@ check :: RtVal r -> [(Match, RtCtl)] -> RtCtl
 check switch xs = case filter (rtMatch switch . fst) xs of
   [] -> error "Non-exhaustive pattern match"
   ((_, p) : _) -> p
-
-data RtEnv r = RtEnv {rtStackFrame :: Vector (r (RtClo r)), rtFrees :: Vector (r (RtClo r))}
-
-rtDisplayEnv :: Ref m r => RtEnv r -> m String
-rtDisplayEnv env = do
-  let dis = fmap (intercalate " " . Vec.toList) . traverse (fmap (parens . rtDisplay) . readRef)
-  frame <- dis $ rtStackFrame env
-  frees <- dis $ rtFrees env
-  pure $ concat [replicate 8 '-', "\nStack Frame: {" <>  frame, "}\nFree Vars: {", frees, "}"]
-  
-class Monad m => Log m where
-  log :: String -> m ()
-
-instance Log IO where
-  log = putStrLn
 
 rtEval :: (Log m, Ref m r) => RtClo r -> Vector (r (RtClo r)) -> m (RtClo r)
 rtEval (RtThunk x frees) frame = readRef =<< go (RtEnv frame frees) x
@@ -131,6 +106,12 @@ rtEval (RtThunk x frees) frame = readRef =<< go (RtEnv frame frees) x
     go env (RtAllocCon tag x) =
       newRef . RtWhnf . RtCon tag =<< go env x
     go env (RtAllocPrim x) = newRef . RtWhnf . RtPrim $ x
+    -- Indexing
+    go env (RtIndex x i) = do
+      go env x >>= readRef >>= \case
+        (RtWhnf (RtProd xs)) -> pure $ xs Vec.! fromIntegral i
+        (RtWhnf _) -> error "Can only index a product!"
+        (RtThunk _ _) -> error "Cannot index a thunk!"
     -- Control Flow
     go env (RtApp f args) = do
       -- Evaluate new stack frame
@@ -156,12 +137,63 @@ rtEval (RtThunk x frees) frame = readRef =<< go (RtEnv frame frees) x
           newRef $ RtThunk (check x' $ Vec.toList alts) (rtFrees env)
     go env (RtFreeVar i) = pure $ rtFrees env Vec.! fromIntegral i
     go env (RtStackVar i) = pure $ rtStackFrame env Vec.! fromIntegral i
-    go env (RtIndex x i) = do
-      go env x >>= readRef >>= \case
-        (RtWhnf (RtProd xs)) -> pure $ xs Vec.! fromIntegral i
-        (RtWhnf _) -> error "Can only index a product!"
-        (RtThunk _ _) -> error "Cannot index a thunk!"
 rtEval r _ = pure r
+
+normalize :: (Log m, Ref m r) => RtClo r -> m (Fix RtVal)
+normalize (RtWhnf (RtPrim x)) = pure . Fix $ RtPrim x
+normalize (RtWhnf (RtCon tag x)) = Fix . RtCon tag <$> (normalize =<< readRef x)
+normalize thunk = normalize =<< rtEval thunk Vec.empty
+
+rtDisplayCtl :: RtCtl -> String
+rtDisplayCtl x = go x where
+  go (RtApp f xs) = "(" <> go f <> ") " <> intercalate " " (Vec.toList $ parens . go <$> xs)
+  go (RtStackVar i) = "#" <> show i
+  go (RtAllocPrim x) = show x
+  go (RtAllocThunk f frees) = concat ["(", go f, ") {", intercalate " " (Vec.toList $ parens . go <$> frees), "}"] 
+
+rtDisplay :: RtClo r -> String
+rtDisplay (RtWhnf (RtPrim (RtInt i))) = show i
+rtDisplay (RtWhnf (RtCon tag _)) = "Con " <> show tag <> " _"
+rtDisplay (RtThunk _ _) = "Thunk"
+
+rtDisplay' :: (Log m, Ref m r) => RtClo r -> m String
+rtDisplay' x = cata go <$> normalize x where
+  go (RtPrim (RtInt i)) = show i
+  go (RtCon tag x) = show "Con " <> show tag <> " " <> x
+
+rtDisplayEnv :: Ref m r => RtEnv r -> m String
+rtDisplayEnv env = do
+  let dis = fmap (intercalate " " . Vec.toList) . traverse (fmap (parens . rtDisplay) . readRef)
+  frame <- dis $ rtStackFrame env
+  frees <- dis $ rtFrees env
+  pure $ concat [replicate 8 '-', "\nStack Frame: {" <>  frame, "}\nFree Vars: {", frees, "}"]
+
+parens :: String -> String
+parens x = "(" <> x <> ")"
+
+rtCase :: Natural -> [(Match, RtCtl)] -> RtCtl
+rtCase x = RtEval (RtStackVar x) . RtBranch (RtStackVar x) . Vec.fromList
+
+rtInt :: Int -> RtCtl
+rtInt = RtAllocPrim . RtInt
+
+rtProd :: [RtCtl] -> RtCtl
+rtProd = RtAllocProd . Vec.fromList
+
+rtApp :: RtCtl -> [RtCtl] -> RtCtl
+rtApp x = RtApp x . Vec.fromList
+
+rtThunk :: [RtCtl] -> RtCtl -> RtCtl
+rtThunk xs x = RtAllocThunk x $ Vec.fromList xs
+
+rtBox :: RtCtl -> RtClo r
+rtBox x = RtThunk x (Vec.fromList [])
+
+rtVar :: Natural -> RtCtl
+rtVar = RtStackVar
+
+rtFree :: Natural -> RtCtl
+rtFree = RtFreeVar 
 
 data BuiltIns = BuiltIns
   { unit :: RtCtl,
@@ -179,30 +211,6 @@ builtIns =
           }
    in go
 
-rtCase :: Natural -> [(Match, RtCtl)] -> RtCtl
-rtCase x = RtEval (RtStackVar x) . RtBranch (RtStackVar x) . Vec.fromList
-
-rtInt :: Int -> RtCtl
-rtInt = RtAllocPrim . RtInt
-
-rtProd :: [r (RtClo r)] -> RtClo r
-rtProd = RtWhnf . RtProd . Vec.fromList
-
-rtApp :: RtCtl -> [RtCtl] -> RtCtl
-rtApp x = RtApp x . Vec.fromList
-
-rtThunk :: [RtCtl] -> RtCtl -> RtCtl
-rtThunk xs x = RtAllocThunk x $ Vec.fromList xs
-
-rtBox :: RtCtl -> RtClo r
-rtBox x = RtThunk x (Vec.fromList [])
-
-rtVar :: Natural -> RtCtl
-rtVar = RtStackVar
-
-rtFree :: Natural -> RtCtl
-rtFree = RtFreeVar 
-
 test1 :: IO ()
 test1 = do
   let id = RtStackVar 0
@@ -214,9 +222,7 @@ test1 = do
 test2 :: IO ()
 test2 = do
   let snd = RtEval (rtVar 0) (RtIndex (rtVar 0) 1)
-  x <- newRef . rtBox $ rtInt 1
-  y <- newRef . rtBox $ rtInt 2
-  prd <- newRef $ rtProd [x, y]
+  prd <- newRef . rtBox $ rtProd [rtInt 1, rtInt 2]
   putStrLn =<< rtDisplay' =<< rtEval @IO @IORef (rtBox snd) (Vec.fromList [prd])
 
 test3 :: IO ()
@@ -264,5 +270,4 @@ test7 = do
   let const = rtThunk [] $ rtVar 0
   let func = rtThunk [] $ rtVar 1 `rtApp` [rtVar 2, rtVar 0]
   let code = func `rtApp` [rtInt 2, const, rtInt 1]
-  putStrLn "Should be 1"
   putStrLn =<< rtDisplay' =<< rtEval @IO @IORef (rtBox code) Vec.empty
