@@ -150,6 +150,7 @@ rtDisplayCtl x = go x where
   go (RtStackVar i) = "#" <> show i
   go (RtAllocPrim x) = show x
   go (RtAllocThunk f frees) = concat ["(", go f, ") {", intercalate " " (Vec.toList $ parens . go <$> frees), "}"] 
+  go x = show x
 
 rtDisplay :: RtClo r -> String
 rtDisplay (RtWhnf (RtPrim (RtInt i))) = show i
@@ -249,6 +250,9 @@ test4 = do
 test5 :: IO ()
 test5 = do
   let b = builtIns
+  -- not = \x -> case x of
+  --  True -> False
+  --  False -> True
   let not = rtThunk [] $
         rtCase 0 $
           [ (MCon 0, false b),
@@ -259,15 +263,31 @@ test5 = do
 
 test6 :: IO ()
 test6 = do
-  -- flip = \f y x -> f x y
+  -- const = \x y -> x
   let const = rtThunk [] $ rtVar 0
+  -- flip = \f y x -> f x y
   let flip = rtThunk [] $ rtVar 0 `rtApp` [rtVar 2, rtVar 1]
+  -- code = (\f y x -> f x y) (\x y -> x) 2 1
   let code = flip `rtApp` [const, rtInt 2 , rtInt 1]
   putStrLn =<< rtDisplay' =<< rtEval @IO @IORef (rtBox code) Vec.empty
 
 test7 :: IO ()
 test7 = do
+  -- const = \x y -> x
   let const = rtThunk [] $ rtVar 0
+  -- func = \y f x -> f x y
   let func = rtThunk [] $ rtVar 1 `rtApp` [rtVar 2, rtVar 0]
+  -- code = (\y f x -> f x y) 2 (\x y -> x) 1
   let code = func `rtApp` [rtInt 2, const, rtInt 1]
   putStrLn =<< rtDisplay' =<< rtEval @IO @IORef (rtBox code) Vec.empty
+
+-- | Access to free variables works
+test8 :: IO ()
+test8 = do
+  -- code = func 2 const 1
+  let code = rtFree 0 `rtApp` [rtInt 2, rtFree 1, rtInt 1]
+  -- func = \y f x -> f x y
+  func <- newRef $ RtThunk (rtVar 1 `rtApp` [rtVar 2, rtVar 0]) Vec.empty
+  -- const = \x y -> x
+  const <- newRef $ RtThunk (rtVar 0) Vec.empty
+  putStrLn =<< rtDisplay' =<< rtEval @IO @IORef (RtThunk code (Vec.fromList [func, const])) Vec.empty
