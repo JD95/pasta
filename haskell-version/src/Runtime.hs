@@ -100,7 +100,7 @@ rtEval ref frame = do
     (RtThunk x frees) -> do
       resultRef <- go (RtEnv frame frees) x
       writeRef ref =<< readRef resultRef
-      pure ref 
+      pure resultRef 
     val -> pure ref 
   where
     go :: (Log m, Ref m r) => RtEnv r -> RtCtl -> m (r (RtClo r))
@@ -141,17 +141,22 @@ rtEval ref frame = do
       _ <- rtEval ref (rtStackFrame env)
       go env next
     go env (RtBranch x alts) = do
+      log =<< rtDisplayEnv env
+      log $ "Branching on " <> rtDisplayCtl x
       go env x >>= readRef >>= \case
-        RtWhnf x' ->
+        RtWhnf x' -> do
+          let pick = check x' $ Vec.toList alts
+          log $ "Picked branch: " <> rtDisplayCtl pick
           -- Create a new thunk with access to the frees from this
           -- closure
-          newRef $ RtThunk (check x' $ Vec.toList alts) (rtFrees env)
+          newRef $ RtThunk pick (rtFrees env)
 
 normalize :: (Log m, Ref m r) => r (RtClo r) -> m (Fix RtVal)
 normalize ref = readRef ref >>= \case 
   (RtWhnf (RtPrim x)) -> pure . Fix $ RtPrim x
   (RtWhnf (RtCon tag x)) -> Fix . RtCon tag <$> normalize x
-  _ -> normalize =<< rtEval ref Vec.empty
+  (RtWhnf (RtProd xs)) -> Fix . RtProd <$> traverse normalize xs
+  (RtThunk _ _) -> normalize =<< rtEval ref Vec.empty
 
 rtDisplayCtl :: RtCtl -> String
 rtDisplayCtl x = go x where
@@ -170,6 +175,7 @@ rtDisplay' :: (Log m, Ref m r) => r (RtClo r) -> m String
 rtDisplay' x = cata go <$> normalize x where
   go (RtPrim (RtInt i)) = show i
   go (RtCon tag x) = show "Con " <> show tag <> " " <> x
+  go (RtProd xs) = concat ["(", intercalate ", " (Vec.toList xs), ")"]
 
 rtDisplayEnv :: Ref m r => RtEnv r -> m String
 rtDisplayEnv env = do
