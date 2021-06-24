@@ -35,9 +35,6 @@ data RtCtl
   | -- | Allocate an Empty cell
     RtAllocCell
       RtCtl
-      -- ^ How to update the cell
-      RtCtl
-      -- ^ How to tell if cell is Top
   | -- | Inform cell using given value
     RtInformCell
       RtCtl
@@ -58,22 +55,13 @@ data RtCtl
     RtFreeVar Natural
   deriving (Show)
 
-data Cell r
-  = Empty
-  | Partial (r (RtClo r))
-  | Top (r (RtClo r))
-
 data RtClo r
   = -- | An unevaluated thunk, result of application
-    RtProp
-      (Vector (r (Cell r)))
-      -- ^ Sources the propagator depends on
-      RtCtl
-      -- ^ How to update this cell
-      RtCtl
-      -- ^ How to check if this cell has reached Top
-      (r (Cell r))
+    RtCell
+      (r (RtClo r))
       -- ^ The cell, holding the data
+      RtCtl
+      -- ^ How to merge information
       (Vector (r (RtClo r)))
       -- ^ The propagators to trigger if this cell updates
   | RtThunk
@@ -86,7 +74,7 @@ data RtClo r
 
 data PrimVal
   = RtInt Int
-  deriving (Show)
+  deriving (Show, Eq)
 
 data RtVal a
   = RtPrim PrimVal
@@ -137,9 +125,9 @@ rtEval ref frame = do
     go env (RtAllocProd xs) = newRef . RtWhnf . RtProd =<< traverse (go env) xs
     go env (RtAllocCon tag x) = newRef . RtWhnf . RtCon tag =<< go env x
     go env (RtAllocPrim x) = newRef . RtWhnf . RtPrim $ x
-    go env (RtAllocCell update checkTop) = do
-      cellRef <- newRef Empty
-      newRef $ RtProp mempty update checkTop cellRef mempty
+    go env (RtAllocCell merge) = do
+      cellRef <- go env rtInfoEmpty
+      newRef $ RtCell cellRef merge mempty
     -- Variable Access
     go env (RtFreeVar i) = pure $ rtFrees env Vec.! fromIntegral i
     go env (RtStackVar i) = do
@@ -147,7 +135,7 @@ rtEval ref frame = do
       if fromIntegral i >= Vec.length frame
         then do
           log =<< rtDisplayEnv env
-          error $ concat ["Out of bounds stack access '", show i]
+          error $ concat ["Out of bounds stack access '", show i, "'"]
         else pure $ frame Vec.! fromIntegral i
     -- Indexing
     go env (RtIndex x i) = do
@@ -167,6 +155,7 @@ rtEval ref frame = do
       ref <- go env f
       -- Push new stack frame and evaluate thunk
       rtEval ref frame
+    -- Sequential Evaluation
     go env (RtEval x next) = do
       ref <- go env x
       _ <- rtEval ref (rtStackFrame env)
@@ -178,20 +167,25 @@ rtEval ref frame = do
         RtWhnf x' -> do
           let pick = check x' $ Vec.toList alts
           log $ "Picked branch: " <> rtDisplayCtl pick
-          -- Create a new thunk with access to the frees from this
-          -- closure
-          newRef $ RtThunk pick (rtFrees env)
-    go env (RtInformCell cell value) = do
+          go env pick
+    go env (RtInformCell cell newValue) = do
       c <- go env cell
       readRef c >>= \case
-        RtProp sources update checkTop cellRef targets -> do
-          x <- go env value
-          readRef cellRef >>= \case
-            Empty -> do
-              -- If the cell is empty, simply fill it with the value
-              -- TODO: Create action to undo writing on failure
-              writeRef cellRef (Partial x)
-            _ -> error "unimplemented"
+        RtCell cellRef merge targets -> do
+          newValueRef <- go env newValue
+          merged <- go (env {rtStackFrame = Vec.fromList [cellRef, newValueRef]}) merge
+          -- eval to whnf so tag can be inspected
+          result <- readRef =<< rtEval merged mempty
+
+          -- check result for failure
+          case result of
+            RtWhnf (RtCon 3 _) -> error "Merge failure! Backtracking unimplemented!"
+            _ -> pure ()
+
+          -- update cell
+          writeRef cellRef result
+
+          -- TODO: trigger target propagators
           -- The only thing that makes sense to return here
           -- is the reference to the cell itself
           -- The informs will be part of a sequence
@@ -248,17 +242,32 @@ rtProd = RtAllocProd . Vec.fromList
 rtIndex :: RtCtl -> Natural -> RtCtl
 rtIndex = RtIndex
 
+rtCon :: Natural -> RtCtl -> RtCtl
+rtCon = RtAllocCon
+
 rtApp :: RtCtl -> [RtCtl] -> RtCtl
 rtApp x = RtApp x . Vec.fromList
 
 rtThunk :: [RtCtl] -> RtCtl -> RtCtl
 rtThunk xs x = RtAllocThunk x $ Vec.fromList xs
 
-rtCell :: RtCtl -> RtCtl -> RtCtl
+rtCell :: RtCtl -> RtCtl
 rtCell = RtAllocCell
 
 rtInformCell :: RtCtl -> RtCtl -> RtCtl
 rtInformCell = RtInformCell
+
+rtInfoEmpty :: RtCtl
+rtInfoEmpty = RtAllocCon 0 unit
+
+rtInfoPartial :: RtCtl -> RtCtl
+rtInfoPartial = RtAllocCon 1
+
+rtInfoTop :: RtCtl -> RtCtl
+rtInfoTop = RtAllocCon 2
+
+rtInfoConflict :: RtCtl
+rtInfoConflict = RtAllocCon 3 unit
 
 rtBox :: RtCtl -> RtClo r
 rtBox x = RtThunk x (Vec.fromList [])
@@ -268,6 +277,19 @@ rtVar = RtStackVar
 
 rtFree :: Natural -> RtCtl
 rtFree = RtFreeVar
+
+firstTopMerge :: RtCtl
+firstTopMerge =
+  rtCase
+    0 -- Match on the existing cell info
+    [ -- If it's empty, fill with the
+      -- new value and mark as Top
+      (MCon 0, rtInfoTop $ rtVar 1),
+      -- If there is any information
+      -- already in the cell, raise a
+      -- conflict
+      (MAny, rtInfoConflict)
+    ]
 
 unit :: RtCtl
 unit = RtAllocProd $ Vec.fromList []
