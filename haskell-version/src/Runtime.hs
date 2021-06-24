@@ -5,7 +5,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Runtime () where
+module Runtime where
 
 import Control.Monad
 import Data.Functor.Foldable (Fix (..), cata)
@@ -32,6 +32,18 @@ data RtCtl
     RtIndex RtCtl Natural
   | -- | Push args onto stack and eval func
     RtApp RtCtl (Vector RtCtl)
+  | -- | Allocate an Empty cell
+    RtAllocCell
+      RtCtl
+      -- ^ How to update the cell
+      RtCtl
+      -- ^ How to tell if cell is Top
+  | -- | Inform cell using given value
+    RtInformCell
+      RtCtl
+      -- ^ Cell to inform
+      RtCtl
+      -- ^ Value
   | -- | Allocate a new closure
     RtAllocThunk RtCtl (Vector RtCtl)
   | -- | Allocate a new product
@@ -46,9 +58,25 @@ data RtCtl
     RtFreeVar Natural
   deriving (Show)
 
+data Cell r
+  = Empty
+  | Parital (r (RtClo r))
+  | Top (r (RtClo r))
+
 data RtClo r
   = -- | An unevaluated thunk, result of application
-    RtThunk
+    RtProp
+      (Vector (r (Cell r)))
+      -- ^ Sources the propagator depends on
+      RtCtl
+      -- ^ How to update this cell
+      RtCtl
+      -- ^ How to check if this cell has reached Top
+      (r (Cell r))
+      -- ^ The cell, holding the data
+      (Vector (r (RtClo r)))
+      -- ^ The propagators to trigger if this cell updates
+  | RtThunk
       RtCtl
       -- ^ Eval Code
       (Vector (r (RtClo r)))
@@ -109,6 +137,9 @@ rtEval ref frame = do
     go env (RtAllocProd xs) = newRef . RtWhnf . RtProd =<< traverse (go env) xs
     go env (RtAllocCon tag x) = newRef . RtWhnf . RtCon tag =<< go env x
     go env (RtAllocPrim x) = newRef . RtWhnf . RtPrim $ x
+    go env (RtAllocCell update checkTop) = do
+      cellRef <- newRef Empty
+      newRef $ RtProp mempty update checkTop cellRef mempty
     -- Variable Access
     go env (RtFreeVar i) = pure $ rtFrees env Vec.! fromIntegral i
     go env (RtStackVar i) = do
@@ -199,11 +230,20 @@ rtInt = RtAllocPrim . RtInt
 rtProd :: [RtCtl] -> RtCtl
 rtProd = RtAllocProd . Vec.fromList
 
+rtIndex :: RtCtl -> Natural -> RtCtl
+rtIndex = RtIndex
+
 rtApp :: RtCtl -> [RtCtl] -> RtCtl
 rtApp x = RtApp x . Vec.fromList
 
 rtThunk :: [RtCtl] -> RtCtl -> RtCtl
 rtThunk xs x = RtAllocThunk x $ Vec.fromList xs
+
+rtCell :: RtCtl -> RtCtl -> RtCtl
+rtCell = RtAllocCell
+
+rtInformCell :: RtCtl -> RtCtl -> RtCtl
+rtInformCell = RtInformCell
 
 rtBox :: RtCtl -> RtClo r
 rtBox x = RtThunk x (Vec.fromList [])
