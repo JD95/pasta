@@ -60,7 +60,7 @@ data RtCtl
 
 data Cell r
   = Empty
-  | Parital (r (RtClo r))
+  | Partial (r (RtClo r))
   | Top (r (RtClo r))
 
 data RtClo r
@@ -181,6 +181,21 @@ rtEval ref frame = do
           -- Create a new thunk with access to the frees from this
           -- closure
           newRef $ RtThunk pick (rtFrees env)
+    go env (RtInformCell cell value) = do
+      c <- go env cell
+      readRef c >>= \case
+        RtProp sources update checkTop cellRef targets -> do
+          x <- go env value
+          readRef cellRef >>= \case
+            Empty -> do
+              -- If the cell is empty, simply fill it with the value
+              -- TODO: Create action to undo writing on failure
+              writeRef cellRef (Partial x)
+            _ -> error "unimplemented"
+          -- The only thing that makes sense to return here
+          -- is the reference to the cell itself
+          -- The informs will be part of a sequence
+          pure c
 
 normalize :: (Log m, Ref m r) => r (RtClo r) -> m (Fix RtVal)
 normalize ref =

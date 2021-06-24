@@ -1,7 +1,9 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
 
 import Control.Monad
 import Data.IORef (IORef)
+import qualified Data.Vector as Vec
 import Lib
 import System.Environment
 import Test.Tasty
@@ -20,12 +22,23 @@ main = withArgs ["--hide-successes"] $ defaultMain $ tests
       testGroup
         "propagation"
         [ testCase "inform fills value" $ do
-            let xUpdate =
-                  -- Pull values from a tuple and swap them
-                  -- f (x, y) = (y, x)
-                  rtProd [rtVar 0 `rtIndex` 1, rtVar 0 `rtIndex` 0]
+            -- Setup the cell
+            let xUpdate = rtVar 0
             let xTop = true
             let xCell = rtCell xUpdate xTop
             x <- newRef $ rtBox xCell
-            void $ rtEval @IO @IORef x mempty
+            -- Ensure that the created cell is empty
+            rtEval @IO @IORef x mempty >>= readRef >>= \case
+              RtProp _ _ _ cellRef _ -> do
+                readRef cellRef >>= \case
+                  Empty -> pure ()
+                  _ -> error "Expecting Empty"
+            -- Inform the cell
+            code <- newRef . rtBox $ RtInformCell (rtVar 0) (rtInt 5)
+            -- Ensure that the cell is now partially filled
+            rtEval @IO @IORef code (Vec.fromList [x]) >>= readRef >>= \case
+              RtProp _ _ _ cellRef _ -> do
+                readRef cellRef >>= \case
+                  Partial _ -> pure ()
+                  _ -> error "Expecting Partial"
         ]
