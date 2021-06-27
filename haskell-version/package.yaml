@@ -28,7 +28,7 @@ library:
   source-dirs: src
 
 executables:
-  jelly:
+  jelly-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:

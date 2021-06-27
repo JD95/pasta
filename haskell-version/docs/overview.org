@@ -1,0 +1,52 @@
+* Logic Programming
+
+Relations are stated in either =let= or =where= bindings
+- The symbols bound by the relations can be used in other expressions
+
+Defining a relation strictly in terms of propagation between elements
+
+#+begin_src haskell
+sum : Num a => Rel (a, a, a) 
+sum (x, y, z) where
+  x = z - y
+  y = z - x
+  z = x + y
+#+end_src
+
+The type for the relation can be any ADT
+
+#+begin_src haskell
+foo : Rel (Either (Bool, Bool) (Nat, Nat))
+foo
+  | Left (x, y) where
+    x = not y
+    y = not x
+  | Right (x, y) where
+    x = y - 1
+    y = x + 1
+#+end_src
+
+A relation written in terms of another relation
+
+#+begin_src haskell
+path : Rel (a, a) -> Rel (a, a)
+path edge
+  | (a, b) :- edge (a, b)
+  | (a, c) :- edge (a, b), edge (b, c)
+#+end_src
+
+Relations constructed with other data
+
+#+begin_src haskell
+mkEdges : Map a [a] -> Rel (a, a)
+mkEdges facts | (x, y) where 
+  x = map fst  Map.filter ((`elem` y) . snd) facts
+  y = maybe [] id $ lookup x facts 
+#+end_src
+
+#+begin_src haskell 
+findPaths : Map Nat [Nat] -> Nat -> Nat 
+findPaths facts x = y where
+  path (mkEdges facts) (x, y)
+#+end_src
+

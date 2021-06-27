@@ -11,8 +11,10 @@ import Control.Monad
 import Data.Functor.Foldable (Fix (..), cata)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List
+import Data.Traversable
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
+import Debug.Trace
 import Numeric.Natural
 import Prelude hiding (const, id, log)
 
@@ -35,12 +37,32 @@ data RtCtl
   | -- | Allocate an Empty cell
     RtAllocCell
       RtCtl
+  | -- | Allocate a propagator
+    RtAllocProp
+      RtCtl
+      -- ^ Target cell
+      Natural
+      -- ^ The index into the sources, to the right
+      -- of which all cells are known to have info
+      (Vector RtCtl)
+      -- ^ The cells the propagator depends on
+      RtCtl
+      -- ^ The action to fire, the action
+      -- the first input will the cell
+      -- to inform with the value constructed
+      -- with the rest of the inputs
   | -- | Inform cell using given value
     RtInformCell
       RtCtl
       -- ^ Cell to inform
       RtCtl
       -- ^ Value
+  | -- | Add a propagator as a dependent of the cell
+    RtAddCellDep
+      RtCtl
+      -- ^ Cell
+      RtCtl
+      -- ^ Propagator
   | -- | Allocate a new closure
     RtAllocThunk RtCtl (Vector RtCtl)
   | -- | Allocate a new product
@@ -56,7 +78,18 @@ data RtCtl
   deriving (Show)
 
 data RtClo r
-  = -- | An unevaluated thunk, result of application
+  = -- | A propagator
+    RtProp
+      (r (RtClo r))
+      -- ^ Target Cell
+      (r Natural)
+      -- ^ The index into the sources, to the right
+      -- of which all cells are known to have info
+      (Vector (r (RtClo r)))
+      -- ^ The cells this propagator depends on
+      RtCtl
+      -- ^ The action fired when all cells have info
+  | -- | An unevaluated thunk, result of application
     RtCell
       (r (RtClo r))
       -- ^ The cell, holding the data
@@ -98,7 +131,10 @@ class Monad m => Log m where
   log :: String -> m ()
 
 instance Log IO where
-  log = putStrLn
+  log _ = pure ()
+
+modifyRef :: Ref m r => r a -> (a -> a) -> m ()
+modifyRef r f = writeRef r =<< f <$> readRef r
 
 rtMatch :: RtVal r -> Match -> Bool
 rtMatch _ MAny = True
@@ -117,6 +153,22 @@ rtEval ref frame = do
       resultRef <- go (RtEnv frame frees) x
       writeRef ref =<< readRef resultRef
       pure resultRef
+    (RtProp target refN srcs action) -> do
+      readRef refN >>= \case
+        0 -> do
+          -- Unwrap all the cells so the
+          -- action can work with the values
+          -- directly
+          propFrame <- for srcs $ \s -> do
+            readRef s >>= \case
+              RtWhnf (RtCon 1 r) -> pure r
+              RtWhnf (RtCon 2 r) -> pure r
+              _ -> pure s
+          go (RtEnv (Vec.cons target propFrame) mempty) action
+        n -> do
+          readRef (srcs Vec.! fromIntegral n) >>= \case
+            RtWhnf (RtCon 0 _) -> pure ref
+            RtWhnf (RtCon 1 _) -> modifyRef refN (\m -> m - 1) *> pure ref
     val -> pure ref
   where
     go :: (Log m, Ref m r) => RtEnv r -> RtCtl -> m (r (RtClo r))
@@ -128,6 +180,11 @@ rtEval ref frame = do
     go env (RtAllocCell merge) = do
       cellRef <- go env rtInfoEmpty
       newRef $ RtCell cellRef merge mempty
+    go env (RtAllocProp target n srcs action) = do
+      target' <- go env target
+      srcs' <- traverse (go env) srcs
+      refN <- newRef n
+      newRef $ RtProp target' refN srcs' action
     -- Variable Access
     go env (RtFreeVar i) = pure $ rtFrees env Vec.! fromIntegral i
     go env (RtStackVar i) = do
@@ -148,6 +205,7 @@ rtEval ref frame = do
       -- Evaluate new stack frame
       frame <- traverse (go env) args
       let env' = env {rtStackFrame = frame}
+      log $ concat ["Applying ", show f, " to ", show args]
       log =<< rtDisplayEnv env'
       -- Construct thunk for function
       -- with current environment
@@ -157,6 +215,7 @@ rtEval ref frame = do
       rtEval ref frame
     -- Sequential Evaluation
     go env (RtEval x next) = do
+      log $ "Evaling " <> show x
       ref <- go env x
       _ <- rtEval ref (rtStackFrame env)
       go env next
@@ -168,10 +227,23 @@ rtEval ref frame = do
           let pick = check x' $ Vec.toList alts
           log $ "Picked branch: " <> rtDisplayCtl pick
           go env pick
+    go env (RtAddCellDep cell prop) = do
+      log $ "Adding cell dep"
+      cellRef <- go env cell
+      readRef cellRef >>= \case
+        RtCell valRef merge deps -> do
+          propRef <- go env prop
+          readRef propRef >>= \case
+            RtProp _ _ _ _ -> pure ()
+            _ -> error "Adding non-prop as dependent of cell!"
+          writeRef cellRef . RtCell valRef merge $ Vec.cons propRef deps
+        _ -> error "Adding prop dependent to a non-cell!"
+      pure cellRef
     go env (RtInformCell cell newValue) = do
+      log $ "Informing cell"
       c <- go env cell
       readRef c >>= \case
-        RtCell cellRef merge targets -> do
+        RtCell cellRef merge dependants -> do
           newValueRef <- go env newValue
           merged <- go (env {rtStackFrame = Vec.fromList [cellRef, newValueRef]}) merge
           -- eval to whnf so tag can be inspected
@@ -185,7 +257,10 @@ rtEval ref frame = do
           -- update cell
           writeRef cellRef result
 
-          -- TODO: trigger target propagators
+          -- trigger propagators that rely on
+          -- this cell
+          sequence_ $ flip rtEval mempty <$> dependants
+
           -- The only thing that makes sense to return here
           -- is the reference to the cell itself
           -- The informs will be part of a sequence
@@ -212,6 +287,8 @@ rtDisplay :: RtClo r -> String
 rtDisplay (RtWhnf (RtPrim (RtInt i))) = show i
 rtDisplay (RtWhnf (RtCon tag _)) = "Con " <> show tag <> " _"
 rtDisplay (RtThunk _ _) = "Thunk"
+rtDisplay (RtCell _ _ _) = "Cell"
+rtDisplay (RtProp _ _ _ _) = "Prop"
 
 rtDisplay' :: (Log m, Ref m r) => r (RtClo r) -> m String
 rtDisplay' x = cata go <$> normalize x
@@ -229,6 +306,10 @@ rtDisplayEnv env = do
 
 parens :: String -> String
 parens x = "(" <> x <> ")"
+
+rtSeq :: [RtCtl] -> RtCtl
+rtSeq [] = error "rtSeq applied to empty list"
+rtSeq ps = foldr1 RtEval ps
 
 rtCase :: Natural -> [(Match, RtCtl)] -> RtCtl
 rtCase x = RtEval (RtStackVar x) . RtBranch (RtStackVar x) . Vec.fromList
@@ -250,6 +331,21 @@ rtApp x = RtApp x . Vec.fromList
 
 rtThunk :: [RtCtl] -> RtCtl -> RtCtl
 rtThunk xs x = RtAllocThunk x $ Vec.fromList xs
+
+rtProp ::
+  -- | The target cell
+  RtCtl ->
+  -- | Sources
+  [RtCtl] ->
+  -- | First stack var will be the target cell
+  -- the rest will be the sources
+  RtCtl ->
+  RtCtl
+rtProp target srcs = RtAllocProp target (fromIntegral $ length srcs - 1) (Vec.fromList srcs)
+
+rtCellDeps :: [RtCtl] -> RtCtl -> RtCtl
+rtCellDeps [] cell = cell
+rtCellDeps ps cell = foldr1 RtEval $ RtAddCellDep cell <$> ps
 
 rtCell :: RtCtl -> RtCtl
 rtCell = RtAllocCell
@@ -278,8 +374,8 @@ rtVar = RtStackVar
 rtFree :: Natural -> RtCtl
 rtFree = RtFreeVar
 
-firstTopMerge :: RtCtl
-firstTopMerge =
+identityLat :: RtCtl
+identityLat =
   rtCase
     0 -- Match on the existing cell info
     [ -- If it's empty, fill with the
@@ -290,6 +386,10 @@ firstTopMerge =
       -- conflict
       (MAny, rtInfoConflict)
     ]
+
+-- | Propagation that simply passes the value to the cell
+idProp :: RtCtl
+idProp = rtInformCell (rtVar 0) (rtVar 1)
 
 unit :: RtCtl
 unit = RtAllocProd $ Vec.fromList []
@@ -384,3 +484,21 @@ test8 = do
   -- code = func 2 const 1
   code <- newRef $ RtThunk (rtFree 0 `rtApp` [rtInt 2, rtFree 1, rtInt 1]) (Vec.fromList [func, const])
   putStrLn =<< rtDisplay' =<< rtEval @IO @IORef code Vec.empty
+
+newEmptyCell c = join $ rtEval @IO @IORef <$> newRef (rtBox c) <*> pure mempty
+
+test :: IO ()
+test = do
+  -- Setup the cell
+  let xCell = rtCell identityLat
+  let yCell = rtCell identityLat
+  x <- newEmptyCell xCell
+  y <- newEmptyCell yCell
+  -- Inform the cell
+  code <-
+    newRef . rtBox $
+      rtSeq
+        [ RtAddCellDep (rtVar 0) $ rtProp (rtVar 0) [rtVar 0] idProp,
+          rtInformCell (rtVar 0) (rtInt 5)
+        ]
+  void $ rtEval @IO @IORef code (Vec.fromList [x, y])
