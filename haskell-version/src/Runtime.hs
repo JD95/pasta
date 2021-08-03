@@ -70,6 +70,7 @@ rtEval ref frame = do
       target' <- go env target
       srcs' <- traverse (go env) srcs
       refN <- newRef n
+      -- Schedule propagator
       newRef $ RtProp target' refN srcs' action
     -- Variable Access
     go env (RtFreeVar i) = pure $ rtFrees env Vec.! fromIntegral i
