@@ -1,4 +1,4 @@
-module Lib (module Runtime) where
+module Lib (module Runtime, module Lexer) where
 
 import AST.LocTree
 import Lexer

@@ -110,3 +110,11 @@ testTriggerProp = testCase "can add propagator as dependent of cell" $ do
         RtWhnf (RtCon 2 _) -> pure ()
         _ -> error "Cell y was not filled!"
     _ -> error "Expecting Cell"
+
+testLexer :: IO ()
+testLexer = do
+  let fileName = "examples/Example1.jy"
+  txt <- Text.readFile fileName
+  case lexer fileName txt of
+    Right tokens -> putStrLn $ concat $ displayToken <$> tokens
+    Left e -> putStrLn $ show e
