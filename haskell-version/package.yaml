@@ -26,6 +26,8 @@ dependencies:
 - megaparsec
 - text
 - mtl
+- Earley
+- unordered-containers
 
 library:
   source-dirs: src

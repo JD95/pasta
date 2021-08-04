@@ -1,2 +1,1 @@
-foo : (a : T) -> a -> a
-foo = \a -> \x -> x
+let id = \x -> x in id y

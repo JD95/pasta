@@ -4,7 +4,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Lexer where
+module Lexer (Pair (..), RowCol (..), Token (..), Lexeme (..), lexer) where
 
 import Control.Applicative (Alternative, (<|>))
 import Control.Monad (MonadPlus, void)
@@ -46,7 +46,7 @@ data Lexeme
   deriving (Show, Eq)
 
 data RowCol = RowCol {row :: Pos, col :: Pos}
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 data Token = Token {lexeme :: Lexeme, pos :: RowCol}
   deriving (Show, Eq)
