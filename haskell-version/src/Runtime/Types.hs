@@ -1,9 +1,14 @@
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Runtime.Types where
 
 import Control.Monad
-import Data.Functor.Foldable (Fix (..), cata)
+import Data.Functor.Foldable (cata)
+import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List
 import Data.Traversable
@@ -18,6 +23,17 @@ data Match
   | MCon Natural
   | MAny
   deriving (Show)
+
+data PrimVal
+  = RtInt Int
+  deriving (Show, Eq)
+
+data RtVal
+  = RtPrim PrimVal
+  | RtProd (Vector RtVal)
+  | RtCon Natural RtVal
+
+makeBaseFunctor ''RtVal
 
 data RtCtl
   = -- | Check for path, branch
@@ -99,16 +115,6 @@ data RtClo r
       (Vector (r (RtClo r)))
       -- ^ Captured Free Variables
   | -- | An evaluated thunk
-    RtWhnf (RtVal (r (RtClo r)))
-
-data PrimVal
-  = RtInt Int
-  deriving (Show, Eq)
-
-data RtVal a
-  = RtPrim PrimVal
-  | RtProd (Vector a)
-  | RtCon Natural a
-  deriving (Functor)
+    RtWhnf (RtValF (r (RtClo r)))
 
 data RtEnv r = RtEnv {rtStackFrame :: Vector (r (RtClo r)), rtFrees :: Vector (r (RtClo r))}

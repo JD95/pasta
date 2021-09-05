@@ -1,1 +1,1 @@
-let id = \x -> x in id y
+let id = \x -> (\y -> x) in (id y : t)

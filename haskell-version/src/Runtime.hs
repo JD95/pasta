@@ -8,7 +8,7 @@
 module Runtime where
 
 import Control.Monad
-import Data.Functor.Foldable (Fix (..), cata)
+import Data.Functor.Foldable (cata)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List
 import Data.Traversable
@@ -22,12 +22,12 @@ import Runtime.Ref
 import Runtime.Types
 import Prelude hiding (const, id, log)
 
-rtMatch :: RtVal r -> Match -> Bool
+rtMatch :: RtValF r -> Match -> Bool
 rtMatch _ MAny = True
-rtMatch (RtPrim (RtInt i)) (MInt j) = i == j
-rtMatch (RtCon tag _) (MCon i) = tag == i
+rtMatch (RtPrimF (RtInt i)) (MInt j) = i == j
+rtMatch (RtConF tag _) (MCon i) = tag == i
 
-check :: RtVal r -> [(Match, RtCtl)] -> RtCtl
+check :: RtValF r -> [(Match, RtCtl)] -> RtCtl
 check switch xs = case filter (rtMatch switch . fst) xs of
   [] -> error "Non-exhaustive pattern match"
   ((_, p) : _) -> p
@@ -46,23 +46,27 @@ rtEval ref frame = do
           -- action can work with the values
           -- directly
           propFrame <- for srcs $ \s -> do
+            -- 0 = No Info
+            -- 1 = Partial Info
+            -- 2 = Top Covered (Any more info -> contradiction)
+            -- 3 = Contradiction
             readRef s >>= \case
-              RtWhnf (RtCon 1 r) -> pure r
-              RtWhnf (RtCon 2 r) -> pure r
+              RtWhnf (RtConF 1 r) -> pure r
+              RtWhnf (RtConF 2 r) -> pure r
               _ -> pure s
           go (RtEnv (Vec.cons target propFrame) mempty) action
         n -> do
           readRef (srcs Vec.! fromIntegral n) >>= \case
-            RtWhnf (RtCon 0 _) -> pure ref
-            RtWhnf (RtCon 1 _) -> modifyRef refN (\m -> m - 1) *> pure ref
+            RtWhnf (RtConF 0 _) -> pure ref
+            RtWhnf (RtConF 1 _) -> modifyRef refN (\m -> m - 1) *> pure ref
     val -> pure ref
   where
     go :: (Log m, Ref m r) => RtEnv r -> RtCtl -> m (r (RtClo r))
     -- Allocations
     go env (RtAllocThunk f frees) = newRef . RtThunk f =<< traverse (go env) frees
-    go env (RtAllocProd xs) = newRef . RtWhnf . RtProd =<< traverse (go env) xs
-    go env (RtAllocCon tag x) = newRef . RtWhnf . RtCon tag =<< go env x
-    go env (RtAllocPrim x) = newRef . RtWhnf . RtPrim $ x
+    go env (RtAllocProd xs) = newRef . RtWhnf . RtProdF =<< traverse (go env) xs
+    go env (RtAllocCon tag x) = newRef . RtWhnf . RtConF tag =<< go env x
+    go env (RtAllocPrim x) = newRef . RtWhnf . RtPrimF $ x
     go env (RtAllocCell merge) = do
       cellRef <- go env rtInfoEmpty
       newRef $ RtCell cellRef merge mempty
@@ -84,7 +88,7 @@ rtEval ref frame = do
     -- Indexing
     go env (RtIndex x i) = do
       go env x >>= readRef >>= \case
-        (RtWhnf (RtProd xs)) -> pure $ xs Vec.! fromIntegral i
+        (RtWhnf (RtProdF xs)) -> pure $ xs Vec.! fromIntegral i
         (RtWhnf _) -> error "Can only index a product!"
         (RtThunk _ _) -> error "Cannot index a thunk!"
     -- Control Flow
@@ -131,6 +135,8 @@ rtEval ref frame = do
       c <- go env cell
       readRef c >>= \case
         RtCell cellRef merge dependants -> do
+          -- Evaluate the given expression down to
+          -- a single value. Could be Logic
           newValueRef <- go env newValue
           merged <- go (env {rtStackFrame = Vec.fromList [cellRef, newValueRef]}) merge
           -- eval to whnf so tag can be inspected
@@ -138,7 +144,9 @@ rtEval ref frame = do
 
           -- check result for failure
           case result of
-            RtWhnf (RtCon 3 _) -> error "Merge failure! Backtracking unimplemented!"
+            RtWhnf (RtConF 3 _) -> error "Merge failure! Backtracking unimplemented!"
+            -- So long as there isn't a merge failure, the result can have any kind
+            -- of distance. Which means merge can return a Logic value
             _ -> pure ()
 
           -- update cell
@@ -153,12 +161,12 @@ rtEval ref frame = do
           -- The informs will be part of a sequence
           pure c
 
-normalize :: (Log m, Ref m r) => r (RtClo r) -> m (Fix RtVal)
+normalize :: (Log m, Ref m r) => r (RtClo r) -> m RtVal
 normalize ref =
   readRef ref >>= \case
-    (RtWhnf (RtPrim x)) -> pure . Fix $ RtPrim x
-    (RtWhnf (RtCon tag x)) -> Fix . RtCon tag <$> normalize x
-    (RtWhnf (RtProd xs)) -> Fix . RtProd <$> traverse normalize xs
+    (RtWhnf (RtPrimF x)) -> pure $ RtPrim x
+    (RtWhnf (RtConF tag x)) -> RtCon tag <$> normalize x
+    (RtWhnf (RtProdF xs)) -> RtProd <$> traverse normalize xs
     (RtThunk _ _) -> normalize =<< rtEval ref Vec.empty
 
 rtDisplayCtl :: RtCtl -> String
@@ -171,8 +179,8 @@ rtDisplayCtl x = go x
     go x = show x
 
 rtDisplay :: RtClo r -> String
-rtDisplay (RtWhnf (RtPrim (RtInt i))) = show i
-rtDisplay (RtWhnf (RtCon tag _)) = "Con " <> show tag <> " _"
+rtDisplay (RtWhnf (RtPrimF (RtInt i))) = show i
+rtDisplay (RtWhnf (RtConF tag _)) = "Con " <> show tag <> " _"
 rtDisplay (RtThunk _ _) = "Thunk"
 rtDisplay (RtCell _ _ _) = "Cell"
 rtDisplay (RtProp _ _ _ _) = "Prop"
@@ -180,9 +188,9 @@ rtDisplay (RtProp _ _ _ _) = "Prop"
 rtDisplay' :: (Log m, Ref m r) => r (RtClo r) -> m String
 rtDisplay' x = cata go <$> normalize x
   where
-    go (RtPrim (RtInt i)) = show i
-    go (RtCon tag x) = show "Con " <> show tag <> " " <> x
-    go (RtProd xs) = concat ["(", intercalate ", " (Vec.toList xs), ")"]
+    go (RtPrimF (RtInt i)) = show i
+    go (RtConF tag x) = show "Con " <> show tag <> " " <> x
+    go (RtProdF xs) = concat ["(", intercalate ", " (Vec.toList xs), ")"]
 
 rtDisplayEnv :: Ref m r => RtEnv r -> m String
 rtDisplayEnv env = do
