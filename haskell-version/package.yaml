@@ -28,6 +28,7 @@ dependencies:
 - mtl
 - Earley
 - unordered-containers
+- containers
 
 library:
   source-dirs: src

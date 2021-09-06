@@ -3,11 +3,16 @@
 
 import Control.Exception (SomeException (..), try)
 import Control.Monad
-import Data.Functor.Foldable (Fix (..), cata)
+import Data.Functor.Foldable (cata)
 import Data.IORef (IORef)
 import qualified Data.Vector as Vec
 import Lib
+import Runtime
+import Runtime.Dsl
+import Runtime.Ref
+import Runtime.Types
 import System.Environment
+import TablingTests (tablingTests)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.Ingredients.Basic
@@ -16,7 +21,7 @@ import Test.Tasty.Options
 main :: IO ()
 main = withArgs ["--hide-successes"] $ defaultMain $ tests
   where
-    tests = testGroup "Jelly" [runtime]
+    tests = testGroup "Jelly" [runtime, tablingTests]
 
     runtime = testGroup "runtime" [informTests, propagationTests]
 
@@ -47,9 +52,9 @@ testInformMergesValues = testCase "inform will merge values" $ do
   rtEval @IO @IORef code (Vec.fromList [x]) >>= readRef >>= \case
     RtCell cellRef _ _ -> do
       readRef cellRef >>= \case
-        RtWhnf (RtCon 2 topResult) -> do
+        RtWhnf (RtConF 2 topResult) -> do
           readRef topResult >>= \case
-            RtWhnf (RtPrim y) -> y @?= RtInt 5
+            RtWhnf (RtPrimF y) -> y @?= RtInt 5
             RtWhnf _ -> error "Some other whnf"
             RtCell _ _ _ -> error "Some cell"
             RtThunk _ _ -> error "Some thunk"
@@ -69,7 +74,7 @@ testInformFillsValue = testCase "inform fills value" $ do
   rtEval @IO @IORef x mempty >>= readRef >>= \case
     RtCell cellRef _ _ -> do
       readRef cellRef >>= \case
-        RtWhnf (RtCon 0 _) -> pure ()
+        RtWhnf (RtConF 0 _) -> pure ()
         _ -> error "Expecting Empty"
   -- Inform the cell
   code <- newRef . rtBox $ RtInformCell (rtVar 0) (rtInt 5)
@@ -78,7 +83,7 @@ testInformFillsValue = testCase "inform fills value" $ do
   readRef x >>= \case
     RtCell cellRef _ _ -> do
       normalize cellRef >>= \case
-        Fix (RtCon 2 _) -> pure ()
+        RtCon 2 _ -> pure ()
         _ -> error $ "Expecting Top"
 
 testAddingCellDep =
@@ -107,10 +112,11 @@ testTriggerProp = testCase "can add propagator as dependent of cell" $ do
   readRef y >>= \case
     RtCell cellRef _ _ -> do
       readRef cellRef >>= \case
-        RtWhnf (RtCon 2 _) -> pure ()
+        RtWhnf (RtConF 2 _) -> pure ()
         _ -> error "Cell y was not filled!"
     _ -> error "Expecting Cell"
 
+{-
 testLexer :: IO ()
 testLexer = do
   let fileName = "examples/Example1.jy"
@@ -118,3 +124,4 @@ testLexer = do
   case lexer fileName txt of
     Right tokens -> putStrLn $ concat $ displayToken <$> tokens
     Left e -> putStrLn $ show e
+-}

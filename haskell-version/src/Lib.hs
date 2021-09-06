@@ -1,8 +1,14 @@
-module Lib (module Runtime, module Lexer, module Parser) where
+module Lib
+  ( module X,
+  )
+where
 
-import AST.LocTree
-import Dtsa
-import Lexer
-import Parser
-import Runtime
-import Tabling
+import qualified AST.LocTree as X
+import qualified Dtsa as X
+import qualified Lexer as X
+import qualified Parser as X
+import qualified Runtime as X
+import qualified Runtime.Dsl as X
+import qualified Runtime.Ref as X
+import qualified Runtime.Types as X
+import qualified Tabling as X
