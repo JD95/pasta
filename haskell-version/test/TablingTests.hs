@@ -1,11 +1,10 @@
 module TablingTests where
 
 import qualified Data.List as List
-import Dtsa
-import Tabling
 import Test.Tasty
 import Test.Tasty.HUnit
 
+{-
 newtype HoleChar = HoleChar Char
   deriving (Eq, Ord)
 
@@ -47,3 +46,4 @@ handlesQueriesWithHoles = testCase "handles queries with holes" $ do
         [ build (q "aaa") 0,
           build (q "abc") 1
         ]
+-}
