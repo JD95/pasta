@@ -4,9 +4,9 @@ module Lib
 where
 
 import qualified AST.LocTree as X
-import qualified Dtsa as X
 import qualified Lexer as X
 import qualified Parser as X
+import qualified Query as X
 import qualified Runtime as X
 import qualified Runtime.Dsl as X
 import qualified Runtime.Ref as X

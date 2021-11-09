@@ -30,66 +30,53 @@ data QueryResult m
 query :: (Ord k, Ref m r) => [k] -> r (Predicate m r k) -> m (QueryResult m)
 query ks predRef = do
   pred <- readRef predRef
-  let thisFrame = lookupSubgoal ks <$> readRef (subgoals pred)
-  thisFrame >>= \case
-    Right frame -> case answers frame of
-      Generator _ ->
-        -- It's not clear exactly what this means
-        --
-        -- if a generator ends up calling itself
-        -- that would mean no more answers could be
-        -- achieved, because it would go through the
-        -- same resolution with the same variables
-        --
-        -- For now the above assumption is taken
-        pure QueryComplete
-      Consumer _ -> consumeFrom thisFrame
-      Loader _ -> loadFrom thisFrame
+  lookupSubgoal ks <$> readRef (subgoals pred) >>= \case
+    Right frame ->
+      answers <$> readRef frame >>= \case
+        -- Another generator is already doing
+        -- the work, so just consume it's answers
+        Generator _ -> consumeFrom frame
+        -- This sub-goal has been subsumed so
+        -- start consuming answers from the
+        -- subsumptive goal
+        Consumer gen -> consumeFrom gen
     Left Trie.KeyMismatch -> do
       -- Allocate a new Generator
-      modifyRef (subgoals pred)
-        . addSubgoal ks
-        $ SubgoalFrame (TimeStamp 0) [] [] (Generator (answerTrie pred))
+      frame <- newRef $ SubgoalFrame (TimeStamp 0) [] [] (Generator (answerTrie pred))
+      modifyRef (subgoals pred) . addSubgoal ks $ frame
       -- Run clause resolution, may involve recursive calls to same predicate
       let (x :| rest) = clauses pred
-      let xs = foldr (generateFrom thisFrame) (pure QueryComplete) rest
+      let xs = foldr (generateFrom frame) (pure QueryComplete) rest
       pure $ QuerySuccess x xs
     Left _ -> pure QueryError
 
--- | Runs clause resolution to get answers, until it either completes
+-- | Corresponds a "Generator Node"
+-- Runs clause resolution to get answers, until it either completes
 -- or is converted into a consumer
 generateFrom ::
   Ref m r =>
-  m (Either Trie.LookupError (SubgoalFrame r k)) ->
+  r (SubgoalFrame r k) ->
   m () ->
   m (QueryResult m) ->
   m (QueryResult m)
-generateFrom lookupFrame current next = do
+generateFrom frame current next = do
   answer <- current
   -- Check if frame has turned from generator to consumer/loader
-  lookupFrame >>= \case
-    Right frame -> case answers frame of
-      Generator tstRef -> do
-        -- insert answer into tst
-        -- gather pending-answers if necessary
-        next
-      Consumer _ -> consumeFrom lookupFrame
-      Loader _ -> loadFrom lookupFrame
+  answers <$> readRef frame >>= \case
+    Generator tstRef -> do
+      -- insert answer into tst
+      -- gather pending-answers if necessary
+      next
+    Consumer _ -> consumeFrom frame
 
--- | Does not run clause resolution, merely consumes answers from
+-- | Corresponds to "Consumer Nodes"
+-- Does not run clause resolution, merely consumes answers from
 -- some generator
 consumeFrom ::
   Ref m r =>
-  m (Either Trie.LookupError (SubgoalFrame r k)) ->
+  r (SubgoalFrame r k) ->
   m (QueryResult m)
 consumeFrom = undefined
-
--- | Like consuming, but will only ever complete. It never suspends
-loadFrom ::
-  Ref m r =>
-  m (Either Trie.LookupError (SubgoalFrame r k)) ->
-  m (QueryResult m)
-loadFrom = undefined
 
 data Predicate m r k = Predicate
   { subgoals :: r (SubgoalTrie r k),
@@ -123,12 +110,12 @@ data TimeStampTrie k = TimeStampTrie
   {rootTime :: TimeStamp, tst :: Trie (Stamped k) ()}
 
 newtype SubgoalTrie r k
-  = SubgoalTrie (Trie k (SubgoalFrame r k))
+  = SubgoalTrie (Trie k (r (SubgoalFrame r k)))
 
-lookupSubgoal :: (Ord k) => [k] -> SubgoalTrie r k -> Either Trie.LookupError (SubgoalFrame r k)
+lookupSubgoal :: (Ord k) => [k] -> SubgoalTrie r k -> Either Trie.LookupError (r (SubgoalFrame r k))
 lookupSubgoal ks (SubgoalTrie sgt) = Trie.lookup ks sgt
 
-addSubgoal :: Ord k => [k] -> SubgoalFrame r k -> SubgoalTrie r k -> SubgoalTrie r k
+addSubgoal :: Ord k => [k] -> r (SubgoalFrame r k) -> SubgoalTrie r k -> SubgoalTrie r k
 addSubgoal ks sgf (SubgoalTrie sgt) = SubgoalTrie $ Trie.insert ks sgf sgt
 
 data SubgoalFrame r k = SubgoalFrame
@@ -141,7 +128,6 @@ data SubgoalFrame r k = SubgoalFrame
 data FrameType r k
   = Generator (r (TimeStampTrie k))
   | Consumer (r (SubgoalFrame r k))
-  | Loader (r (SubgoalFrame r k))
 
 checkCompleted :: Ref m r => SubgoalFrame r k -> m Bool
 checkCompleted = undefined
