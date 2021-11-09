@@ -2,6 +2,7 @@
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module TimeStampTrie where
 
@@ -21,21 +22,13 @@ import Runtime.Ref
 import Trie (Trie)
 import qualified Trie as Trie
 
-newtype TimeStamp = TimeStamp {unTimeStamp :: Natural}
-  deriving stock (Show, Eq, Ord)
-  deriving newtype (Num)
-
-data BackRef r a = BackRef {prev :: Maybe (r (BackRef r a)), value :: a}
-
-instance Eq a => Eq (BackRef r a) where
-  x == y = value x == value y
-
-instance Ord a => Ord (BackRef r a) where
-  x <= y = value x <= value y
-
 data TimeStampTrie r k = TimeStampTrie
   { rootTime :: TimeStamp,
-    keyIndex :: Trie (BackRef r k) (BackRef r k, TimeStamp),
+    -- | Stores the keys of the trie with parent references
+    -- which are used when looking up times via `timeIndex`.
+    keyIndex :: Trie (BackRef r k) (TimeStamp),
+    -- | Maps a time to the end of a string of keys, from
+    -- which the rest of the string can be collected.
     timeIndex :: IntMap (BackRef r k)
   }
 
@@ -43,15 +36,11 @@ insert :: (Ord k, Ref m r) => NonEmpty k -> TimeStampTrie r k -> m (TimeStampTri
 insert ks ts = do
   linked <- linkKeys ks Nothing []
   let newTime = rootTime ts + 1
-  let end = NE.last linked
-  let front = case NE.init linked of
-        [] -> end :| []
-        (x : xs) -> x :| xs
   pure $
     ts
       { rootTime = newTime,
-        keyIndex = Trie.insert front (end, newTime) (keyIndex ts),
-        timeIndex = IntMap.insert (fromIntegral $ unTimeStamp newTime) end $ timeIndex ts
+        keyIndex = Trie.insert linked newTime (keyIndex ts),
+        timeIndex = IntMap.insert (fromIntegral $ unTimeStamp newTime) (NE.last linked) $ timeIndex ts
       }
   where
     linkKeys :: Ref m r => NonEmpty k -> Maybe (r (BackRef r k)) -> [BackRef r k] -> m (NonEmpty (BackRef r k))
@@ -77,14 +66,27 @@ lookupTime (TimeStamp t) tst = do
 empty :: TimeStampTrie r k
 empty = TimeStampTrie 0 Trie.empty IntMap.empty
 
+newtype TimeStamp = TimeStamp {unTimeStamp :: Natural}
+  deriving stock (Show, Eq, Ord)
+  deriving newtype (Num)
+
+data BackRef r a = BackRef {prev :: Maybe (r (BackRef r a)), value :: a}
+
+instance Eq a => Eq (BackRef r a) where
+  x == y = value x == value y
+
+instance Ord a => Ord (BackRef r a) where
+  x <= y = value x <= value y
+
+instance Show a => Show (BackRef r a) where
+  show (BackRef _ a) = show a
+
 test :: IO ()
 test = do
   let drawStamped x = show (value x)
-  tst :: TimeStampTrie IORef Char <-
-    ( insert ('b' :| "ae")
-        <=< insert ('b' :| "oo")
-        <=< insert ('b' :| "ee")
+  tst <-
+    ( insert ('b' :| "ee")
+        <=< insert ('b' :| "ed")
       )
-      =<< pure empty
-  putStrLn $ Trie.draw "root" (show . value) (\(b, TimeStamp t) -> show (value b) <> ":" <> show t) (keyIndex tst)
-  print =<< lookupTime (TimeStamp 2) tst
+      =<< pure (empty @IORef)
+  putStrLn $ Trie.draw "root" (show . value) (show . unTimeStamp) (keyIndex tst)

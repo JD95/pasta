@@ -14,6 +14,7 @@ import Prelude hiding (lookup)
 data Trie k a
   = Branch (Map k (Trie k a))
   | Leaf a
+  deriving (Show)
 
 data LookupError
   = TooFewKeys
@@ -31,12 +32,14 @@ lookup (k :| ks) (Branch b) =
     Nothing -> Left KeyMismatch
 
 insert :: Ord k => NonEmpty k -> a -> Trie k a -> Trie k a
-insert (k :| []) x (Branch b) = Branch $ Map.insert k (Leaf x) b
 insert (k :| (next : more)) x (Branch b) =
-  let inner = case Map.lookup k b of
-        Just child -> child
-        Nothing -> Branch Map.empty
-   in Branch $ Map.insert k (insert (next :| more) x $ inner) b
+  Branch $ Map.alter go k b
+  where
+    insertInto = Just . insert (next :| more) x
+    go Nothing = insertInto $ Branch Map.empty
+    go (Just child) = insertInto child
+insert (k :| []) x (Branch b) = Branch $ Map.insert k (Leaf x) b
+insert _ _ (Leaf _) = error "Insert into Trie with too many keys"
 
 empty :: Trie k a
 empty = Branch Map.empty
