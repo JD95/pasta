@@ -1,11 +1,13 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Query () where
 
 import Control.Monad
 import Control.Monad.State
+import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import Data.Map (Map)
@@ -14,6 +16,7 @@ import Data.Maybe
 import Data.Traversable
 import Numeric.Natural
 import Runtime.Ref
+import TimeStampTrie
 import Trie (Trie)
 import qualified Trie as Trie
 
@@ -27,7 +30,7 @@ data QueryResult m
   | -- | Bad Query
     QueryError
 
-query :: (Ord k, Ref m r) => [k] -> r (Predicate m r k) -> m (QueryResult m)
+query :: (Ord k, Ref m r) => NonEmpty k -> r (Predicate m r k) -> m (QueryResult m)
 query ks predRef = do
   pred <- readRef predRef
   lookupSubgoal ks <$> readRef (subgoals pred) >>= \case
@@ -80,42 +83,18 @@ consumeFrom = undefined
 
 data Predicate m r k = Predicate
   { subgoals :: r (SubgoalTrie r k),
-    answerTrie :: r (TimeStampTrie k),
+    answerTrie :: r (TimeStampTrie r k),
     -- | The various ways to generate new answers
     clauses :: NonEmpty (m ())
   }
 
-newtype TimeStamp = TimeStamp {unTimeStamp :: Natural}
-  deriving stock (Show, Eq, Ord)
-  deriving newtype (Num)
-
-data Stamped a = Stamped {time :: TimeStamp, value :: a}
-  deriving (Show)
-
-instance Eq a => Eq (Stamped a) where
-  x == y = value x == value y
-
-instance Ord a => Ord (Stamped a) where
-  x <= y = value x <= value y
-
--- TODO: This isn't quite right for the TST
--- need capability to quickly lookup based on
--- both key and timestamp independently
---
--- Also, need to update the time stamps
--- on the path down, currently only the
--- unique tail will have the correct
--- timestamp
-data TimeStampTrie k = TimeStampTrie
-  {rootTime :: TimeStamp, tst :: Trie (Stamped k) ()}
-
 newtype SubgoalTrie r k
   = SubgoalTrie (Trie k (r (SubgoalFrame r k)))
 
-lookupSubgoal :: (Ord k) => [k] -> SubgoalTrie r k -> Either Trie.LookupError (r (SubgoalFrame r k))
+lookupSubgoal :: (Ord k) => NonEmpty k -> SubgoalTrie r k -> Either Trie.LookupError (r (SubgoalFrame r k))
 lookupSubgoal ks (SubgoalTrie sgt) = Trie.lookup ks sgt
 
-addSubgoal :: Ord k => [k] -> r (SubgoalFrame r k) -> SubgoalTrie r k -> SubgoalTrie r k
+addSubgoal :: Ord k => NonEmpty k -> r (SubgoalFrame r k) -> SubgoalTrie r k -> SubgoalTrie r k
 addSubgoal ks sgf (SubgoalTrie sgt) = SubgoalTrie $ Trie.insert ks sgf sgt
 
 data SubgoalFrame r k = SubgoalFrame
@@ -126,7 +105,7 @@ data SubgoalFrame r k = SubgoalFrame
   }
 
 data FrameType r k
-  = Generator (r (TimeStampTrie k))
+  = Generator (r (TimeStampTrie r k))
   | Consumer (r (SubgoalFrame r k))
 
 checkCompleted :: Ref m r => SubgoalFrame r k -> m Bool
@@ -135,13 +114,3 @@ checkCompleted = undefined
 -- Convert consumer frame into loader
 complete :: Ref m r => r (SubgoalFrame r k) -> m ()
 complete = undefined
-
-test :: IO ()
-test = do
-  let drawStamped x = show (value x) <> ":" <> show (unTimeStamp $ time x)
-  let trie =
-        Trie.insert (Stamped 1 <$> "bed") ()
-          . Trie.insert (Stamped 2 <$> "bad") ()
-          . Trie.insert (Stamped 3 <$> "bee") ()
-          $ Trie.empty
-  putStrLn $ Trie.draw "root" drawStamped show trie

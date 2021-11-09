@@ -1,6 +1,8 @@
 module Trie (Trie, LookupError (..), lookup, insert, draw, empty) where
 
 import Control.Monad
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -18,22 +20,23 @@ data LookupError
   | TooManyKeys
   | KeyMismatch
 
-lookup :: Ord k => [k] -> Trie k a -> Either LookupError a
-lookup [] (Branch _) = Left TooFewKeys
-lookup (_ : _ : _) (Leaf _) = Left TooManyKeys
-lookup [] (Leaf x) = Right x
-lookup (k : ks) (Branch b) =
-  case Map.lookup k b of
-    Just child -> lookup ks child
+lookup :: Ord k => NonEmpty k -> Trie k a -> Either LookupError a
+lookup (_ :| _) (Leaf _) = Left TooManyKeys
+lookup (k :| ks) (Branch b) =
+  case (,) ks <$> Map.lookup k b of
+    Just ([], Branch _) -> Left TooFewKeys
+    Just (next : more, Branch child) -> lookup (next :| more) (Branch child)
+    Just ([], Leaf x) -> Right x
+    Just (_ : _, Leaf x) -> Left TooManyKeys
     Nothing -> Left KeyMismatch
 
-insert :: Ord k => [k] -> a -> Trie k a -> Trie k a
-insert (k : []) x (Branch b) = Branch $ Map.insert k (Leaf x) b
-insert (k : ks) x (Branch b) =
+insert :: Ord k => NonEmpty k -> a -> Trie k a -> Trie k a
+insert (k :| []) x (Branch b) = Branch $ Map.insert k (Leaf x) b
+insert (k :| (next : more)) x (Branch b) =
   let inner = case Map.lookup k b of
         Just child -> child
         Nothing -> Branch Map.empty
-   in Branch $ Map.insert k (insert ks x $ inner) b
+   in Branch $ Map.insert k (insert (next :| more) x $ inner) b
 
 empty :: Trie k a
 empty = Branch Map.empty
