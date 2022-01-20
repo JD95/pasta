@@ -64,3 +64,11 @@ extractTy tree = do
         Just (RtProdF xs) -> Prod . Vec.toList <$> traverse go xs
         Just _ -> undefined
         Nothing -> undefined
+
+extractValue :: LocTree RowCol TyExpr -> IO RtVal
+extractValue tree = do
+  evalStateT (runTyCheckM (go . expr $ locContent tree)) ()
+  where
+    go :: ExprF (LocTree RowCol TyExpr) -> TyCheckM RtVal
+    go (ProdF xs) = RtProd . Vec.fromList <$> traverse (go . expr . locContent) xs
+    go _ = undefined
