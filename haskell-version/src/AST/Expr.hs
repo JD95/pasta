@@ -2,22 +2,29 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module AST.Expr where
 
+import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Text
 
-data Expr a
-  = Lam a a
-  | Ann a a
-  | Let a a a
-  | App a [a]
+data Expr
+  = Lam Expr Expr
+  | Ann Expr Expr
+  | Let Expr Expr Expr
+  | App Expr [Expr]
   | Symbol Text
-  deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
+  | Prod [Expr]
+  deriving (Show, Eq)
 
-display :: Expr Text -> Text
-display (Lam input body) = "\\" <> input <> " -> " <> body
-display (Symbol x) = x
-display (Ann expr ty) = expr <> " : " <> ty
-display (Let x y z) = "let " <> x <> " = " <> y <> " in " <> z
-display (App f xs) = f <> " " <> intercalate " " xs
+makeBaseFunctor ''Expr
+
+display :: ExprF Text -> Text
+display (LamF input body) = "\\" <> input <> " -> " <> body
+display (SymbolF x) = x
+display (AnnF expr ty) = expr <> " : " <> ty
+display (LetF x y z) = "let " <> x <> " = " <> y <> " in " <> z
+display (AppF f xs) = f <> " " <> intercalate " " xs
+display (ProdF xs) = "(" <> intercalate ", " xs <> ")"

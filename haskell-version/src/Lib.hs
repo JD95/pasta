@@ -12,3 +12,4 @@ import qualified Runtime.Dsl as X
 import qualified Runtime.Ref as X
 import qualified Runtime.Types as X
 import qualified Tabling as X
+import qualified TypeCheck as X

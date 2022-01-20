@@ -1,6 +1,9 @@
 module AST.LocTree
   ( AST.LocTree.lookup,
     AST.LocTree.fold,
+    AST.LocTree.foldM,
+    AST.LocTree.transform,
+    AST.LocTree.spine,
     LocTree (locStart, locEnd, locContent),
     mkLocTree,
   )
@@ -8,6 +11,7 @@ where
 
 import Control.Monad (guard)
 import Data.Foldable (toList)
+import Data.Functor.Foldable
 
 -- | Annotates a recursive structure with the segment of the source text it occupies
 data LocTree l f = LocTree {locStart :: l, locEnd :: l, locContent :: f (LocTree l f)}
@@ -31,3 +35,15 @@ lookup l top@(LocTree x y inner) =
 -- | Fold with the range
 fold :: Functor f => (l -> l -> f a -> a) -> LocTree l f -> a
 fold f (LocTree x y inner) = f x y (AST.LocTree.fold f <$> inner)
+
+foldM :: (Traversable f, Applicative m) => (l -> l -> f (m a) -> m a) -> LocTree l f -> m a
+foldM f (LocTree x y inner) = f x y (foldM f <$> inner)
+
+transform :: (Traversable f, Monad m) => (l -> l -> f (LocTree l g) -> m (g (LocTree l g))) -> LocTree l f -> m (LocTree l g)
+transform f (LocTree x y inner) = do
+  below <- traverse (transform f) inner
+  this <- f x y below
+  pure $ LocTree x y this
+
+spine :: (Corecursive f) => LocTree l (Base f) -> f
+spine (LocTree _ _ inner) = embed $ spine <$> inner

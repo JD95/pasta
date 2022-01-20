@@ -3,7 +3,7 @@
 
 module Parser (AST, parse, displayReport) where
 
-import AST.Expr
+import AST.Expr (ExprF (..))
 import qualified AST.Expr as Expr
 import AST.LocTree
 import qualified AST.LocTree as Loc
@@ -22,7 +22,7 @@ import Text.Earley hiding (parser)
 import qualified Text.Earley as E
 import Text.Earley.Mixfix
 
-type AST = LocTree RowCol Expr
+type AST = LocTree RowCol ExprF
 
 parse :: [Token] -> ([AST], Report String [Token])
 parse = fullParses (E.parser grammar)
@@ -39,7 +39,7 @@ grammar :: Grammar r (Prod r String Token AST)
 grammar = mdo
   let_ <-
     rule $
-      triCon Let
+      triCon LetF
         <$> (symbol "let" *> some space *> someSymbol)
         <*> (spaced equals *> expr)
         <*> (spaced (symbol "in") *> expr)
@@ -50,29 +50,29 @@ grammar = mdo
         <*> some (some space *> expr)
   ann <-
     rule $
-      biCon Ann
+      biCon AnnF
         <$> expr
         <*> (spaced colon *> expr)
   lam <-
     rule $
-      biCon Lam
+      biCon LamF
         <$> (lambda *> many space *> expr)
         <*> (spaced arr *> expr)
   expr <-
     rule $
-      between Lex.Paren expr <|> lam <|> let_ <|> ann <|> app <|> someSymbol
+      unit <|> between Lex.Paren expr <|> lam <|> let_ <|> ann <|> app <|> someSymbol
   pure expr
 
 symbol :: Text -> Prod r String Token AST
 symbol t = terminal go <?> "symbol"
   where
-    go (Token (Lex.Symbol s) rc) = guard (t == s) *> (mkLocTree rc rc $ Symbol t)
+    go (Token (Lex.Symbol s) rc) = guard (t == s) *> (mkLocTree rc rc $ SymbolF t)
     go _ = Nothing
 
 someSymbol :: Prod r String Token AST
 someSymbol = terminal go <?> "symbol"
   where
-    go (Token (Lex.Symbol t) rc) = mkLocTree rc rc $ Symbol t
+    go (Token (Lex.Symbol t) rc) = mkLocTree rc rc $ SymbolF t
     go _ = Nothing
 
 arr :: Prod r String Token Token
@@ -108,6 +108,16 @@ equals = satisfy go <?> "="
     go (Token Lex.Equals _) = True
     go _ = False
 
+unit :: Prod r String Token AST
+unit =
+  (\l r -> fromJust $ mkLocTree (pos l) (pos r) (ProdF []))
+    <$> (go open <?> show open)
+    <*> (go close <?> show close)
+  where
+    open = Lex.Paren Open
+    close = Lex.Paren Close
+    go x = satisfy (\(Token y _) -> x == y)
+
 between :: (Pair -> Lexeme) -> Prod r String Token AST -> Prod r String Token AST
 between p e = (go open <?> show open) *> e <* (go close <?> show close)
   where
@@ -115,14 +125,14 @@ between p e = (go open <?> show open) *> e <* (go close <?> show close)
     close = p Close
     go x = satisfy (\(Token y _) -> x == y)
 
-biCon :: (AST -> AST -> Expr AST) -> AST -> AST -> AST
+biCon :: (AST -> AST -> ExprF AST) -> AST -> AST -> AST
 biCon f input body = fromJust $ mkLocTree (locStart input) (locEnd body) (f input body)
 
-triCon :: (AST -> AST -> AST -> Expr AST) -> AST -> AST -> AST -> AST
+triCon :: (AST -> AST -> AST -> ExprF AST) -> AST -> AST -> AST -> AST
 triCon f x y z = fromJust $ mkLocTree (locStart x) (locEnd z) (f x y z)
 
 mkApp :: AST -> [AST] -> AST
-mkApp f xs = fromJust $ mkLocTree (locStart f) (locEnd $ last xs) (App f xs)
+mkApp f xs = fromJust $ mkLocTree (locStart f) (locEnd $ last xs) (AppF f xs)
 
 testParser :: IO ()
 testParser = do

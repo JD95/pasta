@@ -1,127 +1,73 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
+import AST.Expr
+import AST.LocTree
 import Control.Exception (SomeException (..), try)
 import Control.Monad
 import Data.Functor.Foldable (cata)
 import Data.IORef (IORef)
+import Data.Maybe
 import qualified Data.Vector as Vec
+import Lexer
 import Lib
+import Parser
 import Runtime
 import Runtime.Dsl
 import Runtime.Ref
-import Runtime.Types
+import Runtime.Types (unit)
 import System.Environment
-import TablingTests (tablingTests)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.Ingredients.Basic
 import Test.Tasty.Options
+import TypeCheck
 
 main :: IO ()
 main = withArgs ["--hide-successes"] $ defaultMain $ tests
   where
-    tests = testGroup "Jelly" [runtime, tablingTests]
+    tests = testGroup "compiler" [parsing, runtime, typeChecking]
 
-    runtime = testGroup "runtime" [informTests, propagationTests]
-
-    informTests =
+    parsing =
       testGroup
-        "inform"
-        [ testInformMergesValues,
-          testInformFillsValue
-        ]
+        "parsing"
+        [unitParses, exampleParses]
 
-    propagationTests =
+    runtime =
       testGroup
-        "propagation"
-        [ testInformFillsValue,
-          testInformMergesValues,
-          testAddingCellDep,
-          testTriggerProp
-        ]
+        "runtime"
+        [unitEvalsToUnit]
 
-testInformMergesValues = testCase "inform will merge values" $ do
-  -- Setup the cell
-  let xCell = rtCell identityLat
-  x <- join $ rtEval @IO @IORef <$> newRef (rtBox xCell) <*> pure mempty
-  let yCell = rtCell identityLat
-  y <- join $ rtEval @IO @IORef <$> newRef (rtBox yCell) <*> pure mempty
-  -- Inform the cell
-  code <- newRef . rtBox $ RtInformCell (rtVar 0) (rtInt 5)
-  rtEval @IO @IORef code (Vec.fromList [x]) >>= readRef >>= \case
-    RtCell cellRef _ _ -> do
-      readRef cellRef >>= \case
-        RtWhnf (RtConF 2 topResult) -> do
-          readRef topResult >>= \case
-            RtWhnf (RtPrimF y) -> y @?= RtInt 5
-            RtWhnf _ -> error "Some other whnf"
-            RtCell _ _ _ -> error "Some cell"
-            RtThunk _ _ -> error "Some thunk"
-          -- _ -> error "Expecting Whnf"
-          pure ()
-        _ -> error "Expecting Top"
-  -- Inform it again, should cause a conflict
-  code' <- newRef . rtBox $ RtInformCell (rtVar 0) (rtInt 5)
-  try (rtEval @IO @IORef code' (Vec.fromList [x])) >>= \case
-    Left (SomeException _) -> pure ()
-    Right _ -> error "Repeated inform should have generated a conflict!"
+    typeChecking =
+      testGroup
+        "type checking"
+        [infersUnitTy]
 
-testInformFillsValue = testCase "inform fills value" $ do
-  -- Setup the cell
-  x <- newRef . rtBox $ rtCell identityLat
-  -- Ensure that the created cell is empty
-  rtEval @IO @IORef x mempty >>= readRef >>= \case
-    RtCell cellRef _ _ -> do
-      readRef cellRef >>= \case
-        RtWhnf (RtConF 0 _) -> pure ()
-        _ -> error "Expecting Empty"
-  -- Inform the cell
-  code <- newRef . rtBox $ RtInformCell (rtVar 0) (rtInt 5)
-  _ <- rtEval @IO @IORef code (Vec.fromList [x])
-  -- Ensure that the cell is now filled
-  readRef x >>= \case
-    RtCell cellRef _ _ -> do
-      normalize cellRef >>= \case
-        RtCon 2 _ -> pure ()
-        _ -> error $ "Expecting Top"
+exampleParses = testCase "example parses" $ do
+  void $ testParse "let id = \\x -> (\\y -> x) in (id y : t)"
 
-testAddingCellDep =
-  testCase "can add propagator as dependent of cell" $ do
-    -- Setup the cell
-    let xCell = rtCell identityLat
-    let yCell = rtCell identityLat
-    x <- newEmptyCell xCell
-    y <- newEmptyCell yCell
-    -- Inform the cell
-    code <- newRef . rtBox . RtAddCellDep (rtVar 0) $ rtProp (rtVar 1) [rtVar 0] idProp
-    void $ rtEval @IO @IORef code (Vec.fromList [x, y])
+unitParses = testCase "() parses" $ do
+  result <- testParse "()"
+  spine result @?= Prod []
 
-testTriggerProp = testCase "can add propagator as dependent of cell" $ do
-  -- Setup the cell
-  let xCell = rtCell identityLat
-  let yCell = rtCell identityLat
-  x <- newEmptyCell xCell
-  y <- newEmptyCell yCell
-  -- Inform the cell
-  code1 <- newRef . rtBox . RtAddCellDep (rtVar 0) $ rtProp (rtVar 1) [rtVar 0] idProp
-  void $ rtEval @IO @IORef code1 (Vec.fromList [x, y])
-  code2 <- newRef . rtBox $ RtInformCell (rtVar 0) (rtInt 5)
-  void $ rtEval @IO @IORef code2 (Vec.fromList [x])
-  -- Ensure y was filled from propagation
-  readRef y >>= \case
-    RtCell cellRef _ _ -> do
-      readRef cellRef >>= \case
-        RtWhnf (RtConF 2 _) -> pure ()
-        _ -> error "Cell y was not filled!"
-    _ -> error "Expecting Cell"
+unitEvalsToUnit = testCase "() evals to ()" $ do
+  eval unit @?= unit
 
-{-
-testLexer :: IO ()
-testLexer = do
-  let fileName = "examples/Example1.jy"
-  txt <- Text.readFile fileName
-  case lexer fileName txt of
-    Right tokens -> putStrLn $ concat $ displayToken <$> tokens
-    Left e -> putStrLn $ show e
--}
+infersUnitTy = testCase "inferred typed of () is ()" $ do
+  input <- testParse "()"
+  typeCheck input >>= \case
+    Left _ -> error "wrong"
+    Right tree -> do
+      result <- extractTy tree
+      result @?= (Prod [])
+
+testLex input =
+  case lexer "test" input of
+    Right tokens -> pure tokens
+    Left e -> assertFailure ("lex fail: " <> show e)
+
+testParse input = do
+  parse <$> (testLex input) >>= \case
+    ([], report) -> assertFailure ("parse fail: " <> show report)
+    (result : _, _) -> pure result

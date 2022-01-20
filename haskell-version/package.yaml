@@ -26,6 +26,7 @@ dependencies:
 - megaparsec
 - text
 - mtl
+- logict
 - Earley
 - unordered-containers
 - containers
