@@ -29,9 +29,25 @@ data TCheckEnv = TCheckEnv
 type TyTree = LocTree RowCol TyExpr
 
 data TyCheckSt = TyCheckSt
-  { bindings :: Map Text (TyExpr TyTree),
+  { bindings :: Map Text Binding,
     lambdaDepth :: Word32
   }
+
+data Binding
+  = LambdaBound
+      TyCell
+    -- | The depth of the lambda from the root
+    --
+    -- \x -> y -> z -> ...
+    --
+    -- The values inserted into the bindings map would be
+    -- respectively: 0, 1, 2
+    --
+    -- When the values are looked up, the difference is
+    -- taken between the current depth and the depth
+    -- of the lambda that bound the value
+      Word32
+  | Other (TyExpr TyTree)
 
 defaultTyCheckSt :: TyCheckSt
 defaultTyCheckSt =
@@ -63,7 +79,7 @@ data TyCell = TyCell {unTyCell :: Cell TyCheckM IORef (Maybe (RtValF TyCell))}
 
 data TyExpr a = TyExpr {ty :: TyCell, expr :: (RtValF a)}
 
-assuming :: Text -> TyExpr TyTree -> TyCheckM ()
+assuming :: Text -> Binding -> TyCheckM ()
 assuming name ty = modify $ \st -> st {bindings = Map.insert name ty (bindings st)}
 
 typeCheck :: LocTree RowCol ExprF -> TyCheckSt -> TyCheckM () -> IO (Either TCError TyTree)
@@ -94,7 +110,10 @@ lookupTyFor :: Text -> TyCheckM (TyExpr (LocTree RowCol TyExpr))
 lookupTyFor name = do
   table <- bindings <$> get
   case Map.lookup name table of
-    Just result -> pure result
+    Just (LambdaBound ty depth) -> do
+      thisDepth <- lambdaDepth <$> get
+      pure $ TyExpr ty $ RtVarF $ thisDepth - depth
+    Just (Other result) -> pure result
     Nothing -> error "No type for symbol"
 
 extractTy :: LocTree RowCol TyExpr -> IO RtVal

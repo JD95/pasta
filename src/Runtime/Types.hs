@@ -14,13 +14,13 @@ import Data.List
 import Data.Traversable
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
+import Data.Word
 import Debug.Trace
-import Numeric.Natural
 import Prelude hiding (const, id, log)
 
 data Match
   = MInt Int
-  | MCon Natural
+  | MCon Word32
   | MAny
   deriving (Show)
 
@@ -31,8 +31,8 @@ data PrimVal
 data RtVal
   = RtPrim PrimVal
   | RtProd (Vector RtVal)
-  | RtCon Natural RtVal
-  | RtVar Natural
+  | RtCon Word32 RtVal
+  | RtVar Word32
   | RtLam RtVal
   | RtApp RtVal RtVal
   deriving (Show, Eq)
