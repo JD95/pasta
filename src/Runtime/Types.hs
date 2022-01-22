@@ -34,6 +34,7 @@ data RtVal
   | RtCon Word32 RtVal
   | RtVar Word32
   | RtLam RtVal
+  | RtArr RtVal RtVal
   | RtApp RtVal RtVal
   deriving (Show, Eq)
 
@@ -41,3 +42,6 @@ makeBaseFunctor ''RtVal
 
 unit :: RtVal
 unit = RtProd Vec.empty
+
+unitF :: RtValF a
+unitF = RtProdF Vec.empty

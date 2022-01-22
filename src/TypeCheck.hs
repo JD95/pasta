@@ -77,10 +77,17 @@ instance Exception TCError where
 
 data TyCell = TyCell {unTyCell :: Cell TyCheckM IORef (Maybe (RtValF TyCell))}
 
+tyCell = fmap TyCell . cell
+
 data TyExpr a = TyExpr {ty :: TyCell, expr :: (RtValF a)}
 
-assuming :: Text -> Binding -> TyCheckM ()
-assuming name ty = modify $ \st -> st {bindings = Map.insert name ty (bindings st)}
+-- | Returns the bindings before the assumption so
+-- they can be restored afterward
+assuming :: Text -> Binding -> TyCheckM (Map Text Binding)
+assuming name ty = do
+  oldBindings <- bindings <$> get
+  modify $ \st -> st {bindings = Map.insert name ty (bindings st)}
+  pure oldBindings
 
 typeCheck :: LocTree RowCol ExprF -> TyCheckSt -> TyCheckM () -> IO (Either TCError TyTree)
 typeCheck tree initSt setup =
@@ -101,9 +108,15 @@ convertTree tree = AST.transform go tree
     go _ _ (ProdF checkElems) = do
       xs <- sequence checkElems
       let tys = ty . locContent <$> xs
-      thisCell <- cell . Just . RtProdF $ Vec.fromList tys
-      let thisTy = TyCell thisCell
+      thisTy <- tyCell . Just . RtProdF $ Vec.fromList tys
       pure $ TyExpr thisTy $ RtProdF $ Vec.fromList xs
+    go _ _ (LamF checkName checkBody) = do
+      depth <- lambdaDepth <$> get
+      inputTy <- tyCell Nothing
+      oldBindings <- assuming checkName $ LambdaBound inputTy depth
+      body <- checkBody
+      modify $ \st -> st { bindings = oldBindings }
+      pure $ TyExpr (ty $ locContent body) (RtLamF body)
     go _ _ (SymbolF name) = lookupTyFor name
 
 lookupTyFor :: Text -> TyCheckM (TyExpr (LocTree RowCol TyExpr))

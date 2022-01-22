@@ -64,18 +64,18 @@ infersUnitTy = testCase "inferred typed of () is ()" $ do
     Left _ -> error "wrong"
     Right tree -> do
       result <- extractTy tree
-      result @?= (RtProd [])
+      result @?= unit
 
 infersSymbolTy = testCase "inferred type of foo is the provided type" $ do
   input <- testParse "foo"
   let setup = do
-        tyCell <- TyCell <$> cell (Just $ RtProdF [])
-        assuming "foo" $ TyExpr tyCell $ RtProdF []
+        tyCell <- TyCell <$> cell (Just unitF)
+        void $ assuming "foo" $ Other $ TyExpr tyCell unitF
   typeCheck input defaultTyCheckSt setup >>= \case
     Left _ -> error "wrong"
     Right tree -> do
       result <- extractTy tree
-      result @?= (RtProd [])
+      result @?= unit
 
 testLex input =
   case lexer "test" input of

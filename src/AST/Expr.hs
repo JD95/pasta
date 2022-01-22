@@ -11,7 +11,7 @@ import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Text
 
 data Expr
-  = Lam Expr Expr
+  = Lam Text Expr
   | Ann Expr Expr
   | Let Expr Expr Expr
   | App Expr [Expr]

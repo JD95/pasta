@@ -53,15 +53,24 @@ grammar = mdo
       biCon AnnF
         <$> expr
         <*> (spaced colon *> expr)
-  lam <-
-    rule $
-      biCon LamF
-        <$> (lambda *> many space *> expr)
-        <*> (spaced arr *> expr)
+  lam <- rule (lambda expr)
   expr <-
     rule $
       unit <|> between Lex.Paren expr <|> lam <|> let_ <|> ann <|> app <|> someSymbol
   pure expr
+
+lambda :: Prod r String Token AST -> Prod r String Token AST
+lambda expr =
+  (\start inputName body -> fromJust $ mkLocTree start (locEnd body) $ LamF inputName body)
+    <$> (terminal lam <* many space)
+    <*> terminal name
+    <*> (spaced arr *> expr)
+  where
+    lam (Token Lex.Lambda rc) = Just rc
+    lam _ = Nothing
+
+    name (Token (Lex.Symbol s) rc) = pure s
+    name _ = Nothing
 
 symbol :: Text -> Prod r String Token AST
 symbol t = terminal go <?> "symbol"
@@ -89,12 +98,6 @@ space = satisfy go
 
 spaced :: Prod r String Token a -> Prod r String Token a
 spaced x = some space *> x <* some space
-
-lambda :: Prod r String Token Token
-lambda = satisfy go <?> "lambda"
-  where
-    go (Token Lex.Lambda _) = True
-    go _ = False
 
 colon :: Prod r String Token Token
 colon = satisfy go <?> "type annotation"
