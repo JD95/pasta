@@ -69,8 +69,8 @@ infersUnitTy = testCase "inferred typed of () is ()" $ do
 infersSymbolTy = testCase "inferred type of foo is the provided type" $ do
   input <- testParse "foo"
   let setup = do
-        tyCell <- TyCell <$> cell (Just unitF)
-        void $ assuming "foo" $ Other $ TyExpr tyCell unitF
+        t <- tyCell $ Filled unitF
+        void $ assuming "foo" $ Other $ TyExpr t unitF
   typeCheck input defaultTyCheckSt setup >>= \case
     Left _ -> error "wrong"
     Right tree -> do

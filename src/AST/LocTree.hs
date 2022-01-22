@@ -4,7 +4,7 @@ module AST.LocTree
     AST.LocTree.foldM,
     AST.LocTree.transform,
     AST.LocTree.spine,
-    LocTree (locStart, locEnd, locContent),
+    LocTree (..),
     mkLocTree,
   )
 where

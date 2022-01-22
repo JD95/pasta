@@ -1,8 +1,13 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 module TypeCheck where
 
@@ -15,6 +20,7 @@ import Control.Monad
 import Control.Monad.Logic
 import Control.Monad.State
 import Data.IORef
+import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Text
@@ -24,23 +30,24 @@ import Data.Word
 import Lexer (RowCol)
 import Runtime.Prop
 import Runtime.Ref
+import Runtime.Term
 import Runtime.Types
-
-data TCheckEnv = TCheckEnv
-
-type TyTree = LocTree RowCol TyExpr
 
 data TyCheckSt = TyCheckSt
   { bindings :: Map Text Binding,
-    lambdaDepth :: Word32
+    lambdaDepth :: Word32,
+    uidList :: [Word32]
   }
 
 data Binding
   = LambdaBound
       TyCell
-    -- | The depth of the lambda from the root
+    -- | The depth of the lambda from the root, used to
+    -- later calculate the De Bruijn indicies
     --
-    -- \x -> y -> z -> ...
+    -- @
+    -- \x -> \y -> \z -> ...
+    -- @
     --
     -- The values inserted into the bindings map would be
     -- respectively: 0, 1, 2
@@ -48,16 +55,19 @@ data Binding
     -- When the values are looked up, the difference is
     -- taken between the current depth and the depth
     -- of the lambda that bound the value
+    --
+    -- @
+    -- \x -> \f -> f x
+    -- @
+    --
+    -- becomes
+    --
+    -- @
+    -- RtLam (RtLam (RtApp (RtVar 0) (RtVar 1)))
+    -- @
+
       Word32
-  | Other (TyExpr TyTree)
-
-defaultTyCheckSt :: TyCheckSt
-defaultTyCheckSt =
-  TyCheckSt
-    { bindings = Map.empty,
-      lambdaDepth = 0
-    }
-
+  | Other TyExpr
 newtype TyCheckM a = TyCheckM {runTyCheckM :: StateT TyCheckSt (LogicT IO) a}
   deriving (Functor, Applicative, Monad, Alternative, MonadState TyCheckSt, MonadLogic, MonadIO)
 
@@ -66,23 +76,15 @@ instance Ref TyCheckM IORef where
   readRef = liftIO . readIORef
   writeRef r = liftIO . writeIORef r
 
-data TCError
-  = TypeMismatch
-  | AmbiguousTypes
-  deriving (Show)
-
-instance Exception TCError where
-  toException e = SomeException e
-  fromException (SomeException e) = cast e
-  displayException TypeMismatch = "Type Mistmatch!"
-  displayException AmbiguousTypes = "Ambiguous Types!"
-
 data Hole a
   = Filled a
   | Empty
   deriving (Eq)
 
-data TyCell = TyCell {unTyCell :: Cell TyCheckM IORef (Hole (RtValF TyCell))}
+-- |
+-- The Term layer allows for efficient unification
+-- The Cell layer gives us propagation and merging
+data TyCell = TyCell {unTyCell :: Term Word32 IORef (Cell TyCheckM IORef (Hole (RtValF TyCell)))}
   deriving (Eq)
 
 instance Lattice TyCheckM (Hole (RtValF TyCell)) where
@@ -94,9 +96,40 @@ instance Lattice TyCheckM (Hole (RtValF TyCell)) where
   merge (Old Empty) (New (Filled y)) = pure $ Gain (Filled y)
   merge _ (New Empty) =  pure None
 
-tyCell = fmap TyCell . cell
+unify x y = (unTyCell x) `is` (unTyCell y)
 
-data TyExpr a = TyExpr {ty :: TyCell, expr :: (RtValF a)}
+newUid = state $ \s -> (Prelude.head $ uidList s, s { uidList = Prelude.tail (uidList s) })
+
+tyCell value = do
+  uid <- newUid
+  TyCell <$> (newTerm uid =<< cell value)
+
+data TCheckEnv = TCheckEnv
+
+data TyExpr = TyExpr {ty :: TyCell, expr :: (RtValF TyExpr)}
+
+makeBaseFunctor ''TyExpr
+
+type TyTree = LocTree RowCol TyExprF
+
+defaultTyCheckSt :: TyCheckSt
+defaultTyCheckSt =
+  TyCheckSt
+    { bindings = Map.empty,
+      lambdaDepth = 0,
+      uidList = [0..] -- TODO: Do better
+    }
+
+data TCError
+  = TypeMismatch
+  | AmbiguousTypes
+  deriving (Show)
+
+instance Exception TCError where
+  toException e = SomeException e
+  fromException (SomeException e) = cast e
+  displayException TypeMismatch = "Type Mistmatch!"
+  displayException AmbiguousTypes = "Ambiguous Types!"
 
 -- | Returns the bindings before the assumption so
 -- they can be restored afterward
@@ -118,33 +151,42 @@ typeCheck tree initSt setup =
 noSetup :: TyCheckM ()
 noSetup = pure ()
 
+restoreBindings :: Map Text Binding -> TyCheckM ()
+restoreBindings oldBindings =
+  modify $ \st -> st { bindings = oldBindings }
+
 convertTree :: LocTree RowCol ExprF -> TyCheckM TyTree
 convertTree tree = AST.transform go tree
   where
-    go :: RowCol -> RowCol -> ExprF (TyCheckM (LocTree RowCol TyExpr)) -> TyCheckM (TyExpr (LocTree RowCol TyExpr))
+    go :: RowCol -> RowCol -> ExprF (TyCheckM TyTree) -> TyCheckM (TyExprF TyTree)
     go _ _ (ProdF checkElems) = do
-      xs <- sequence checkElems
-      let tys = ty . locContent <$> xs
+      elemTrees <- sequence checkElems
+      let tys = tyF . locContent <$> elemTrees
       thisTy <- tyCell . Filled . RtProdF $ Vec.fromList tys
-      pure $ TyExpr thisTy $ RtProdF $ Vec.fromList xs
+      pure $ TyExprF thisTy $ RtProdF $ Vec.fromList elemTrees
     go _ _ (LamF checkName checkBody) = do
       depth <- lambdaDepth <$> get
       inputTy <- tyCell Empty
       oldBindings <- assuming checkName $ LambdaBound inputTy depth
-      body <- checkBody
-      modify $ \st -> st { bindings = oldBindings }
-      pure $ TyExpr (ty $ locContent body) (RtLamF body)
+      bodyTree <- checkBody
+      restoreBindings oldBindings
+      pure $ TyExprF (tyF $ locContent bodyTree) (RtLamF bodyTree)
     go _ _ (AnnF checkTerm checkAnn) = do
-      ann <- checkAnn
-      -- unify (ty $ locContent ann) RtTyF <|> throw TypeMismatch
-      term <- checkTerm
-      -- unify (ty $ locContent term) (expr $ locContent ann) <|> throw TypeMismatch
-      pure $ locContent term
+      annTree <- checkAnn
+      tyTerm <- tyCell $ Filled RtTyF
+      unify (tyOf annTree) tyTerm <|> throw TypeMismatch
+      termTree <- checkTerm
+      annTerm <- tyCell $ Filled $ unwrapVal annTree
+      unify (tyOf termTree) annTerm <|> throw TypeMismatch
+      pure $ locContent termTree
+    go x y (SymbolF name) = do
+      wrapExpr x y <$> lookupValFor name
 
-    go _ _ (SymbolF name) = lookupTyFor name
+tyOf :: TyTree -> TyCell
+tyOf = tyF . locContent
 
-lookupTyFor :: Text -> TyCheckM (TyExpr (LocTree RowCol TyExpr))
-lookupTyFor name = do
+lookupValFor :: Text -> TyCheckM TyExpr
+lookupValFor name = do
   table <- bindings <$> get
   case Map.lookup name table of
     Just (LambdaBound ty depth) -> do
@@ -153,20 +195,27 @@ lookupTyFor name = do
     Just (Other result) -> pure result
     Nothing -> error "No type for symbol"
 
-extractTy :: LocTree RowCol TyExpr -> IO RtVal
-extractTy tree = go $ ty $ locContent tree
+wrapExpr :: RowCol -> RowCol -> TyExpr -> TyExprF TyTree
+wrapExpr start end (TyExpr thisTy val) = TyExprF thisTy $ (LocTree start end . wrapExpr start end <$> val)
+
+unwrapVal :: TyTree -> RtValF TyCell
+unwrapVal (LocTree _ _ (TyExprF ty valTree)) = tyF . locContent <$> valTree
+
+extractTy :: TyTree -> IO RtVal
+extractTy tree = go $ tyF $ locContent tree
   where
     go :: TyCell -> IO RtVal
     go (TyCell tyCell) = do
-      readRef (value tyCell) >>= \case
+      (thisCell, _, _, _) <- rootInfo tyCell
+      readRef (value thisCell) >>= \case
         Filled (RtProdF xs) -> RtProd <$> traverse go xs
         Filled _ -> undefined
         Empty -> undefined
 
-extractValue :: LocTree RowCol TyExpr -> IO RtVal
+extractValue :: TyTree -> IO RtVal
 extractValue tree =
-  go . expr $ locContent tree
+  go . exprF $ locContent tree
   where
-    go :: RtValF (LocTree RowCol TyExpr) -> IO RtVal
-    go (RtProdF xs) = RtProd <$> traverse (go . expr . locContent) xs
+    go :: RtValF TyTree -> IO RtVal
+    go (RtProdF xs) = RtProd <$> traverse (go . exprF . locContent) xs
     go _ = undefined

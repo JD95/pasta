@@ -20,16 +20,17 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/githubuser/jelly#readme>
 
 dependencies:
-- base >= 4.7 && < 5
-- vector
-- recursion-schemes
-- megaparsec
-- text
-- mtl
-- logict
 - Earley
-- unordered-containers
+- base >= 4.7 && < 5
 - containers
+- hashable
+- logict
+- megaparsec
+- mtl
+- recursion-schemes
+- text
+- unordered-containers
+- vector
 
 library:
   source-dirs: src
