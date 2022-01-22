@@ -29,7 +29,7 @@ main = do
           case lexer "repl" (pack input) of
             Right tokens -> case parse tokens of
               (result : _, _) ->
-                liftIO (typeCheck result) >>= \case
+                liftIO (typeCheck result defaultTyCheckSt noSetup) >>= \case
                   Right tree -> do
                     ty <- liftIO $ extractValue tree
                     outputStrLn . show $ eval ty
