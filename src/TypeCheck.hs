@@ -12,6 +12,7 @@
 module TypeCheck where
 
 import Control.Applicative
+import Data.Foldable (for_)
 import AST.Expr
 import AST.LocTree
 import qualified AST.LocTree as AST
@@ -20,10 +21,12 @@ import Control.Monad
 import Control.Monad.Logic
 import Control.Monad.State
 import Data.IORef
+import Data.Functor.Foldable (embed)
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Text
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Data.Typeable
 import qualified Data.Vector as Vec
 import Data.Word
@@ -36,8 +39,21 @@ import Runtime.Types
 data TyCheckSt = TyCheckSt
   { bindings :: Map Text Binding,
     lambdaDepth :: Word32,
-    uidList :: [Word32]
+    uidList :: [Word32],
+    errors :: [TCError]
   }
+
+data TCError
+  = TypeMismatch
+  | AmbiguousTypes
+  | NoAnswer
+  deriving (Show, Eq)
+
+instance Exception TCError where
+  toException e = SomeException e
+  fromException (SomeException e) = cast e
+  displayException TypeMismatch = "Type Mistmatch!"
+  displayException AmbiguousTypes = "Ambiguous Types!"
 
 data Binding
   = LambdaBound
@@ -68,7 +84,7 @@ data Binding
 
       Word32
   | Other TyExpr
-newtype TyCheckM a = TyCheckM {runTyCheckM :: StateT TyCheckSt (LogicT IO) a}
+newtype TyCheckM a = TyCheckM {runTyCheckM :: LogicT (StateT TyCheckSt IO) a}
   deriving (Functor, Applicative, Monad, Alternative, MonadState TyCheckSt, MonadLogic, MonadIO)
 
 instance Ref TyCheckM IORef where
@@ -86,15 +102,6 @@ data Hole a
 -- The Cell layer gives us propagation and merging
 data TyCell = TyCell {unTyCell :: Term Word32 IORef (Cell TyCheckM IORef (Hole (RtValF TyCell)))}
   deriving (Eq)
-
-instance Lattice TyCheckM (Hole (RtValF TyCell)) where
-  bottom = pure Empty
-  isTop (Filled _) = pure True
-  isTop Empty = pure False
-
-  merge (Old (Filled x)) (New (Filled y)) = error "Haven't implemented merge for TyCells yet"
-  merge (Old Empty) (New (Filled y)) = pure $ Gain (Filled y)
-  merge _ (New Empty) =  pure None
 
 unify x y = (unTyCell x) `is` (unTyCell y)
 
@@ -117,19 +124,63 @@ defaultTyCheckSt =
   TyCheckSt
     { bindings = Map.empty,
       lambdaDepth = 0,
-      uidList = [0..] -- TODO: Do better
+      uidList = [0..], -- TODO: Do better
+      errors = []
     }
 
-data TCError
-  = TypeMismatch
-  | AmbiguousTypes
-  deriving (Show)
+-- Must be below the template haskell
+instance Lattice TyCheckM (Hole (RtValF TyCell)) where
+  merge (Old (Filled (RtProdF xs))) (New (Filled (RtProdF ys))) = do
+    if Vec.length xs /= Vec.length ys
+      then pure Conflict
+      else do
+        for_ (Vec.zip xs ys) (uncurry unify)
+        pure None
+  merge (Old (Filled RtTyF)) (New (Filled RtTyF)) = pure None
+  merge (Old (Filled RtTyF)) (New (Filled _)) = pure Conflict
+  merge (Old (Filled _)) (New (Filled RtTyF)) = pure Conflict
+  merge (Old (Filled x)) (New (Filled y)) = do
+    xVal <- liftIO $ embed <$> traverse saturateTy x
+    yVal <- liftIO $ embed <$> traverse saturateTy y
+    error $ "Haven't fully implemented merge for TyCells yet:\n " <> show xVal <> "\n" <> show yVal
+  merge (Old Empty) (New (Filled y)) = pure $ Gain (Filled y)
+  merge _ (New Empty) =  pure None
 
-instance Exception TCError where
-  toException e = SomeException e
-  fromException (SomeException e) = cast e
-  displayException TypeMismatch = "Type Mistmatch!"
-  displayException AmbiguousTypes = "Ambiguous Types!"
+  bottom = pure Empty
+
+  isTop (Filled _) = pure True
+  isTop Empty = pure False
+
+ifFailThen :: TyCheckM a -> TyCheckM a -> TyCheckM a
+ifFailThen firstOpt secondOpt = do
+  oldErrors <- errors <$> get
+  ifte firstOpt pure $ do
+    modify $ \st -> st { errors = oldErrors }
+    secondOpt
+
+-- | Succeeds only if one of the paths succeed
+exclusiveAlt :: TyCheckM a -> TyCheckM a -> TyCheckM a
+exclusiveAlt x y = do
+  ifte
+    -- If x succeeds, then y must fail
+    x
+    (\a ->
+       -- x succeeded
+       ifte
+       y
+       -- y also succeeded, so now there's an ambiguity
+       (const $ addError AmbiguousTypes)
+       -- y failed so just use the result of x
+       (pure a))
+    -- x failed so just use the result of y
+    y
+
+
+-- | Adds an error to the error list
+addError :: TCError -> TyCheckM a
+addError e = do
+  modify $ \st -> st { errors = e : errors st }
+  Control.Applicative.empty
 
 -- | Returns the bindings before the assumption so
 -- they can be restored afterward
@@ -139,14 +190,15 @@ assuming name ty = do
   modify $ \st -> st {bindings = Map.insert name ty (bindings st)}
   pure oldBindings
 
-typeCheck :: LocTree RowCol ExprF -> TyCheckSt -> TyCheckM () -> IO (Either TCError TyTree)
-typeCheck tree initSt setup =
-  catch
-    (ambiguityCheck =<< observeAllT (evalStateT (runTyCheckM $ setup *> convertTree tree) initSt))
-    (pure . Left)
-  where
-    ambiguityCheck [result] = pure $ Right result
-    amiguityCheck (_ : _ : _) = throw AmbiguousTypes
+typeCheck :: LocTree RowCol ExprF -> TyCheckSt -> TyCheckM () -> IO (Either [TCError] TyTree)
+typeCheck tree initSt setup = do
+  (solutions, st) <- runStateT (observeAllT $ runTyCheckM $ setup *> convertTree tree) initSt
+  case errors st of
+    [] -> case solutions of
+      [] -> error ""
+      [valid] -> pure $ Right valid
+      (_:_:_) -> pure $ Left [AmbiguousTypes]
+    errs -> pure $ Left errs
 
 noSetup :: TyCheckM ()
 noSetup = pure ()
@@ -159,11 +211,20 @@ convertTree :: LocTree RowCol ExprF -> TyCheckM TyTree
 convertTree tree = AST.transform go tree
   where
     go :: RowCol -> RowCol -> ExprF (TyCheckM TyTree) -> TyCheckM (TyExprF TyTree)
+    -- PRODUCT
     go _ _ (ProdF checkElems) = do
       elemTrees <- sequence checkElems
       let tys = tyF . locContent <$> elemTrees
-      thisTy <- tyCell . Filled . RtProdF $ Vec.fromList tys
-      pure $ TyExprF thisTy $ RtProdF $ Vec.fromList elemTrees
+      asValue elemTrees tys `exclusiveAlt` asType elemTrees tys
+      where
+        asType elemTrees tys = do
+          tyTerm <- tyCell $ Filled RtTyF
+          for_ tys $ unify tyTerm
+          pure $ TyExprF tyTerm $ RtProdF $ Vec.fromList elemTrees
+        asValue elemTrees tys = do
+          thisTy <- tyCell . Filled . RtProdF $ Vec.fromList tys
+          pure $ TyExprF thisTy $ RtProdF $ Vec.fromList elemTrees
+    -- LAMBDA
     go _ _ (LamF checkName checkBody) = do
       depth <- lambdaDepth <$> get
       inputTy <- tyCell Empty
@@ -171,14 +232,16 @@ convertTree tree = AST.transform go tree
       bodyTree <- checkBody
       restoreBindings oldBindings
       pure $ TyExprF (tyF $ locContent bodyTree) (RtLamF bodyTree)
+    -- ANNOTATION
     go _ _ (AnnF checkTerm checkAnn) = do
       annTree <- checkAnn
       tyTerm <- tyCell $ Filled RtTyF
-      unify (tyOf annTree) tyTerm <|> throw TypeMismatch
+      unify (tyOf annTree) tyTerm `ifFailThen` addError TypeMismatch
       termTree <- checkTerm
       annTerm <- tyCell $ Filled $ unwrapVal annTree
-      unify (tyOf termTree) annTerm <|> throw TypeMismatch
+      unify (tyOf termTree) annTerm `ifFailThen` addError TypeMismatch
       pure $ locContent termTree
+    -- SYMBOL
     go x y (SymbolF name) = do
       wrapExpr x y <$> lookupValFor name
 
@@ -202,15 +265,15 @@ unwrapVal :: TyTree -> RtValF TyCell
 unwrapVal (LocTree _ _ (TyExprF ty valTree)) = tyF . locContent <$> valTree
 
 extractTy :: TyTree -> IO RtVal
-extractTy tree = go $ tyF $ locContent tree
-  where
-    go :: TyCell -> IO RtVal
-    go (TyCell tyCell) = do
-      (thisCell, _, _, _) <- rootInfo tyCell
-      readRef (value thisCell) >>= \case
-        Filled (RtProdF xs) -> RtProd <$> traverse go xs
-        Filled _ -> undefined
-        Empty -> undefined
+extractTy tree = saturateTy $ tyF $ locContent tree
+
+saturateTy :: TyCell -> IO RtVal
+saturateTy (TyCell tyCell) = do
+  (thisCell, _, _, _) <- rootInfo tyCell
+  readRef (value thisCell) >>= \case
+    Filled (RtProdF xs) -> RtProd <$> traverse saturateTy xs
+    Filled _ -> undefined
+    Empty -> undefined
 
 extractValue :: TyTree -> IO RtVal
 extractValue tree =
