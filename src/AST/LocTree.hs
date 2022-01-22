@@ -39,10 +39,9 @@ fold f (LocTree x y inner) = f x y (AST.LocTree.fold f <$> inner)
 foldM :: (Traversable f, Applicative m) => (l -> l -> f (m a) -> m a) -> LocTree l f -> m a
 foldM f (LocTree x y inner) = f x y (foldM f <$> inner)
 
-transform :: (Traversable f, Monad m) => (l -> l -> f (LocTree l g) -> m (g (LocTree l g))) -> LocTree l f -> m (LocTree l g)
+transform :: (Traversable f, Monad m) => (l -> l -> f (m (LocTree l g)) -> m (g (LocTree l g))) -> LocTree l f -> m (LocTree l g)
 transform f (LocTree x y inner) = do
-  below <- traverse (transform f) inner
-  this <- f x y below
+  this <- f x y $ transform f <$> inner
   pure $ LocTree x y this
 
 spine :: (Corecursive f) => LocTree l (Base f) -> f
