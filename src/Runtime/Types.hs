@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -36,9 +37,12 @@ data RtVal
   | RtLam RtVal
   | RtArr RtVal RtVal
   | RtApp RtVal RtVal
+  | RtTy
   deriving (Show, Eq)
 
 makeBaseFunctor ''RtVal
+
+deriving instance Eq a => Eq (RtValF a)
 
 unit :: RtVal
 unit = RtProd Vec.empty

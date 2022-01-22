@@ -1,10 +1,12 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module TypeCheck where
 
+import Control.Applicative
 import AST.Expr
 import AST.LocTree
 import qualified AST.LocTree as AST
@@ -57,7 +59,7 @@ defaultTyCheckSt =
     }
 
 newtype TyCheckM a = TyCheckM {runTyCheckM :: StateT TyCheckSt (LogicT IO) a}
-  deriving (Functor, Applicative, Monad, MonadState TyCheckSt, MonadIO)
+  deriving (Functor, Applicative, Monad, Alternative, MonadState TyCheckSt, MonadLogic, MonadIO)
 
 instance Ref TyCheckM IORef where
   newRef = liftIO . newIORef
@@ -75,7 +77,22 @@ instance Exception TCError where
   displayException TypeMismatch = "Type Mistmatch!"
   displayException AmbiguousTypes = "Ambiguous Types!"
 
-data TyCell = TyCell {unTyCell :: Cell TyCheckM IORef (Maybe (RtValF TyCell))}
+data Hole a
+  = Filled a
+  | Empty
+  deriving (Eq)
+
+data TyCell = TyCell {unTyCell :: Cell TyCheckM IORef (Hole (RtValF TyCell))}
+  deriving (Eq)
+
+instance Lattice TyCheckM (Hole (RtValF TyCell)) where
+  bottom = pure Empty
+  isTop (Filled _) = pure True
+  isTop Empty = pure False
+
+  merge (Old (Filled x)) (New (Filled y)) = error "Haven't implemented merge for TyCells yet"
+  merge (Old Empty) (New (Filled y)) = pure $ Gain (Filled y)
+  merge _ (New Empty) =  pure None
 
 tyCell = fmap TyCell . cell
 
@@ -108,15 +125,22 @@ convertTree tree = AST.transform go tree
     go _ _ (ProdF checkElems) = do
       xs <- sequence checkElems
       let tys = ty . locContent <$> xs
-      thisTy <- tyCell . Just . RtProdF $ Vec.fromList tys
+      thisTy <- tyCell . Filled . RtProdF $ Vec.fromList tys
       pure $ TyExpr thisTy $ RtProdF $ Vec.fromList xs
     go _ _ (LamF checkName checkBody) = do
       depth <- lambdaDepth <$> get
-      inputTy <- tyCell Nothing
+      inputTy <- tyCell Empty
       oldBindings <- assuming checkName $ LambdaBound inputTy depth
       body <- checkBody
       modify $ \st -> st { bindings = oldBindings }
       pure $ TyExpr (ty $ locContent body) (RtLamF body)
+    go _ _ (AnnF checkTerm checkAnn) = do
+      ann <- checkAnn
+      -- unify (ty $ locContent ann) RtTyF <|> throw TypeMismatch
+      term <- checkTerm
+      -- unify (ty $ locContent term) (expr $ locContent ann) <|> throw TypeMismatch
+      pure $ locContent term
+
     go _ _ (SymbolF name) = lookupTyFor name
 
 lookupTyFor :: Text -> TyCheckM (TyExpr (LocTree RowCol TyExpr))
@@ -135,9 +159,9 @@ extractTy tree = go $ ty $ locContent tree
     go :: TyCell -> IO RtVal
     go (TyCell tyCell) = do
       readRef (value tyCell) >>= \case
-        Just (RtProdF xs) -> RtProd <$> traverse go xs
-        Just _ -> undefined
-        Nothing -> undefined
+        Filled (RtProdF xs) -> RtProd <$> traverse go xs
+        Filled _ -> undefined
+        Empty -> undefined
 
 extractValue :: LocTree RowCol TyExpr -> IO RtVal
 extractValue tree =

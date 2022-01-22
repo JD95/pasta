@@ -39,38 +39,36 @@ newtype New a = New a
 
 newtype Old a = Old a
 
-class Eq a => Lattice a where
-  merge :: Old a -> New a -> Info a
+class (Monad m, Eq a) => Lattice m a where
+  bottom :: m a
+  isTop :: a -> m Bool
+  merge :: Old a -> New a -> m (Info a)
 
-  bottom :: a
+instance (Monad m, Eq a) => Lattice m (Maybe a) where
+  bottom = pure Nothing
 
-  isTop :: a -> Bool
+  isTop (Just _) = pure True
+  isTop Nothing = pure False
 
-instance Eq a => Lattice (Maybe a) where
   merge (Old (Just x)) (New (Just y))
-    | x == y = None
-    | otherwise = Conflict
-  merge (Old (Just x)) (New Nothing) = None
-  merge (Old Nothing) (New (Just x)) = Gain (Just x)
-  merge (Old Nothing) (New Nothing) = None
+    | x == y = pure None
+    | otherwise = pure Conflict
+  merge (Old (Just x)) (New Nothing) = pure None
+  merge (Old Nothing) (New (Just x)) = pure $ Gain (Just x)
+  merge (Old Nothing) (New Nothing) = pure None
 
-  bottom = Nothing
+instance (Monad m, Lattice m a, Lattice m b) => Lattice m (a, b) where
+  merge (Old (a, x)) (New (b, y)) = do
+    left <- merge (Old a) (New b)
+    right <- merge (Old x) (New y)
+    pure $ (,) <$> left <*> right
 
-  isTop (Just _) = True
-  isTop Nothing = False
+  bottom = (,) <$> bottom <*> bottom
 
-instance (Lattice a, Lattice b) => Lattice (a, b) where
-  merge (Old (a, x)) (New (b, y)) =
-    (,)
-      <$> merge (Old a) (New b)
-      <*> merge (Old x) (New y)
-
-  bottom = (bottom, bottom)
-
-  isTop (x, y) = isTop x && isTop y
+  isTop (x, y) = (&&) <$> isTop x <*> isTop y
 
 data Watched m r where
-  Watched :: Lattice a => Cell m r a -> Watched m r
+  Watched :: Lattice m a => Cell m r a -> Watched m r
 
 data Keep = Keep | Remove
 
@@ -80,7 +78,7 @@ data Prop m r = Prop
 
 data Cell m r a = Cell
   { value :: r a,
-    triggerWatchers :: r [m (a -> Bool)]
+    triggerWatchers :: r [m (a -> m Bool)]
   }
 
 instance Eq (r a) => Eq (Cell m r a) where
@@ -92,26 +90,27 @@ cell value = do
   trig <- newRef []
   pure $ Cell x trig
 
-inform :: (Lattice a, Alternative m, Ref m r) => Cell m r a -> a -> m ()
+inform :: (Lattice m a, Alternative m, Ref m r) => Cell m r a -> a -> m ()
 inform target new = do
   old <- readRef (value target)
-  case merge (Old old) (New new) of
+  merge (Old old) (New new) >>= \case
     Gain result -> do
       backTrackingWriteRef (value target) result
       trigs <- readRef (triggerWatchers target)
       fireAll result [] $ trigs
     None -> pure ()
-    Conflict -> empty -- error "Kaboom! No backtracking yet"
+    Conflict -> empty
   where
     fireAll _ kept [] = backTrackingWriteRef (triggerWatchers target) kept
     fireAll value kept (fire : xs) = do
       pred <- fire
-      fireAll value xs $
-        if pred value
-          then fire : kept
-          else kept
+      next <-
+        pred value >>= \case
+          True -> pure $ fire : kept
+          False -> pure $ kept
+      fireAll value xs next
 
-listenWhile :: (Alternative m, Ref m r) => (a -> Bool) -> Prop m r -> Cell m r a -> m ()
+listenWhile :: (Alternative m, Ref m r) => (a -> m Bool) -> Prop m r -> Cell m r a -> m ()
 listenWhile cond prop c = do
   backTrackingModifyRef (triggerWatchers c) $ \others ->
     let new = do
@@ -120,12 +119,12 @@ listenWhile cond prop c = do
      in new : others
 
 listenToOnce :: (Alternative m, Ref m r) => Prop m r -> Cell m r a -> m ()
-listenToOnce = listenWhile (const False)
+listenToOnce = listenWhile (const $ pure False)
 
 listenToAlways :: (Alternative m, Ref m r) => Prop m r -> Cell m r a -> m ()
-listenToAlways = listenWhile (const True)
+listenToAlways = listenWhile (const $ pure True)
 
-prop :: (Lattice a, Alternative m, Ref m r) => [Watched m r] -> Cell m r a -> m a -> m ()
+prop :: (Lattice m a, Alternative m, Ref m r) => [Watched m r] -> Cell m r a -> m a -> m ()
 prop [] target fire = inform target =<< fire
 prop inputs@(Watched x : xs) target fire = do
   let fireInto = do
@@ -136,12 +135,13 @@ prop inputs@(Watched x : xs) target fire = do
         -- Now that all the inputs have usable
         -- values, fire the propagator now and
         -- every time one of them updates
-        forM_ inputs $ \(Watched w) -> listenWhile (not . isTop) (Prop ref) w
+        forM_ inputs $ \(Watched w) -> listenWhile (fmap not . isTop) (Prop ref) w
         backTrackingWriteRef ref fireInto
         fireInto
       waitForInputs ref (Watched x : xs) = do
         value <- readRef $ value x
-        if value == bottom
+        bot <- bottom
+        if value == bot
           then -- No usable input yet, wait until
           -- this cell gains input then check
           -- the rest
@@ -163,12 +163,12 @@ prop inputs@(Watched x : xs) target fire = do
 
   waitForInputs propAction inputs
 
-liftP :: (Lattice a, Lattice b, Alternative m, Ref m r) => (a -> b) -> Cell m r a -> Cell m r b -> m ()
+liftP :: (Lattice m a, Lattice m b, Alternative m, Ref m r) => (a -> b) -> Cell m r a -> Cell m r b -> m ()
 liftP f input output = do
   prop [Watched input] output $ do
     f <$> readRef (value input)
 
-liftP2 :: (Lattice a, Lattice b, Lattice c, Alternative m, Ref m r) => (a -> b -> c) -> Cell m r a -> Cell m r b -> Cell m r c -> m ()
+liftP2 :: (Lattice m a, Lattice m b, Lattice m c, Alternative m, Ref m r) => (a -> b -> c) -> Cell m r a -> Cell m r b -> Cell m r c -> m ()
 liftP2 f inA inB output = do
   prop [Watched inA, Watched inB] output $ do
     a <- readRef (value inA)
@@ -182,7 +182,7 @@ adder x y z = do
   liftP2 (liftA2 (-)) z y x
 
 pair ::
-  (Lattice a, Lattice b, Alternative m, Ref m r) =>
+  (Lattice m a, Lattice m b, Alternative m, Ref m r) =>
   Cell m r a ->
   Cell m r b ->
   Cell m r (a, b) ->
@@ -195,5 +195,5 @@ pair x y p = do
 tryList :: (Alternative m) => [a] -> m a
 tryList = foldr (<|>) empty . fmap pure
 
-var :: (Lattice a, Ref m r) => m (Cell m r a)
-var = cell bottom
+var :: (Lattice m a, Ref m r) => m (Cell m r a)
+var = cell =<< bottom
