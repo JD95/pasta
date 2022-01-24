@@ -1,16 +1,21 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
 
 module TypeCheck where
 
+import Data.List.NonEmpty (NonEmpty(..))
+import Data.Maybe
 import Control.Applicative
 import Data.Foldable (for_)
 import AST.Expr
@@ -35,12 +40,22 @@ import Runtime.Prop
 import Runtime.Ref
 import Runtime.Term
 import Runtime.Types
+import Data.HashSet (HashSet)
+import Data.Hashable
+import qualified Data.HashSet as HS
+
+type ErrorCell = Cell TyCheckM IORef (Maybe TCError)
+
+newtype Branch = Branch { unBranch :: Word32 }
+  deriving (Show, Eq, Hashable)
 
 data TyCheckSt = TyCheckSt
   { bindings :: Map Text Binding,
     lambdaDepth :: Word32,
     uidList :: [Word32],
-    errors :: [TCError]
+    errors :: [(ErrorCell, Branch)],
+    currentBranch :: Branch,
+    failedBranches :: HashSet Branch
   }
 
 data TCError
@@ -81,7 +96,6 @@ data Binding
     -- @
     -- RtLam (RtLam (RtApp (RtVar 0) (RtVar 1)))
     -- @
-
       Word32
   | Other TyExpr
 newtype TyCheckM a = TyCheckM {runTyCheckM :: LogicT (StateT TyCheckSt IO) a}
@@ -100,7 +114,7 @@ data Hole a
 -- |
 -- The Term layer allows for efficient unification
 -- The Cell layer gives us propagation and merging
-data TyCell = TyCell {unTyCell :: Term Word32 IORef (Cell TyCheckM IORef (Hole (RtValF TyCell)))}
+newtype TyCell = TyCell {unTyCell :: Term Word32 IORef (Cell TyCheckM IORef (Hole (RtValF TyCell)))}
   deriving (Eq)
 
 unify x y = (unTyCell x) `is` (unTyCell y)
@@ -125,7 +139,9 @@ defaultTyCheckSt =
     { bindings = Map.empty,
       lambdaDepth = 0,
       uidList = [0..], -- TODO: Do better
-      errors = []
+      errors = [],
+      currentBranch = Branch 0,
+      failedBranches = HS.empty
     }
 
 -- Must be below the template haskell
@@ -158,29 +174,40 @@ ifFailThen firstOpt secondOpt = do
     modify $ \st -> st { errors = oldErrors }
     secondOpt
 
--- | Succeeds only if one of the paths succeed
-exclusiveAlt :: TyCheckM a -> TyCheckM a -> TyCheckM a
-exclusiveAlt x y = do
-  ifte
-    -- If x succeeds, then y must fail
-    x
-    (\a ->
-       -- x succeeded
-       ifte
-       y
-       -- y also succeeded, so now there's an ambiguity
-       (const $ addError AmbiguousTypes)
-       -- y failed so just use the result of x
-       (pure a))
-    -- x failed so just use the result of y
-    y
+-- | Throws an Ambiguity error if both terms gain info
+-- If both branches throw arrows, it'll only keep errors from first branch
+exclusive :: (TyCell -> TyCheckM a) -> (TyCell -> TyCheckM a) -> TyCheckM a
+exclusive pathX pathY = do
+  x <- tyCell Empty
+  y <- tyCell Empty
+  (cellX, _, _, _) <- rootInfo (unTyCell x)
+  (cellY, _, _, _) <- rootInfo (unTyCell y)
+  errCell <- cell Nothing
+  prop [Watched cellX, Watched cellY] errCell $ do
+    pure (Just AmbiguousTypes)
+  b <- currentBranch <$> get
+  modify $ \st -> st { errors = (errCell, b) : errors st }
+  branch [pathX x, pathY y]
 
+branch :: [TyCheckM a] -> TyCheckM a
+branch [] = empty
+branch (x : xs) = x <|> go xs where
+  go [] = empty
+  go (y:ys) = do
+    -- Only make a new branch after following the first path
+    -- as deep as it will go
+    modify (\st -> st { currentBranch = Branch (unBranch (currentBranch st) + 1) })
+    y <|> go ys
 
 -- | Adds an error to the error list
 addError :: TCError -> TyCheckM a
 addError e = do
-  modify $ \st -> st { errors = e : errors st }
-  Control.Applicative.empty
+  debug "Error! Backtracking..."
+  errCell <- cell $ Just e
+  b <- currentBranch <$> get
+  debug $ show b <> " has failed!"
+  modify $ \st -> st { failedBranches = HS.insert b (failedBranches st), errors = (errCell, b) : errors st }
+  empty
 
 -- | Returns the bindings before the assumption so
 -- they can be restored afterward
@@ -192,13 +219,28 @@ assuming name ty = do
 
 typeCheck :: LocTree RowCol ExprF -> TyCheckSt -> TyCheckM () -> IO (Either [TCError] TyTree)
 typeCheck tree initSt setup = do
-  (solutions, st) <- runStateT (observeAllT $ runTyCheckM $ setup *> convertTree tree) initSt
-  case errors st of
+  (solutions, st) <- runStateT (observeAllT $ runTyCheckM $ go) initSt
+  filledErrors (snd <$> solutions) st >>= \case
     [] -> case solutions of
-      [] -> error ""
-      [valid] -> pure $ Right valid
+      [] -> error "No valid solutions!"
+      [(valid, _)] -> pure $ Right valid
       (_:_:_) -> pure $ Left [AmbiguousTypes]
-    errs -> pure $ Left errs
+    errs -> Left . catMaybes <$> traverse (readRef @IO @IORef . value . fst) errs
+  where
+    go = do
+      debug "Starting Type Checking!"
+      setup
+      solution <- convertTree tree
+      debug "found solution!"
+      debug . ("Solution: " <>) . show =<< liftIO (extractValue solution)
+      b <- currentBranch <$> get
+      pure (solution, b)
+
+    filledErrors xs st =
+      flip filterM (errors st) $ \(e, b) -> do
+          if b `elem` xs || (xs == [] && b == (Branch 0))
+            then isJust <$> readRef (value e)
+            else pure False
 
 noSetup :: TyCheckM ()
 noSetup = pure ()
@@ -213,19 +255,26 @@ convertTree tree = AST.transform go tree
     go :: RowCol -> RowCol -> ExprF (TyCheckM TyTree) -> TyCheckM (TyExprF TyTree)
     -- PRODUCT
     go _ _ (ProdF checkElems) = do
+      debug "ProdF"
       elemTrees <- sequence checkElems
       let tys = tyF . locContent <$> elemTrees
-      asValue elemTrees tys `exclusiveAlt` asType elemTrees tys
+      exclusive
+        (asType elemTrees tys)
+        (asValue elemTrees tys)
       where
-        asType elemTrees tys = do
-          tyTerm <- tyCell $ Filled RtTyF
-          for_ tys $ unify tyTerm
-          pure $ TyExprF tyTerm $ RtProdF $ Vec.fromList elemTrees
-        asValue elemTrees tys = do
+        asType elemTrees tys term = do
+          debug "trying product term as type"
+          unify term =<< tyCell (Filled RtTyF)
+          for_ tys $ unify term
+          debug "all elements are type"
+          pure $ TyExprF term $ RtProdF $ Vec.fromList elemTrees
+        asValue elemTrees tys term = do
+          debug "trying product as value"
           thisTy <- tyCell . Filled . RtProdF $ Vec.fromList tys
           pure $ TyExprF thisTy $ RtProdF $ Vec.fromList elemTrees
     -- LAMBDA
     go _ _ (LamF checkName checkBody) = do
+      debug "LamF"
       depth <- lambdaDepth <$> get
       inputTy <- tyCell Empty
       oldBindings <- assuming checkName $ LambdaBound inputTy depth
@@ -234,12 +283,19 @@ convertTree tree = AST.transform go tree
       pure $ TyExprF (tyF $ locContent bodyTree) (RtLamF bodyTree)
     -- ANNOTATION
     go _ _ (AnnF checkTerm checkAnn) = do
+      debug "AnnF"
+      debug "inferring type of annotation..."
       annTree <- checkAnn
-      tyTerm <- tyCell $ Filled RtTyF
-      unify (tyOf annTree) tyTerm `ifFailThen` addError TypeMismatch
+      debug "type of annotation inferred, now making sure it's a type!"
+      (unify (tyOf annTree) =<< tyCell (Filled RtTyF))
+        `ifFailThen` addError TypeMismatch
+      debug "It's a type!"
+      debug "inferring type for term..."
       termTree <- checkTerm
-      annTerm <- tyCell $ Filled $ unwrapVal annTree
-      unify (tyOf termTree) annTerm `ifFailThen` addError TypeMismatch
+      debug "type term infered, now making sure it matches the annotation..."
+      (unify (tyOf termTree) =<< tyCell (Filled $ unwrapVal annTree))
+        `ifFailThen` addError TypeMismatch
+      debug "AnnF done"
       pure $ locContent termTree
     -- SYMBOL
     go x y (SymbolF name) = do
@@ -282,3 +338,9 @@ extractValue tree =
     go :: RtValF TyTree -> IO RtVal
     go (RtProdF xs) = RtProd <$> traverse (go . exprF . locContent) xs
     go _ = undefined
+
+debugTypeChecking = False
+
+debug msg =
+  when debugTypeChecking $
+    liftIO $ putStrLn msg

@@ -48,7 +48,11 @@ main = do
     typeChecking =
       testGroup
         "type checking"
-        [checkingErrorsGoThrough, cannotInferUnitTy, infersSymbolTy, checkAnn]
+        [ testCase "errors raised while type checking are outputted" checkingErrorsGoThrough,
+          testCase "inferred type of just () is ambiguous" cannotInferUnitTy,
+          infersSymbolTy,
+          testCase "\"() : ()\" type checks" checkAnn
+        ]
 
 exampleParses = testCase "example parses" $ do
   void $ testParse "let id = \\x -> (\\y -> x) in (id y : t)"
@@ -64,12 +68,12 @@ annParses = testCase "Annotations parse" $ do
 unitEvalsToUnit = testCase "() evals to ()" $ do
   eval unit @?= unit
 
-cannotInferUnitTy = testCase "inferred typed of () is ambiguous" $ do
+cannotInferUnitTy = do
   input <- testParse "()"
   typeCheck input defaultTyCheckSt noSetup
     `expectTyErrors` [AmbiguousTypes]
 
-checkingErrorsGoThrough = testCase "errors raised while type checking are outputted" $ do
+checkingErrorsGoThrough = do
   input <- testParse "foo : ()"
   let setup = do
         t <- tyCell $ Filled RtTyF
@@ -85,7 +89,7 @@ infersSymbolTy = testCase "inferred type of foo is the provided type" $ do
   typeCheck input defaultTyCheckSt setup
     `expectTy` unit
 
-checkAnn = testCase "\"() : ()\" type checks" $ do
+checkAnn = do
   input <- testParse "() : ()"
   typeCheck input defaultTyCheckSt noSetup
     `expectTy` unit
