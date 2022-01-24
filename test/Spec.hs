@@ -29,7 +29,9 @@ import Test.Tasty.Options
 import TypeCheck
 
 main :: IO ()
-main = withArgs ["--hide-successes"] $ defaultMain $ tests
+main = do
+  args <- getArgs
+  withArgs ("--hide-successes" : args) $ defaultMain $ tests
   where
     tests = testGroup "compiler" [parsing, runtime, typeChecking]
 
