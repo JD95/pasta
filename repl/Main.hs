@@ -2,6 +2,7 @@
 
 module Main where
 
+import AST.LocTree
 import Control.Monad.IO.Class
 import Data.Text
 import Lexer
@@ -31,7 +32,7 @@ main = do
               (result : _, _) ->
                 liftIO (typeCheck result defaultTyCheckSt noSetup) >>= \case
                   Right tree -> do
-                    ty <- liftIO $ extractValue tree
+                    let ty = annF $ locContent tree
                     outputStrLn . show $ eval ty
                   Left _ -> outputStrLn "type error!"
               ([], report) -> outputStrLn (show report)

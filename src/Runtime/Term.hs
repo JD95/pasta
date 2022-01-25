@@ -19,9 +19,13 @@ data Content uid r a
       a
       -- | Rank
       Int
+      -- | Id
+      uid
       -- | Terms this one is *not* equal to
       (HashSet (Term uid r a))
   | Child (Term uid r a)
+
+data RootInfo uid r a = RootInfo a Int uid (HashSet (Term uid r a)) (Term uid r a)
 
 data Term uid r a = Term
   { termId :: uid,
@@ -36,18 +40,18 @@ instance Hashable uid => Hashable (Term uid r a) where
   hashWithSalt d = hashWithSalt d . termId
 
 newTerm :: (Hashable uid, Ref m r) => uid -> a -> m (Term uid r a)
-newTerm uid value = Term uid <$> newRef (Root value 0 HS.empty)
+newTerm uid value = Term uid <$> newRef (Root value 0 uid HS.empty)
 
 -- | Find the root info for a term, optimizing references when possible
 --
 -- If the term is already a root term, do nothing
 -- If the term is a child, rewrite it so it's a direct child of the root
-rootInfo :: (Hashable uid, Ref m r) => Term uid r a -> m (a, Int, HashSet (Term uid r a), Term uid r a)
+rootInfo :: (Hashable uid, Ref m r) => Term uid r a -> m (RootInfo uid r a)
 rootInfo d =
   readRef (termRef d) >>= \case
-    Root a i xs -> pure (a, i, xs, d)
+    Root a i uid xs -> pure $ RootInfo a i uid xs d
     Child s -> do
-      x@(_, _, _, parent) <- rootInfo s
+      x@(RootInfo _ _ _ _ parent) <- rootInfo s
       writeRef (termRef d) (Child parent)
       pure x
 
@@ -58,7 +62,7 @@ rootInfo d =
 root :: (Hashable uid, Ref m r) => Term uid r a -> m (a, Term uid r a)
 root d =
   readRef (termRef d) >>= \case
-    Root value _ _ -> pure (value, d)
+    Root value _ _ _ -> pure (value, d)
     Child s -> do
       result@(_, x) <- root s
       writeRef (termRef d) (Child x)
@@ -67,7 +71,7 @@ root d =
 overrideDisjunction :: (Eq uid, Hashable uid, Ref m r, Alternative m) => Term uid r a -> Term uid r a -> Term uid r a -> m ()
 overrideDisjunction old new term = do
   backTrackingModifyRef (termRef term) $ \case
-    (Root ivalue irank noti) -> Root ivalue irank $ HS.insert new $ HS.delete old noti
+    (Root ivalue irank iuid noti) -> Root ivalue irank iuid $ HS.insert new $ HS.delete old noti
     child -> child
 
 is :: (Eq uid, Hashable uid, Ref m r, Alternative m, Lattice m a)
@@ -75,25 +79,24 @@ is :: (Eq uid, Hashable uid, Ref m r, Alternative m, Lattice m a)
   -> Term uid r (Cell m r a)
   -> m ()
 is m n = do
-  (mvalue, mrank, notm, mroot) <- rootInfo m
-  (nvalue, nrank, notn, nroot) <- rootInfo n
+  RootInfo mcell mrank muid notm mroot <- rootInfo m
+  RootInfo ncell nrank nuid notn nroot <- rootInfo n
   guard $ not $ HS.member mroot notn
+  inform ncell =<< readRef (value mcell)
+  inform mcell =<< readRef (value ncell)
   case compare mrank nrank of
     LT -> do
-      inform nvalue =<< readRef (value mvalue)
       writeRef (termRef mroot) $ Child nroot
       for_ notm $ overrideDisjunction mroot nroot
-      writeRef (termRef nroot) $ Root nvalue nrank $ notm <> notn
+      writeRef (termRef nroot) $ Root ncell nrank nuid $ notm <> notn
     GT -> do
-      inform mvalue =<< readRef (value nvalue)
       writeRef (termRef nroot) $ Child mroot
       for_ notn $ overrideDisjunction nroot mroot
-      writeRef (termRef mroot) $ Root mvalue mrank $ notm <> notm
+      writeRef (termRef mroot) $ Root mcell mrank muid $ notm <> notm
     EQ -> do
-      inform nvalue =<< readRef (value mvalue)
       writeRef (termRef mroot) $ Child nroot
       for_ notm $ overrideDisjunction mroot nroot
-      writeRef (termRef nroot) $ Root nvalue (nrank + 1) $ notm <> notn
+      writeRef (termRef nroot) $ Root ncell (nrank + 1) nuid $ notm <> notn
 
 {-
 isn't :: MonadRef m => TermM m -> TermM m -> m ()

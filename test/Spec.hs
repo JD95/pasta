@@ -4,7 +4,9 @@
 {-# LANGUAGE TypeApplications #-}
 
 import AST.Expr
+import qualified AST.Expr as AST
 import AST.LocTree
+import Control.Applicative
 import Control.Exception (SomeException (..), try)
 import Control.Monad
 import Control.Monad.IO.Class
@@ -20,6 +22,7 @@ import Runtime
 import Runtime.Dsl
 import Runtime.Prop
 import Runtime.Ref
+import Runtime.Term
 import Runtime.Types
 import System.Environment
 import Test.Tasty
@@ -38,34 +41,78 @@ main = do
     parsing =
       testGroup
         "parsing"
-        [unitParses, exampleParses, annParses]
+        [ testCase "() parses" unitParses,
+          testCase "example parses" exampleParses,
+          testCase "Annotations parse" annParses,
+          testCase "annotations have highest parsing priority" annHasPriorityOverArrow
+        ]
 
     runtime =
       testGroup
         "runtime"
-        [unitEvalsToUnit]
+        [testCase "() evals to ()" unitEvalsToUnit]
 
     typeChecking =
       testGroup
         "type checking"
-        [ testCase "errors raised while type checking are outputted" checkingErrorsGoThrough,
+        [ testCase "type merge is communative" typeMergeIsCommunative,
+          testCase "unify is communative" unifyIsCommunative,
+          testCase "errors raised while type checking are outputted" checkingErrorsGoThrough,
           testCase "inferred type of just () is ambiguous" cannotInferUnitTy,
-          infersSymbolTy,
-          testCase "\"() : ()\" type checks" checkAnn
+          testCase "inferred type of foo is the provided type" infersSymbolTy,
+          testCase "can infer type of arrow" infersArrTy,
+          testCase "can infer type of symbols" infersSymbolTy,
+          testCase "\"() : ()\" type checks" checkAnn,
+          testCase "annotated lambdas type check" lambdasCheck
         ]
 
-exampleParses = testCase "example parses" $ do
+exampleParses = do
   void $ testParse "let id = \\x -> (\\y -> x) in (id y : t)"
 
-unitParses = testCase "() parses" $ do
+unitParses = do
   result <- testParse "()"
   spine result @?= Prod []
 
-annParses = testCase "Annotations parse" $ do
+annParses = do
   result <- testParse "() : ()"
   spine result @?= (Prod [] `Ann` Prod [])
 
-unitEvalsToUnit = testCase "() evals to ()" $ do
+annHasPriorityOverArrow = do
+  result <- testParse "foo : () -> ()"
+  spine result @?= (AST.Symbol "foo" `Ann` (unitE `Arr` unitE))
+
+typeMergeIsCommunative = do
+  void $
+    withTyCheckM defaultTyCheckSt $ do
+      u <- tyCell $ Filled unitF
+      x <- tyCell $ Filled $ RtArrF u u
+      i0 <- tyCell $ Empty
+      y <- tyCell $ Filled $ RtArrF i0 i0
+      RootInfo xCell _ _ _ _ <- rootInfo (unTyCell x)
+      RootInfo yCell _ _ _ _ <- rootInfo (unTyCell y)
+      let then_ a b = do
+            inform b =<< (readRef $ value a)
+            inform a =<< (readRef $ value b)
+      let test = liftIO $ do
+            xVal <- saturateTy x
+            yVal <- saturateTy y
+            xVal @?= yVal
+      (xCell `then_` yCell *> test) <|> (yCell `then_` xCell *> test)
+
+unifyIsCommunative = do
+  void $
+    withTyCheckM defaultTyCheckSt $ do
+      u <- tyCell $ Filled unitF
+      x <- tyCell $ Filled $ RtArrF u u
+      i0 <- tyCell $ Empty
+      y <- tyCell $ Filled $ RtArrF i0 i0
+      unify x y
+      xVal <- liftIO $ saturateTy x
+      yVal <- liftIO $ saturateTy y
+      liftIO $ xVal @?= RtArr unit unit
+      liftIO $ yVal @?= RtArr unit unit
+
+unitEvalsToUnit = do
   eval unit @?= unit
 
 cannotInferUnitTy = do
@@ -81,13 +128,23 @@ checkingErrorsGoThrough = do
   typeCheck input defaultTyCheckSt setup
     `expectTyErrors` [TypeMismatch]
 
-infersSymbolTy = testCase "inferred type of foo is the provided type" $ do
+infersArrTy = do
+  input <- testParse "() -> ()"
+  typeCheck input defaultTyCheckSt noSetup
+    `expectTy` RtTy
+
+infersSymbolTy = do
   input <- testParse "foo"
   let setup = do
         t <- tyCell $ Filled unitF
         void $ assuming "foo" $ Other $ TyExpr t unitF
   typeCheck input defaultTyCheckSt setup
     `expectTy` unit
+
+lambdasCheck = do
+  input <- testParse "(\\x -> x) : () -> ()"
+  typeCheck input defaultTyCheckSt noSetup
+    `expectTy` (RtArr unit unit)
 
 checkAnn = do
   input <- testParse "() : ()"
@@ -112,8 +169,7 @@ expectTy check expected =
           <> show actual
           <> "\nBut it was supposed to succeed with:\n"
           <> show expected
-    Right tree -> do
-      actual <- extractTy tree
+    Right (LocTree _ _ (AnnotatedF actual _)) -> do
       actual @?= expected
 
 expectTyErrors check expected =
@@ -127,8 +183,7 @@ expectTyErrors check expected =
               <> show actual
               <> "\nBut these errors were expected:\n"
               <> show expected
-    Right tree -> do
-      result <- extractTy tree
+    Right (LocTree _ _ (AnnotatedF result _)) -> do
       assertFailure $
         "Type checking returned with:\n"
           <> show result

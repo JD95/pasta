@@ -55,7 +55,8 @@ data TyCheckSt = TyCheckSt
     uidList :: [Word32],
     errors :: [(ErrorCell, Branch)],
     currentBranch :: Branch,
-    failedBranches :: HashSet Branch
+    failedBranches :: HashSet Branch,
+    problemDepth :: Word32
   }
 
 data TCError
@@ -121,6 +122,7 @@ unify x y = (unTyCell x) `is` (unTyCell y)
 
 newUid = state $ \s -> (Prelude.head $ uidList s, s { uidList = Prelude.tail (uidList s) })
 
+tyCell :: Hole (RtValF TyCell) -> TyCheckM TyCell
 tyCell value = do
   uid <- newUid
   TyCell <$> (newTerm uid =<< cell value)
@@ -130,6 +132,10 @@ data TCheckEnv = TCheckEnv
 data TyExpr = TyExpr {ty :: TyCell, expr :: (RtValF TyExpr)}
 
 makeBaseFunctor ''TyExpr
+
+data Annotated = Annotated {ann :: RtVal, body :: (RtValF Annotated)}
+
+makeBaseFunctor ''Annotated
 
 type TyTree = LocTree RowCol TyExprF
 
@@ -141,24 +147,32 @@ defaultTyCheckSt =
       uidList = [0..], -- TODO: Do better
       errors = [],
       currentBranch = Branch 0,
-      failedBranches = HS.empty
+      failedBranches = HS.empty,
+      problemDepth = 0
     }
 
 -- Must be below the template haskell
 instance Lattice TyCheckM (Hole (RtValF TyCell)) where
+  -- TYPE
+  merge (Old (Filled RtTyF)) (New (Filled RtTyF)) = pure None
+  merge (Old (Filled RtTyF)) (New (Filled _)) = pure Conflict
+  merge (Old (Filled _)) (New (Filled RtTyF)) = pure Conflict
+  -- PRODUCTS
   merge (Old (Filled (RtProdF xs))) (New (Filled (RtProdF ys))) = do
     if Vec.length xs /= Vec.length ys
       then pure Conflict
       else do
         for_ (Vec.zip xs ys) (uncurry unify)
         pure None
-  merge (Old (Filled RtTyF)) (New (Filled RtTyF)) = pure None
-  merge (Old (Filled RtTyF)) (New (Filled _)) = pure Conflict
-  merge (Old (Filled _)) (New (Filled RtTyF)) = pure Conflict
+  -- ARROWS
+  merge (Old (Filled (RtArrF a b))) (New (Filled (RtArrF c d))) = do
+    unify a c
+    unify b d
+    pure None
   merge (Old (Filled x)) (New (Filled y)) = do
     xVal <- liftIO $ embed <$> traverse saturateTy x
     yVal <- liftIO $ embed <$> traverse saturateTy y
-    error $ "Haven't fully implemented merge for TyCells yet:\n " <> show xVal <> "\n" <> show yVal
+    error $ "Haven't fully implemented merge for TyCells yet:\n" <> show xVal <> "\n" <> show yVal
   merge (Old Empty) (New (Filled y)) = pure $ Gain (Filled y)
   merge _ (New Empty) =  pure None
 
@@ -180,8 +194,8 @@ exclusive :: (TyCell -> TyCheckM a) -> (TyCell -> TyCheckM a) -> TyCheckM a
 exclusive pathX pathY = do
   x <- tyCell Empty
   y <- tyCell Empty
-  (cellX, _, _, _) <- rootInfo (unTyCell x)
-  (cellY, _, _, _) <- rootInfo (unTyCell y)
+  RootInfo cellX _ _ _ _ <- rootInfo (unTyCell x)
+  RootInfo cellY _ _ _ _ <- rootInfo (unTyCell y)
   errCell <- cell Nothing
   prop [Watched cellX, Watched cellY] errCell $ do
     pure (Just AmbiguousTypes)
@@ -191,13 +205,21 @@ exclusive pathX pathY = do
 
 branch :: [TyCheckM a] -> TyCheckM a
 branch [] = empty
-branch (x : xs) = x <|> go xs where
-  go [] = empty
-  go (y:ys) = do
+branch (x : xs) = do
+  depth <- problemDepth <$> get
+  x <|> go depth xs
+
+  where
+
+  go _ [] = empty
+  go depth (y:ys) = do
     -- Only make a new branch after following the first path
     -- as deep as it will go
-    modify (\st -> st { currentBranch = Branch (unBranch (currentBranch st) + 1) })
-    y <|> go ys
+    modify $ \st -> st
+      { currentBranch = Branch (unBranch (currentBranch st) + 1),
+        problemDepth = depth
+      }
+    y <|> go depth ys
 
 -- | Adds an error to the error list
 addError :: TCError -> TyCheckM a
@@ -217,9 +239,12 @@ assuming name ty = do
   modify $ \st -> st {bindings = Map.insert name ty (bindings st)}
   pure oldBindings
 
-typeCheck :: LocTree RowCol ExprF -> TyCheckSt -> TyCheckM () -> IO (Either [TCError] TyTree)
+withTyCheckM :: TyCheckSt -> TyCheckM a -> IO ([a], TyCheckSt)
+withTyCheckM st ma = runStateT (observeAllT $ runTyCheckM ma) st
+
+typeCheck :: LocTree RowCol ExprF -> TyCheckSt -> TyCheckM () -> IO (Either [TCError] (LocTree RowCol AnnotatedF))
 typeCheck tree initSt setup = do
-  (solutions, st) <- runStateT (observeAllT $ runTyCheckM $ go) initSt
+  (solutions, st) <- runStateT (observeAllT $ runTyCheckM go) initSt
   filledErrors (snd <$> solutions) st >>= \case
     [] -> case solutions of
       [] -> error "No valid solutions!"
@@ -231,10 +256,10 @@ typeCheck tree initSt setup = do
       debug "Starting Type Checking!"
       setup
       solution <- convertTree tree
-      debug "found solution!"
-      debug . ("Solution: " <>) . show =<< liftIO (extractValue solution)
+      debug . ("Solution: " <>) . show =<< liftIO (extractTy solution)
       b <- currentBranch <$> get
-      pure (solution, b)
+      x <- liftIO $ extractTree solution
+      pure (x, b)
 
     filledErrors xs st =
       flip filterM (errors st) $ \(e, b) -> do
@@ -253,9 +278,22 @@ convertTree :: LocTree RowCol ExprF -> TyCheckM TyTree
 convertTree tree = AST.transform go tree
   where
     go :: RowCol -> RowCol -> ExprF (TyCheckM TyTree) -> TyCheckM (TyExprF TyTree)
+
+    -- ARROW
+    go _ _ (ArrF inferInput inferOutput) = subProblem "ArrF" $ do
+      inputTree <- inferInput
+      debugShowTreeTy inputTree
+      (unify (tyOf inputTree) =<< tyCell (Filled RtTyF))
+        `ifFailThen` addError TypeMismatch
+      outputTree <- inferOutput
+      debugShowTreeTy outputTree
+      (unify (tyOf outputTree) =<< tyCell (Filled RtTyF))
+        `ifFailThen` addError TypeMismatch
+      thisTy <- tyCell $ Filled RtTyF
+      pure $ TyExprF thisTy $ RtArrF inputTree outputTree
+
     -- PRODUCT
-    go _ _ (ProdF checkElems) = do
-      debug "ProdF"
+    go _ _ (ProdF checkElems) = subProblem "ProdF" $ do
       elemTrees <- sequence checkElems
       let tys = tyF . locContent <$> elemTrees
       exclusive
@@ -272,33 +310,41 @@ convertTree tree = AST.transform go tree
           debug "trying product as value"
           thisTy <- tyCell . Filled . RtProdF $ Vec.fromList tys
           pure $ TyExprF thisTy $ RtProdF $ Vec.fromList elemTrees
+
     -- LAMBDA
-    go _ _ (LamF checkName checkBody) = do
-      debug "LamF"
+    go _ _ (LamF checkName checkBody) = subProblem "LamF" $ do
       depth <- lambdaDepth <$> get
       inputTy <- tyCell Empty
       oldBindings <- assuming checkName $ LambdaBound inputTy depth
       bodyTree <- checkBody
       restoreBindings oldBindings
-      pure $ TyExprF (tyF $ locContent bodyTree) (RtLamF bodyTree)
+      thisTy <- tyCell $ Filled $ RtArrF inputTy (tyOf bodyTree)
+      pure $ TyExprF thisTy (RtLamF bodyTree)
+
     -- ANNOTATION
-    go _ _ (AnnF checkTerm checkAnn) = do
-      debug "AnnF"
+    go _ _ (AnnF checkTerm checkAnn) = subProblem "AnnF" $ do
       debug "inferring type of annotation..."
       annTree <- checkAnn
-      debug "type of annotation inferred, now making sure it's a type!"
+      debugShowTreeTy annTree
       (unify (tyOf annTree) =<< tyCell (Filled RtTyF))
         `ifFailThen` addError TypeMismatch
-      debug "It's a type!"
-      debug "inferring type for term..."
       termTree <- checkTerm
-      debug "type term infered, now making sure it matches the annotation..."
-      (unify (tyOf termTree) =<< tyCell (Filled $ unwrapVal annTree))
+      debugShowTreeTy termTree
+      x <- tyFromVal annTree
+      debug "going to unify annotation "
+      debug . show =<< liftIO (saturateTy x)
+      debug "with term..."
+      debug . show =<< liftIO (extractTy termTree)
+      (unify (tyOf termTree) x)
         `ifFailThen` addError TypeMismatch
+      debug "term is now..."
+      debug . show =<< liftIO (extractTy termTree)
       debug "AnnF done"
       pure $ locContent termTree
+
     -- SYMBOL
-    go x y (SymbolF name) = do
+    go x y (SymbolF name) = subProblem "SymbolF" $ do
+      debug $ "looking up type for symbol " <> Text.unpack name
       wrapExpr x y <$> lookupValFor name
 
 tyOf :: TyTree -> TyCell
@@ -317,19 +363,34 @@ lookupValFor name = do
 wrapExpr :: RowCol -> RowCol -> TyExpr -> TyExprF TyTree
 wrapExpr start end (TyExpr thisTy val) = TyExprF thisTy $ (LocTree start end . wrapExpr start end <$> val)
 
-unwrapVal :: TyTree -> RtValF TyCell
-unwrapVal (LocTree _ _ (TyExprF ty valTree)) = tyF . locContent <$> valTree
+tyFromVal :: TyTree -> TyCheckM TyCell
+tyFromVal (LocTree _ _ (TyExprF ty valTree)) = do
+  tyCell . Filled =<< traverse tyFromVal valTree
+
+extractTree :: LocTree RowCol TyExprF -> IO (LocTree RowCol AnnotatedF)
+extractTree (LocTree x y (TyExprF t val)) = do
+  val' <- AnnotatedF <$> saturateTy t <*> traverse extractTree val
+  pure $ LocTree x y val'
 
 extractTy :: TyTree -> IO RtVal
 extractTy tree = saturateTy $ tyF $ locContent tree
 
 saturateTy :: TyCell -> IO RtVal
-saturateTy (TyCell tyCell) = do
-  (thisCell, _, _, _) <- rootInfo tyCell
-  readRef (value thisCell) >>= \case
-    Filled (RtProdF xs) -> RtProd <$> traverse saturateTy xs
-    Filled _ -> undefined
-    Empty -> undefined
+saturateTy c = evalStateT (go c) (Map.empty, 0) where
+
+  go :: TyCell -> StateT (Map Word32 Word32, Word32) IO RtVal
+  go (TyCell tyCell) = do
+    RootInfo thisCell _ uid _ _ <- liftIO $ rootInfo tyCell
+    liftIO (readRef $ value thisCell) >>= \case
+      Filled (RtProdF xs) -> RtProd <$> traverse go xs
+      Filled (RtArrF input output) -> RtArr <$> go input <*> go output
+      Filled RtTyF -> pure RtTy
+      Empty -> Map.lookup uid . fst <$> get >>= \case
+        Just i -> pure $ RtVar i
+        Nothing -> do
+          (tbl, n) <- get
+          put $ (Map.insert uid n tbl, n + 1)
+          pure $ RtVar n
 
 extractValue :: TyTree -> IO RtVal
 extractValue tree =
@@ -337,10 +398,30 @@ extractValue tree =
   where
     go :: RtValF TyTree -> IO RtVal
     go (RtProdF xs) = RtProd <$> traverse (go . exprF . locContent) xs
-    go _ = undefined
+    go (RtArrF input output)
+      = RtArr
+      <$> (go . exprF . locContent) input
+      <*> (go . exprF . locContent) output
+    go (RtLamF body)
+      = RtLam <$> (go . exprF $ locContent body)
+    go (RtVarF i) = pure $ RtVar i
+    go RtTyF  = pure RtTy
 
 debugTypeChecking = False
 
 debug msg =
-  when debugTypeChecking $
-    liftIO $ putStrLn msg
+  when debugTypeChecking $ do
+    depth <- problemDepth <$> get
+    liftIO $ putStrLn $ replicate (fromIntegral $ depth * 2) ' ' <> msg
+
+debugShowTreeTy tree = do
+  val <- liftIO $ extractValue tree
+  t <- liftIO $ extractTy tree
+  debug $ "type of " <> show val <> " is " <> show t
+
+subProblem msg check = do
+  debug msg
+  modify $ \st -> st { problemDepth = problemDepth st + 1 }
+  result <- check
+  modify $ \st -> st { problemDepth = problemDepth st - 1 }
+  pure result

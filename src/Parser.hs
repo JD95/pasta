@@ -37,6 +37,12 @@ displayReport input (Report i expected rest) =
 
 grammar :: Grammar r (Prod r String Token AST)
 grammar = mdo
+  expr <- rule $ ann <|> lvl2
+  lvl2 <- rule $ arrTy <|> lvl3
+  lvl3 <- rule $ app <|> lvl4
+  lvl4 <- rule $ let_ <|> lvl5
+  lvl5 <- rule $ lam <|> lvl6
+  lvl6 <- rule $ someSymbol <|> unit <|> between Lex.Paren expr
   let_ <-
     rule $
       triCon LetF
@@ -46,17 +52,19 @@ grammar = mdo
   app <-
     rule $
       mkApp
-        <$> expr
-        <*> some (some space *> expr)
+        <$> lvl6
+        <*> some (some space *> lvl6)
+  arrTy <-
+    rule $
+      biCon ArrF
+        <$> lvl3
+        <*> (spaced arr *> lvl4)
   ann <-
     rule $
       biCon AnnF
-        <$> expr
-        <*> (spaced colon *> expr)
+        <$> lvl2
+        <*> (spaced colon *> lvl2)
   lam <- rule (lambda expr)
-  expr <-
-    rule $
-      unit <|> between Lex.Paren expr <|> lam <|> let_ <|> ann <|> app <|> someSymbol
   pure expr
 
 lambda :: Prod r String Token AST -> Prod r String Token AST

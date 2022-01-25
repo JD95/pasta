@@ -15,6 +15,7 @@ data Expr
   | Ann Expr Expr
   | Let Expr Expr Expr
   | App Expr [Expr]
+  | Arr Expr Expr
   | Symbol Text
   | Prod [Expr]
   deriving (Show, Eq)
@@ -28,3 +29,5 @@ display (AnnF expr ty) = expr <> " : " <> ty
 display (LetF x y z) = "let " <> x <> " = " <> y <> " in " <> z
 display (AppF f xs) = f <> " " <> intercalate " " xs
 display (ProdF xs) = "(" <> intercalate ", " xs <> ")"
+
+unitE = Prod []
