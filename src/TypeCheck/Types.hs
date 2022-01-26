@@ -1,4 +1,3 @@
-
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeApplications #-}
@@ -44,13 +43,26 @@ type ErrorCell = Cell TyCheckM IORef (Maybe TCError)
 newtype Branch = Branch { unBranch :: Word32 }
   deriving (Show, Eq, Hashable)
 
+-- | The context for type checking
 data TyCheckSt = TyCheckSt
-  { bindings :: Map Text Binding,
+  { -- | The current bindings for
+    -- - Free Variables
+    -- - Lambda Expressions
+    -- - Let Expressions
+    bindings :: Map Text Binding,
+    -- | How many lambdas have
+    -- been passed up until this
+    -- point.
     lambdaDepth :: Word32,
+    -- | UIDs for type terms
     uidList :: [Word32],
+    -- | The errors accumulated and to which
+    -- branch they belong
     errors :: [(ErrorCell, Branch)],
     currentBranch :: Branch,
     failedBranches :: HashSet Branch,
+    -- | Used for indentation when
+    -- printing debug messages
     problemDepth :: Word32
   }
 
@@ -67,7 +79,7 @@ instance Exception TCError where
 
 data Binding
   = LambdaBound
-      TyCell
+      TyTerm
     -- | The depth of the lambda from the root, used to
     -- later calculate the De Bruijn indicies
     --
@@ -93,6 +105,21 @@ data Binding
     -- @
       Word32
   | Other TyExpr
+
+-- | The monad in which type checking occurs
+--
+-- It has three layers
+-- - LogicT
+-- - StateT
+-- - IO
+--
+-- The resulting values will be IO ([a], TyCheckSt)
+--
+-- The LogicT layer is used for control flow and backtracking, which
+-- is necessary for the propagators that power unification. However,
+-- the type checking context remains *global* throughout the entire
+-- process. This is so errors from different branches can be held
+-- onto.
 newtype TyCheckM a = TyCheckM {runTyCheckM :: LogicT (StateT TyCheckSt IO) a}
   deriving (Functor, Applicative, Monad, Alternative, MonadState TyCheckSt, MonadLogic, MonadIO)
 
@@ -109,29 +136,36 @@ data Hole a
 -- |
 -- The Term layer allows for efficient unification
 -- The Cell layer gives us propagation and merging
-newtype TyCell = TyCell {unTyCell :: Term Word32 IORef (Cell TyCheckM IORef (Hole (RtValF TyCell)))}
+newtype TyTerm = TyTerm {unTyTerm :: Term Word32 IORef (Cell TyCheckM IORef (Hole (RtValF TyTerm)))}
   deriving (Eq)
 
-unify :: TyCell -> TyCell -> TyCheckM ()
-unify x y = (unTyCell x) `is` (unTyCell y)
+-- | Unify two terms, ensuring that the information
+-- within each is compatible. If the information
+-- creates a conflict, then backtracking will be
+-- caused
+unify :: TyTerm -> TyTerm -> TyCheckM ()
+unify x y = (unTyTerm x) `is` (unTyTerm y)
 
 newUid :: TyCheckM Word32
 newUid = state $ \s -> (Prelude.head $ uidList s, s { uidList = Prelude.tail (uidList s) })
 
-tyCell :: Hole (RtValF TyCell) -> TyCheckM TyCell
-tyCell x = do
+-- | Create a new type term
+tyTerm :: Hole (RtValF TyTerm) -> TyCheckM TyTerm
+tyTerm x = do
   uid <- newUid
-  TyCell <$> (newTerm uid =<< cell x)
+  TyTerm <$> (newTerm uid =<< cell x)
 
 data TCheckEnv = TCheckEnv
 
-data TyExpr = TyExpr {ty :: TyCell, expr :: (RtValF TyExpr)}
+-- | A value with each node annotated by a type cell
+data TyExpr = TyExpr {ty :: TyTerm, expr :: (RtValF TyExpr)}
 
 makeBaseFunctor ''TyExpr
 
-data Annotated = Annotated {ann :: RtVal, body :: (RtValF Annotated)}
+-- | A value with each node annotated by a type value
+data Gathered = Gathered {ann :: RtVal, body :: (RtValF Gathered)}
 
-makeBaseFunctor ''Annotated
+makeBaseFunctor ''Gathered
 
 type TyTree = LocTree RowCol TyExprF
 
@@ -148,7 +182,7 @@ defaultTyCheckSt =
     }
 
 -- Must be below the template haskell
-instance Lattice TyCheckM (Hole (RtValF TyCell)) where
+instance Lattice TyCheckM (Hole (RtValF TyTerm)) where
   -- TYPE
   merge (Old (Filled RtTyF)) (New (Filled RtTyF)) = pure None
   merge (Old (Filled RtTyF)) (New (Filled _)) = pure Conflict
@@ -168,7 +202,7 @@ instance Lattice TyCheckM (Hole (RtValF TyCell)) where
   merge (Old (Filled x)) (New (Filled y)) = do
     xVal <- liftIO $ embed <$> traverse gatherTy x
     yVal <- liftIO $ embed <$> traverse gatherTy y
-    error $ "Haven't fully implemented merge for TyCells yet:\n" <> show xVal <> "\n" <> show yVal
+    error $ "Haven't fully implemented merge for TyTerms yet:\n" <> show xVal <> "\n" <> show yVal
   merge (Old Empty) (New (Filled y)) = pure $ Gain (Filled y)
   merge _ (New Empty) =  pure None
 
@@ -177,29 +211,41 @@ instance Lattice TyCheckM (Hole (RtValF TyCell)) where
   isTop (Filled _) = pure True
   isTop Empty = pure False
 
-treeRootTy :: TyTree -> TyCell
+-- | Get the annotation of the tree's root
+treeRootTy :: TyTree -> TyTerm
 treeRootTy = tyF . locContent
 
+-- | Wrap each layer of the annotated expression with location info
+--
+-- The whole expression will lie within
+-- provided start and end positions.
 exprToTree :: RowCol -> RowCol -> TyExpr -> TyExprF TyTree
 exprToTree start end (TyExpr thisTy val) = TyExprF thisTy $ (LocTree start end . exprToTree start end <$> val)
 
-treeValuesIntoTy :: TyTree -> TyCheckM TyCell
+-- | Strips the annotations from the tree and converts
+-- the resulting value into a term
+treeValuesIntoTy :: TyTree -> TyCheckM TyTerm
 treeValuesIntoTy (LocTree _ _ (TyExprF _ valTree)) = do
-  tyCell . Filled =<< traverse treeValuesIntoTy valTree
+  tyTerm . Filled =<< traverse treeValuesIntoTy valTree
 
-treeGatherAllTys :: LocTree RowCol TyExprF -> IO (LocTree RowCol AnnotatedF)
+-- | Gather the annotated type terms into values along the tree
+treeGatherAllTys :: LocTree RowCol TyExprF -> IO (LocTree RowCol GatheredF)
 treeGatherAllTys (LocTree x y (TyExprF t val)) = do
-  val' <- AnnotatedF <$> gatherTy t <*> traverse treeGatherAllTys val
+  val' <- GatheredF <$> gatherTy t <*> traverse treeGatherAllTys val
   pure $ LocTree x y val'
 
+-- | Gather the annotated type for the root node into a value
 treeGatherRootTy :: TyTree -> IO RtVal
 treeGatherRootTy tree = gatherTy $ tyF $ locContent tree
 
-gatherTy :: TyCell -> IO RtVal
+-- | Gather the term into a value such that all
+-- constructors point directly to their children
+-- instead of through a term reference
+gatherTy :: TyTerm -> IO RtVal
 gatherTy c = evalStateT (go c) (Map.empty, 0)
   where
-    go :: TyCell -> StateT (Map Word32 Word32, Word32) IO RtVal
-    go (TyCell t) = do
+    go :: TyTerm -> StateT (Map Word32 Word32, Word32) IO RtVal
+    go (TyTerm t) = do
       RootInfo thisCell _ uid _ _ <- liftIO $ rootInfo t
       liftIO (readRef $ value thisCell) >>= \case
         Filled (RtProdF xs) -> RtProd <$> traverse go xs
@@ -214,6 +260,7 @@ gatherTy c = evalStateT (go c) (Map.empty, 0)
               put $ (Map.insert uid n tbl, n + 1)
               pure $ RtVar n
 
+-- | Strip the type term annotations from the tree
 treeStripTypes :: TyTree -> RtVal
 treeStripTypes (LocTree _ _ (TyExprF _ e)) =
   embed $ treeStripTypes <$> e

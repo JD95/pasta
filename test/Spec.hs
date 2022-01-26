@@ -84,12 +84,12 @@ annHasPriorityOverArrow = do
 typeMergeIsCommunative = do
   void $
     withTyCheckM defaultTyCheckSt $ do
-      u <- tyCell $ Filled unitF
-      x <- tyCell $ Filled $ RtArrF u u
-      i0 <- tyCell $ Empty
-      y <- tyCell $ Filled $ RtArrF i0 i0
-      RootInfo xCell _ _ _ _ <- rootInfo (unTyCell x)
-      RootInfo yCell _ _ _ _ <- rootInfo (unTyCell y)
+      u <- tyTerm $ Filled unitF
+      x <- tyTerm $ Filled $ RtArrF u u
+      i0 <- tyTerm $ Empty
+      y <- tyTerm $ Filled $ RtArrF i0 i0
+      RootInfo xCell _ _ _ _ <- rootInfo (unTyTerm x)
+      RootInfo yCell _ _ _ _ <- rootInfo (unTyTerm y)
       let then_ a b = do
             inform b =<< (readRef $ value a)
             inform a =<< (readRef $ value b)
@@ -102,10 +102,10 @@ typeMergeIsCommunative = do
 unifyIsCommunative = do
   void $
     withTyCheckM defaultTyCheckSt $ do
-      u <- tyCell $ Filled unitF
-      x <- tyCell $ Filled $ RtArrF u u
-      i0 <- tyCell $ Empty
-      y <- tyCell $ Filled $ RtArrF i0 i0
+      u <- tyTerm $ Filled unitF
+      x <- tyTerm $ Filled $ RtArrF u u
+      i0 <- tyTerm $ Empty
+      y <- tyTerm $ Filled $ RtArrF i0 i0
       unify x y
       xVal <- liftIO $ gatherTy x
       yVal <- liftIO $ gatherTy y
@@ -123,7 +123,7 @@ cannotInferUnitTy = do
 checkingErrorsGoThrough = do
   input <- testParse "foo : ()"
   let setup = do
-        t <- tyCell $ Filled RtTyF
+        t <- tyTerm $ Filled RtTyF
         void $ assuming "foo" $ Other $ TyExpr t unitF
   typeCheck input defaultTyCheckSt setup
     `expectTyErrors` [TypeMismatch]
@@ -136,7 +136,7 @@ infersArrTy = do
 infersSymbolTy = do
   input <- testParse "foo"
   let setup = do
-        t <- tyCell $ Filled unitF
+        t <- tyTerm $ Filled unitF
         void $ assuming "foo" $ Other $ TyExpr t unitF
   typeCheck input defaultTyCheckSt setup
     `expectTy` unit
@@ -169,7 +169,7 @@ expectTy check expected =
           <> show actual
           <> "\nBut it was supposed to succeed with:\n"
           <> show expected
-    Right (LocTree _ _ (AnnotatedF actual _)) -> do
+    Right (LocTree _ _ (GatheredF actual _)) -> do
       actual @?= expected
 
 expectTyErrors check expected =
@@ -183,7 +183,7 @@ expectTyErrors check expected =
               <> show actual
               <> "\nBut these errors were expected:\n"
               <> show expected
-    Right (LocTree _ _ (AnnotatedF result _)) -> do
+    Right (LocTree _ _ (GatheredF result _)) -> do
       assertFailure $
         "Type checking returned with:\n"
           <> show result
