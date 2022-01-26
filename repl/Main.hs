@@ -10,6 +10,7 @@ import Parser
 import Runtime
 import System.Console.Haskeline
 import TypeCheck
+import TypeCheck.Types
 
 main :: IO ()
 main = do

@@ -2,13 +2,10 @@ module Trie (Trie, LookupError (..), lookup, insert, draw, empty) where
 
 import Control.Monad
 import Data.List.NonEmpty (NonEmpty (..))
-import qualified Data.List.NonEmpty as NE
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Tree (Tree (..), drawTree)
-import Numeric.Natural
-import Runtime.Ref
 import Prelude hiding (lookup)
 
 data Trie k a
@@ -28,7 +25,7 @@ lookup (k :| ks) (Branch b) =
     Just ([], Branch _) -> Left TooFewKeys
     Just (next : more, Branch child) -> lookup (next :| more) (Branch child)
     Just ([], Leaf x) -> Right x
-    Just (_ : _, Leaf x) -> Left TooManyKeys
+    Just (_ : _, Leaf _) -> Left TooManyKeys
     Nothing -> Left KeyMismatch
 
 insert :: Ord k => NonEmpty k -> a -> Trie k a -> Trie k a

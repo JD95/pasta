@@ -11,7 +11,6 @@ module Runtime.Prop where
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Logic
 import Runtime.Ref
 
 data Info a
@@ -33,6 +32,8 @@ instance Applicative Info where
   None <*> (Gain _) = None
   None <*> None = None
   None <*> Conflict = None
+  Conflict <*> (Gain _) = Conflict
+  Conflict <*> None = Conflict
   Conflict <*> Conflict = Conflict
 
 newtype New a = New a
@@ -53,7 +54,7 @@ instance (Monad m, Eq a) => Lattice m (Maybe a) where
   merge (Old (Just x)) (New (Just y))
     | x == y = pure None
     | otherwise = pure Conflict
-  merge (Old (Just x)) (New Nothing) = pure None
+  merge (Old (Just _)) (New Nothing) = pure None
   merge (Old Nothing) (New (Just x)) = pure $ Gain (Just x)
   merge (Old Nothing) (New Nothing) = pure None
 
@@ -85,8 +86,8 @@ instance Eq (r a) => Eq (Cell m r a) where
   x == y = value x == value y
 
 cell :: forall a m r. Ref m r => a -> m (Cell m r a)
-cell value = do
-  x <- newRef value
+cell val = do
+  x <- newRef val
   trig <- newRef []
   pure $ Cell x trig
 
@@ -102,19 +103,19 @@ inform target new = do
     Conflict -> empty
   where
     fireAll _ kept [] = backTrackingWriteRef (triggerWatchers target) kept
-    fireAll value kept (fire : xs) = do
-      pred <- fire
+    fireAll x kept (fire : xs) = do
+      p <- fire
       next <-
-        pred value >>= \case
+        p x >>= \case
           True -> pure $ fire : kept
           False -> pure $ kept
-      fireAll value xs next
+      fireAll x xs next
 
 listenWhile :: (Alternative m, Ref m r) => (a -> m Bool) -> Prop m r -> Cell m r a -> m ()
-listenWhile cond prop c = do
+listenWhile cond p c = do
   backTrackingModifyRef (triggerWatchers c) $ \others ->
     let new = do
-          join $ readRef (action prop)
+          join $ readRef (action p)
           pure cond
      in new : others
 
@@ -126,7 +127,7 @@ listenToAlways = listenWhile (const $ pure True)
 
 prop :: (Lattice m a, Alternative m, Ref m r) => [Watched m r] -> Cell m r a -> m a -> m ()
 prop [] target fire = inform target =<< fire
-prop inputs@(Watched x : xs) target fire = do
+prop inputs@(Watched x : _) target fire = do
   let fireInto = do
         result <- fire
         inform target result
@@ -138,19 +139,19 @@ prop inputs@(Watched x : xs) target fire = do
         forM_ inputs $ \(Watched w) -> listenWhile (fmap not . isTop) (Prop ref) w
         backTrackingWriteRef ref fireInto
         fireInto
-      waitForInputs ref (Watched x : xs) = do
-        value <- readRef $ value x
+      waitForInputs ref (Watched y : ys) = do
+        val <- readRef $ value y
         bot <- bottom
-        if value == bot
+        if val == bot
           then -- No usable input yet, wait until
           -- this cell gains input then check
           -- the rest
           do
-            listenToOnce (Prop ref) x
-            backTrackingWriteRef ref (waitForInputs ref xs)
+            listenToOnce (Prop ref) y
+            backTrackingWriteRef ref (waitForInputs ref ys)
           else -- This input has a usable value so
           -- go check the rest
-            waitForInputs ref xs
+            waitForInputs ref ys
 
   -- Create action ref with temp value
   propAction <- newRef (pure ())

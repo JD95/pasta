@@ -29,5 +29,7 @@ display (AnnF expr ty) = expr <> " : " <> ty
 display (LetF x y z) = "let " <> x <> " = " <> y <> " in " <> z
 display (AppF f xs) = f <> " " <> intercalate " " xs
 display (ProdF xs) = "(" <> intercalate ", " xs <> ")"
+display _ = undefined
 
+unitE :: Expr
 unitE = Prod []

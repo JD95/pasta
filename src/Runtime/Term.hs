@@ -9,7 +9,6 @@ import Data.Foldable (for_)
 import Data.HashSet (HashSet)
 import qualified Data.HashSet as HS
 import Data.Hashable
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Runtime.Ref
 import Runtime.Prop
 
@@ -40,7 +39,7 @@ instance Hashable uid => Hashable (Term uid r a) where
   hashWithSalt d = hashWithSalt d . termId
 
 newTerm :: (Hashable uid, Ref m r) => uid -> a -> m (Term uid r a)
-newTerm uid value = Term uid <$> newRef (Root value 0 uid HS.empty)
+newTerm uid val = Term uid <$> newRef (Root val 0 uid HS.empty)
 
 -- | Find the root info for a term, optimizing references when possible
 --
@@ -62,7 +61,7 @@ rootInfo d =
 root :: (Hashable uid, Ref m r) => Term uid r a -> m (a, Term uid r a)
 root d =
   readRef (termRef d) >>= \case
-    Root value _ _ _ -> pure (value, d)
+    Root val _ _ _ -> pure (val, d)
     Child s -> do
       result@(_, x) <- root s
       writeRef (termRef d) (Child x)

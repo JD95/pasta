@@ -1,15 +1,20 @@
 module Lib
-  ( module X,
+  ( module AST.LocTree,
+    module Lexer,
+    module Parser,
+    module Runtime,
+    module Runtime.Ref,
+    module Runtime.Types,
+    module TypeCheck,
+    module TypeCheck.Types,
   )
 where
 
-import qualified AST.LocTree as X
-import qualified Lexer as X
-import qualified Parser as X
-import qualified Query as X
-import qualified Runtime as X
-import qualified Runtime.Dsl as X
-import qualified Runtime.Ref as X
-import qualified Runtime.Types as X
-import qualified Tabling as X
-import qualified TypeCheck as X
+import AST.LocTree
+import Lexer
+import Parser
+import Runtime
+import Runtime.Ref
+import Runtime.Types
+import TypeCheck
+import TypeCheck.Types

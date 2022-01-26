@@ -7,28 +7,22 @@
 module Lexer (Pair (..), RowCol (..), Token (..), Lexeme (..), lexer) where
 
 import Control.Applicative (Alternative, (<|>))
-import Control.Monad (MonadPlus, void)
+import Control.Monad (MonadPlus)
 import Control.Monad.State (State, evalState)
-import qualified Control.Monad.State as State
-import Data.Text (Text, pack, unpack)
-import qualified Data.Text.IO as Text
+import Data.Text (Text, pack)
 import Numeric.Natural
 import Text.Megaparsec
   ( MonadParsec,
     ParseErrorBundle,
     ParsecT,
     SourcePos (..),
-    between,
     chunk,
     getSourcePos,
     many,
     runParserT,
     some,
-    takeWhileP,
-    try,
   )
-import Text.Megaparsec.Char (alphaNumChar, char, letterChar, space1)
-import qualified Text.Megaparsec.Char.Lexer as L
+import Text.Megaparsec.Char (alphaNumChar, char, letterChar)
 import Text.Megaparsec.Pos (Pos)
 
 data Pair = Open | Close
@@ -59,18 +53,6 @@ data LexSt = LexSt
 newtype Lex a = Lex {runLexer :: ParsecT LexError Text (State LexSt) a}
   deriving newtype (Functor, Applicative, Alternative, Monad, MonadPlus, MonadParsec LexError Text)
 
-displayToken :: Token -> String
-displayToken (Token l _) = case l of
-  NewLine n -> '\n' : replicate (fromIntegral n) ' '
-  Symbol t -> unpack t
-  Paren Open -> "("
-  Paren Close -> ")"
-  Lambda -> "\\"
-  Arrow -> "->"
-  Colon -> ":"
-  Equals -> "="
-  Space -> " "
-
 newLine :: Lex Lexeme
 newLine = do
   _ <- char '\n'
@@ -85,9 +67,9 @@ symbol = do
 
 token :: Lex Token
 token = do
-  SourcePos _ row col <- getSourcePos
+  SourcePos _ r c <- getSourcePos
   l <- parse
-  pure $ Token l (RowCol row col)
+  pure $ Token l (RowCol r c)
   where
     parse =
       (Paren Open <$ char '(')

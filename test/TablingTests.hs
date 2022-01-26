@@ -1,8 +1,8 @@
 module TablingTests where
 
-import qualified Data.List as List
-import Test.Tasty
-import Test.Tasty.HUnit
+-- import qualified Data.List as List
+-- import Test.Tasty
+-- import Test.Tasty.HUnit
 
 {-
 newtype HoleChar = HoleChar Char

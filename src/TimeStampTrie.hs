@@ -6,17 +6,10 @@
 
 module TimeStampTrie where
 
-import Control.Monad
-import Control.Monad.State
-import Data.IORef
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.Maybe
-import Data.Traversable
 import Numeric.Natural
 import Runtime.Ref
 import Trie (Trie)
@@ -44,10 +37,10 @@ insert ks ts = do
       }
   where
     linkKeys :: Ref m r => NonEmpty k -> Maybe (r (BackRef r k)) -> [BackRef r k] -> m (NonEmpty (BackRef r k))
-    linkKeys (k :| []) prev revRefs =
-      pure $ NE.reverse $ BackRef prev k :| revRefs
-    linkKeys (k :| (next : more)) prev revRefs = do
-      let this = BackRef prev k
+    linkKeys (k :| []) p revRefs =
+      pure $ NE.reverse $ BackRef p k :| revRefs
+    linkKeys (k :| (next : more)) p revRefs = do
+      let this = BackRef p k
       link <- newRef this
       linkKeys (next :| more) (Just link) (this : revRefs)
 
@@ -58,8 +51,8 @@ lookupTime (TimeStamp t) tst = do
     gather :: Ref m r => [k] -> BackRef r k -> m (NonEmpty k)
     gather ks (BackRef ref k) = do
       case ref of
-        Just prev -> do
-          next <- readRef prev
+        Just p -> do
+          next <- readRef p
           gather (k : ks) next
         Nothing -> pure $ k :| ks
 
@@ -80,13 +73,3 @@ instance Ord a => Ord (BackRef r a) where
 
 instance Show a => Show (BackRef r a) where
   show (BackRef _ a) = show a
-
-test :: IO ()
-test = do
-  let drawStamped x = show (value x)
-  tst <-
-    ( insert ('b' :| "ee")
-        <=< insert ('b' :| "ed")
-      )
-      =<< pure (empty @IORef)
-  putStrLn $ Trie.draw "root" (show . value) (show . unTimeStamp) (keyIndex tst)

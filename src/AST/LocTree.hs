@@ -22,12 +22,12 @@ mkLocTree x y inner = LocTree x y inner <$ guard (x <= y)
 
 -- | Given a location, lookup the smallest subtree with the range that contains the location
 lookup :: (Foldable f, Ord l) => l -> LocTree l f -> Maybe (LocTree l f)
-lookup l top@(LocTree x y inner) =
+lookup l top@(LocTree _ _ inner) =
   if hasL top
     then case filter hasL $ toList inner of
       [] -> Just top
       [x] -> Just x
-      (x : _ : _) -> error "LocTree Constraint Broken! Multiple branches with same range!"
+      (_ : _ : _) -> error "LocTree Constraint Broken! Multiple branches with same range!"
     else Nothing
   where
     hasL (LocTree x y _) = x <= l && l <= y

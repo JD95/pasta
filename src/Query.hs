@@ -3,18 +3,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Query () where
+module Query where
 
-import Control.Monad
-import Control.Monad.State
-import Data.IORef
 import Data.List.NonEmpty (NonEmpty (..))
-import qualified Data.List.NonEmpty as NE
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.Maybe
-import Data.Traversable
-import Numeric.Natural
 import Runtime.Ref
 import TimeStampTrie
 import Trie (Trie)
@@ -32,8 +23,8 @@ data QueryResult m
 
 query :: (Ord k, Ref m r) => NonEmpty k -> r (Predicate m r k) -> m (QueryResult m)
 query ks predRef = do
-  pred <- readRef predRef
-  lookupSubgoal ks <$> readRef (subgoals pred) >>= \case
+  p <- readRef predRef
+  lookupSubgoal ks <$> readRef (subgoals p) >>= \case
     Right frame ->
       answers <$> readRef frame >>= \case
         -- Another generator is already doing
@@ -45,10 +36,10 @@ query ks predRef = do
         Consumer gen -> consumeFrom gen
     Left Trie.KeyMismatch -> do
       -- Allocate a new Generator
-      frame <- newRef $ SubgoalFrame (TimeStamp 0) [] [] (Generator (answerTrie pred))
-      modifyRef (subgoals pred) . addSubgoal ks $ frame
+      frame <- newRef $ SubgoalFrame (TimeStamp 0) [] [] (Generator (answerTrie p))
+      modifyRef (subgoals p) . addSubgoal ks $ frame
       -- Run clause resolution, may involve recursive calls to same predicate
-      let (x :| rest) = clauses pred
+      let (x :| rest) = clauses p
       let xs = foldr (generateFrom frame) (pure QueryComplete) rest
       pure $ QuerySuccess x xs
     Left _ -> pure QueryError
@@ -62,11 +53,11 @@ generateFrom ::
   m () ->
   m (QueryResult m) ->
   m (QueryResult m)
-generateFrom frame current next = do
-  answer <- current
+generateFrom frame _ next = do
+  -- answer <- current
   -- Check if frame has turned from generator to consumer/loader
   answers <$> readRef frame >>= \case
-    Generator tstRef -> do
+    Generator _ -> do
       -- insert answer into tst
       -- gather pending-answers if necessary
       next

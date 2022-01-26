@@ -7,16 +7,10 @@
 
 module Runtime.Types where
 
-import Control.Monad
-import Data.Functor.Foldable (cata)
 import Data.Functor.Foldable.TH (makeBaseFunctor)
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
-import Data.List
-import Data.Traversable
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Data.Word
-import Debug.Trace
 import Prelude hiding (const, id, log)
 
 data Match
