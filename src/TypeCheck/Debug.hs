@@ -14,7 +14,15 @@ debug :: String -> TyCheckM ()
 debug msg =
   when debugTypeChecking $ do
     depth <- problemDepth <$> get
-    liftIO $ putStrLn $ replicate (fromIntegral $ depth * 2) ' ' <> msg
+    Branch b <- currentBranch <$> get
+    liftIO
+      . putStrLn
+      $ show b <> ": " <> replicate (fromIntegral $ depth * 2) ' ' <> msg
+
+debugNoFormat :: String -> TyCheckM ()
+debugNoFormat msg =
+  when debugTypeChecking $ do
+    liftIO . putStrLn $ msg
 
 debugShowTreeTy :: TyTree -> TyCheckM ()
 debugShowTreeTy tree = do

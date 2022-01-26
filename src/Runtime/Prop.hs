@@ -58,6 +58,11 @@ instance (Monad m, Eq a) => Lattice m (Maybe a) where
   merge (Old Nothing) (New (Just x)) = pure $ Gain (Just x)
   merge (Old Nothing) (New Nothing) = pure None
 
+instance (Monad m) => Lattice m () where
+  bottom = pure ()
+  isTop _ = pure True
+  merge (Old ()) (New ()) = pure None
+
 instance (Monad m, Lattice m a, Lattice m b) => Lattice m (a, b) where
   merge (Old (a, x)) (New (b, y)) = do
     left <- merge (Old a) (New b)

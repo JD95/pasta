@@ -21,7 +21,7 @@ import Control.Exception
 import Control.Monad.Logic
 import Control.Monad.State
 import Data.IORef
-import Data.Functor.Foldable (embed)
+import Data.Functor.Foldable (cata, embed)
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -37,8 +37,6 @@ import Runtime.Types
 import Data.HashSet (HashSet)
 import Data.Hashable
 import qualified Data.HashSet as HS
-
-type ErrorCell = Cell TyCheckM IORef (Maybe TCError)
 
 newtype Branch = Branch { unBranch :: Word32 }
   deriving (Show, Eq, Hashable)
@@ -58,7 +56,7 @@ data TyCheckSt = TyCheckSt
     uidList :: [Word32],
     -- | The errors accumulated and to which
     -- branch they belong
-    errors :: [(ErrorCell, Branch)],
+    errors :: [(TCError, Branch)],
     currentBranch :: Branch,
     failedBranches :: HashSet Branch,
     -- | Used for indentation when
@@ -69,13 +67,16 @@ data TyCheckSt = TyCheckSt
 data TCError
   = TypeMismatch
   | AmbiguousTypes
+      -- | The duplicate branch
+      -- that caused the ambiguity
+      Branch
   deriving (Show, Eq)
 
 instance Exception TCError where
   toException e = SomeException e
   fromException (SomeException e) = cast e
   displayException TypeMismatch = "Type Mistmatch!"
-  displayException AmbiguousTypes = "Ambiguous Types!"
+  displayException (AmbiguousTypes _) = "Ambiguous Types!"
 
 data Binding
   = LambdaBound
@@ -259,6 +260,9 @@ gatherTy c = evalStateT (go c) (Map.empty, 0)
               (tbl, n) <- get
               put $ (Map.insert uid n tbl, n + 1)
               pure $ RtVar n
+
+disperseTy :: RtVal -> TyCheckM TyTerm
+disperseTy = cata (tyTerm . Filled <=< sequence)
 
 -- | Strip the type term annotations from the tree
 treeStripTypes :: TyTree -> RtVal

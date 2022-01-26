@@ -42,7 +42,8 @@ main = do
     typeChecking =
       testGroup
         "type checking"
-        [ testCase "type merge is communative" typeMergeIsCommunative,
+        [ testCase "errors are properly filtered" errorFilter,
+          testCase "type merge is communative" typeMergeIsCommunative,
           testCase "unify is communative" unifyIsCommunative,
           testCase "errors raised while type checking are outputted" checkingErrorsGoThrough,
           testCase "inferred type of just () is ambiguous" cannotInferUnitTy,
@@ -105,6 +106,14 @@ unifyIsCommunative = do
       liftIO $ xVal @?= RtArr unit unit
       liftIO $ yVal @?= RtArr unit unit
 
+errorFilter :: IO ()
+errorFilter = do
+  let st =
+        defaultTyCheckSt
+          { errors = [(AmbiguousTypes (Branch 1), Branch 0)]
+          }
+  validErrors [Branch 0, Branch 1] st @?= [(AmbiguousTypes (Branch 1), Branch 0)]
+
 unitEvalsToUnit :: IO ()
 unitEvalsToUnit = do
   eval unit @?= unit
@@ -113,7 +122,7 @@ cannotInferUnitTy :: IO ()
 cannotInferUnitTy = do
   input <- testParse "()"
   typeCheck input defaultTyCheckSt noSetup
-    `expectTyErrors` [AmbiguousTypes]
+    `expectTyErrors` [AmbiguousTypes (Branch 1)]
 
 checkingErrorsGoThrough :: IO ()
 checkingErrorsGoThrough = do
