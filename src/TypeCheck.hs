@@ -258,7 +258,7 @@ typeCheck tree initSt setup = do
       solution <- convertTree tree
       debug . ("Solution: " <>) . show =<< liftIO (treeGatherRootTy solution)
       b <- currentBranch <$> get
-      x <- liftIO $ extractTree solution
+      x <- liftIO $ treeGatherAllTys solution
       pure (x, b)
 
     filledErrors xs st =
@@ -330,7 +330,7 @@ convertTree tree = AST.transform go tree
         `ifFailThen` addError TypeMismatch
       termTree <- checkTerm
       debugShowTreeTy termTree
-      x <- tyFromVal annTree
+      x <- treeValuesIntoTy annTree
       debug "going to unify annotation "
       debug . show =<< liftIO (gatherTy x)
       debug "with term..."
@@ -345,7 +345,7 @@ convertTree tree = AST.transform go tree
     -- SYMBOL
     go x y (SymbolF name) = subProblem "SymbolF" $ do
       debug $ "looking up type for symbol " <> Text.unpack name
-      wrapExpr x y <$> lookupValFor name
+      exprToTree x y <$> lookupValFor name
 
 tyOf :: TyTree -> TyCell
 tyOf = tyF . locContent
@@ -360,16 +360,16 @@ lookupValFor name = do
     Just (Other result) -> pure result
     Nothing -> error "No type for symbol"
 
-wrapExpr :: RowCol -> RowCol -> TyExpr -> TyExprF TyTree
-wrapExpr start end (TyExpr thisTy val) = TyExprF thisTy $ (LocTree start end . wrapExpr start end <$> val)
+exprToTree :: RowCol -> RowCol -> TyExpr -> TyExprF TyTree
+exprToTree start end (TyExpr thisTy val) = TyExprF thisTy $ (LocTree start end . exprToTree start end <$> val)
 
-tyFromVal :: TyTree -> TyCheckM TyCell
-tyFromVal (LocTree _ _ (TyExprF ty valTree)) = do
-  tyCell . Filled =<< traverse tyFromVal valTree
+treeValuesIntoTy :: TyTree -> TyCheckM TyCell
+treeValuesIntoTy (LocTree _ _ (TyExprF ty valTree)) = do
+  tyCell . Filled =<< traverse treeValuesIntoTy valTree
 
-extractTree :: LocTree RowCol TyExprF -> IO (LocTree RowCol AnnotatedF)
-extractTree (LocTree x y (TyExprF t val)) = do
-  val' <- AnnotatedF <$> gatherTy t <*> traverse extractTree val
+treeGatherAllTys :: LocTree RowCol TyExprF -> IO (LocTree RowCol AnnotatedF)
+treeGatherAllTys (LocTree x y (TyExprF t val)) = do
+  val' <- AnnotatedF <$> gatherTy t <*> traverse treeGatherAllTys val
   pure $ LocTree x y val'
 
 treeGatherRootTy :: TyTree -> IO RtVal
