@@ -7,29 +7,16 @@ import AST.Expr
 import qualified AST.Expr as AST
 import AST.LocTree
 import Control.Applicative
-import Control.Exception (SomeException (..), try)
 import Control.Monad
 import Control.Monad.IO.Class
-import Data.Functor.Foldable (cata)
-import Data.IORef (IORef)
-import qualified Data.Map as Map
-import Data.Maybe
-import qualified Data.Vector as Vec
+import Data.Text (Text)
 import Lexer
 import Lib
-import Parser
-import Runtime
-import Runtime.Dsl
 import Runtime.Prop
-import Runtime.Ref
 import Runtime.Term
-import Runtime.Types
 import System.Environment
 import Test.Tasty
 import Test.Tasty.HUnit
-import Test.Tasty.Ingredients.Basic
-import Test.Tasty.Options
-import TypeCheck
 
 main :: IO ()
 main = do
@@ -66,21 +53,26 @@ main = do
           testCase "annotated lambdas type check" lambdasCheck
         ]
 
+exampleParses :: IO ()
 exampleParses = do
   void $ testParse "let id = \\x -> (\\y -> x) in (id y : t)"
 
+unitParses :: IO ()
 unitParses = do
   result <- testParse "()"
   spine result @?= Prod []
 
+annParses :: IO ()
 annParses = do
   result <- testParse "() : ()"
   spine result @?= (Prod [] `Ann` Prod [])
 
+annHasPriorityOverArrow :: IO ()
 annHasPriorityOverArrow = do
   result <- testParse "foo : () -> ()"
   spine result @?= (AST.Symbol "foo" `Ann` (unitE `Arr` unitE))
 
+typeMergeIsCommunative :: IO ()
 typeMergeIsCommunative = do
   void $
     withTyCheckM defaultTyCheckSt $ do
@@ -99,6 +91,7 @@ typeMergeIsCommunative = do
             xVal @?= yVal
       (xCell `then_` yCell *> test) <|> (yCell `then_` xCell *> test)
 
+unifyIsCommunative :: IO ()
 unifyIsCommunative = do
   void $
     withTyCheckM defaultTyCheckSt $ do
@@ -112,14 +105,17 @@ unifyIsCommunative = do
       liftIO $ xVal @?= RtArr unit unit
       liftIO $ yVal @?= RtArr unit unit
 
+unitEvalsToUnit :: IO ()
 unitEvalsToUnit = do
   eval unit @?= unit
 
+cannotInferUnitTy :: IO ()
 cannotInferUnitTy = do
   input <- testParse "()"
   typeCheck input defaultTyCheckSt noSetup
     `expectTyErrors` [AmbiguousTypes]
 
+checkingErrorsGoThrough :: IO ()
 checkingErrorsGoThrough = do
   input <- testParse "foo : ()"
   let setup = do
@@ -128,11 +124,13 @@ checkingErrorsGoThrough = do
   typeCheck input defaultTyCheckSt setup
     `expectTyErrors` [TypeMismatch]
 
+infersArrTy :: IO ()
 infersArrTy = do
   input <- testParse "() -> ()"
   typeCheck input defaultTyCheckSt noSetup
     `expectTy` RtTy
 
+infersSymbolTy :: IO ()
 infersSymbolTy = do
   input <- testParse "foo"
   let setup = do
@@ -141,26 +139,31 @@ infersSymbolTy = do
   typeCheck input defaultTyCheckSt setup
     `expectTy` unit
 
+lambdasCheck :: IO ()
 lambdasCheck = do
   input <- testParse "(\\x -> x) : () -> ()"
   typeCheck input defaultTyCheckSt noSetup
     `expectTy` (RtArr unit unit)
 
+checkAnn :: IO ()
 checkAnn = do
   input <- testParse "() : ()"
   typeCheck input defaultTyCheckSt noSetup
     `expectTy` unit
 
+testLex :: Text -> IO [Token]
 testLex input =
   case lexer "test" input of
     Right tokens -> pure tokens
     Left e -> assertFailure ("lex fail: " <> show e)
 
+testParse :: Text -> IO AST
 testParse input = do
   parse <$> (testLex input) >>= \case
     ([], report) -> assertFailure ("parse fail: " <> show report)
     (result : _, _) -> pure result
 
+expectTy :: Show a => IO (Either a (LocTree l GatheredF)) -> RtVal -> IO ()
 expectTy check expected =
   check >>= \case
     Left actual ->
@@ -172,6 +175,7 @@ expectTy check expected =
     Right (LocTree _ _ (GatheredF actual _)) -> do
       actual @?= expected
 
+expectTyErrors :: (Eq a, Show a) => IO (Either a (LocTree l GatheredF)) -> a -> IO ()
 expectTyErrors check expected =
   check >>= \case
     Left actual ->
