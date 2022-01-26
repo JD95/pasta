@@ -94,8 +94,8 @@ typeMergeIsCommunative = do
             inform b =<< (readRef $ value a)
             inform a =<< (readRef $ value b)
       let test = liftIO $ do
-            xVal <- saturateTy x
-            yVal <- saturateTy y
+            xVal <- gatherTy x
+            yVal <- gatherTy y
             xVal @?= yVal
       (xCell `then_` yCell *> test) <|> (yCell `then_` xCell *> test)
 
@@ -107,8 +107,8 @@ unifyIsCommunative = do
       i0 <- tyCell $ Empty
       y <- tyCell $ Filled $ RtArrF i0 i0
       unify x y
-      xVal <- liftIO $ saturateTy x
-      yVal <- liftIO $ saturateTy y
+      xVal <- liftIO $ gatherTy x
+      yVal <- liftIO $ gatherTy y
       liftIO $ xVal @?= RtArr unit unit
       liftIO $ yVal @?= RtArr unit unit
 

@@ -170,8 +170,8 @@ instance Lattice TyCheckM (Hole (RtValF TyCell)) where
     unify b d
     pure None
   merge (Old (Filled x)) (New (Filled y)) = do
-    xVal <- liftIO $ embed <$> traverse saturateTy x
-    yVal <- liftIO $ embed <$> traverse saturateTy y
+    xVal <- liftIO $ embed <$> traverse gatherTy x
+    yVal <- liftIO $ embed <$> traverse gatherTy y
     error $ "Haven't fully implemented merge for TyCells yet:\n" <> show xVal <> "\n" <> show yVal
   merge (Old Empty) (New (Filled y)) = pure $ Gain (Filled y)
   merge _ (New Empty) =  pure None
@@ -256,7 +256,7 @@ typeCheck tree initSt setup = do
       debug "Starting Type Checking!"
       setup
       solution <- convertTree tree
-      debug . ("Solution: " <>) . show =<< liftIO (extractTy solution)
+      debug . ("Solution: " <>) . show =<< liftIO (treeGatherRootTy solution)
       b <- currentBranch <$> get
       x <- liftIO $ extractTree solution
       pure (x, b)
@@ -332,13 +332,13 @@ convertTree tree = AST.transform go tree
       debugShowTreeTy termTree
       x <- tyFromVal annTree
       debug "going to unify annotation "
-      debug . show =<< liftIO (saturateTy x)
+      debug . show =<< liftIO (gatherTy x)
       debug "with term..."
-      debug . show =<< liftIO (extractTy termTree)
+      debug . show =<< liftIO (treeGatherRootTy termTree)
       (unify (tyOf termTree) x)
         `ifFailThen` addError TypeMismatch
       debug "term is now..."
-      debug . show =<< liftIO (extractTy termTree)
+      debug . show =<< liftIO (treeGatherRootTy termTree)
       debug "AnnF done"
       pure $ locContent termTree
 
@@ -369,14 +369,14 @@ tyFromVal (LocTree _ _ (TyExprF ty valTree)) = do
 
 extractTree :: LocTree RowCol TyExprF -> IO (LocTree RowCol AnnotatedF)
 extractTree (LocTree x y (TyExprF t val)) = do
-  val' <- AnnotatedF <$> saturateTy t <*> traverse extractTree val
+  val' <- AnnotatedF <$> gatherTy t <*> traverse extractTree val
   pure $ LocTree x y val'
 
-extractTy :: TyTree -> IO RtVal
-extractTy tree = saturateTy $ tyF $ locContent tree
+treeGatherRootTy :: TyTree -> IO RtVal
+treeGatherRootTy tree = gatherTy $ tyF $ locContent tree
 
-saturateTy :: TyCell -> IO RtVal
-saturateTy c = evalStateT (go c) (Map.empty, 0) where
+gatherTy :: TyCell -> IO RtVal
+gatherTy c = evalStateT (go c) (Map.empty, 0) where
 
   go :: TyCell -> StateT (Map Word32 Word32, Word32) IO RtVal
   go (TyCell tyCell) = do
@@ -392,20 +392,9 @@ saturateTy c = evalStateT (go c) (Map.empty, 0) where
           put $ (Map.insert uid n tbl, n + 1)
           pure $ RtVar n
 
-extractValue :: TyTree -> IO RtVal
-extractValue tree =
-  go . exprF $ locContent tree
-  where
-    go :: RtValF TyTree -> IO RtVal
-    go (RtProdF xs) = RtProd <$> traverse (go . exprF . locContent) xs
-    go (RtArrF input output)
-      = RtArr
-      <$> (go . exprF . locContent) input
-      <*> (go . exprF . locContent) output
-    go (RtLamF body)
-      = RtLam <$> (go . exprF $ locContent body)
-    go (RtVarF i) = pure $ RtVar i
-    go RtTyF  = pure RtTy
+treeStripTypes :: TyTree -> RtVal
+treeStripTypes (LocTree _ _ (TyExprF _ e)) =
+  embed $ treeStripTypes <$> e
 
 debugTypeChecking = False
 
@@ -415,8 +404,8 @@ debug msg =
     liftIO $ putStrLn $ replicate (fromIntegral $ depth * 2) ' ' <> msg
 
 debugShowTreeTy tree = do
-  val <- liftIO $ extractValue tree
-  t <- liftIO $ extractTy tree
+  let val = treeStripTypes tree
+  t <- liftIO $ treeGatherRootTy tree
   debug $ "type of " <> show val <> " is " <> show t
 
 subProblem msg check = do
