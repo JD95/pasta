@@ -14,12 +14,15 @@
 
 module TypeCheck.Types where
 
+import Data.Maybe
+import Control.Monad
 import Control.Applicative
-import Data.Foldable (for_)
-import AST.LocTree
+import Data.Foldable (toList, for_)
+import AST.LocTree hiding (foldM)
 import Control.Exception
 import Control.Monad.Logic
 import Control.Monad.State
+import Data.List.NonEmpty (NonEmpty(..))
 import Data.IORef
 import Data.Functor.Foldable (cata, embed)
 import Data.Functor.Foldable.TH (makeBaseFunctor)
@@ -37,6 +40,36 @@ import Runtime.Types
 import Data.HashSet (HashSet)
 import Data.Hashable
 import qualified Data.HashSet as HS
+
+data CollectedEither b a
+  = One a
+  | Many (NonEmpty b)
+  deriving (Functor)
+
+instance Applicative (CollectedEither b) where
+  pure x = One x
+
+  One f <*> One x = One $ f x
+  One _ <*> Many xs = Many xs
+  Many xs <*> One _ = Many xs
+  Many xs <*> Many ys = Many $ xs <> ys
+
+instance Monad (CollectedEither b) where
+  One x >>= f = f x
+  Many xs >>= _ = Many xs
+
+instance Foldable (CollectedEither b) where
+  foldMap f (One x) = f x
+  foldMap _ _ = mempty
+
+instance Traversable (CollectedEither b) where
+  traverse f (One x) = One <$> f x
+  traverse _ (Many x) = pure $ Many x
+
+instance (Eq a, Eq b) => Eq (CollectedEither b a) where
+  One x == One y = x == y
+  Many xs == Many ys = xs == ys
+  _ == _ = False
 
 newtype Branch = Branch { unBranch :: Word32 }
   deriving (Show, Eq, Hashable)
@@ -131,6 +164,7 @@ instance Ref TyCheckM IORef where
 
 data Hole a
   = Filled a
+  | Ambiguous (NonEmpty a)
   | Empty
   deriving (Eq)
 
@@ -182,8 +216,101 @@ defaultTyCheckSt =
       problemDepth = 0
     }
 
+-- In this case ambiguous information is being
+-- applied to some information
+--
+-- Type <~ {(a,b), Type}
+--
+-- The above would result in no information gain
+-- because although Type is in conflict with (a,b)
+-- in the ambiguous set, is not in conflict with
+-- the `Type` value.
+--
+-- Type <~ {(a,b), () -> ()}
+--
+-- This however, would be in conflict
+mergeAmb :: Old (Hole (RtValF TyTerm)) -> Info (Hole (RtValF TyTerm)) -> RtValF TyTerm -> TyCheckM (Info (Hole (RtValF TyTerm)))
+mergeAmb x (Gain z) y = do
+  liftIO $ putStrLn "gain"
+  ifte
+    (merge x (New (Filled y)))
+    (\case
+        -- If more information has been gained
+        -- it shouldd be compatible with the previous
+        -- information gained
+        Gain y' -> do
+          liftIO $ putStrLn "gain2"
+          ifte
+            (merge (Old z) (New y'))
+            pure
+            -- If they are not compatible
+            -- throw away the results
+            (pure None)
+        _ -> pure $ Gain z
+    )
+    (pure $ Gain z)
+mergeAmb x prev y = do
+  -- In this case, there is no info to
+  -- be gained from the previous results.
+  -- Conflicts are ignored
+  ifte
+    (merge x (New (Filled y)))
+    (\case
+        Conflict -> pure prev
+        z -> pure z)
+    (pure prev)
+
 -- Must be below the template haskell
 instance Lattice TyCheckM (Hole (RtValF TyTerm)) where
+  -- AMBIGUOUS VALUES
+  merge x@(Old (Filled _)) (New (Ambiguous ys)) = do
+    foldM (mergeAmb x) None ys
+  merge (Old (Ambiguous xs)) y@(New (Filled _)) = do
+    -- In this case, we filter down the
+    -- ambiguous choices to only those
+    -- that are compatible with the given
+    -- info
+    results <- traverse go xs
+    case catMaybes $ toList results of
+      -- All the possibilities were ruled
+      [] -> pure Conflict
+      -- Possibilities narrowed down to one
+      (z:[]) -> pure . Gain $ Filled z
+      (z:zs) -> if length zs == length xs - 1
+        -- No possibilities were ruled out
+        then pure None
+        -- Some possibilities were ruled out
+        else pure . Gain $ Ambiguous (z:|zs)
+    where
+      go x = ifte
+        (merge (Old (Filled x)) y)
+        (\case
+            Gain (Filled x') -> pure $ Just x'
+            -- Because we already know the old
+            -- value was filled, we cannot loose
+            -- information and become ambiguous or
+            -- empty. If this ever happens, then
+            -- the Lattice instance is in error
+            Gain _ -> error "impossible"
+            None -> pure $ Just x
+            Conflict -> pure Nothing)
+        (pure Nothing)
+
+  merge (Old (Ambiguous xs)) (New (Ambiguous ys)) = do
+    catMaybes . toList <$> (traverse go xs) >>= \case
+      [] -> pure Conflict
+      (z:[]) -> pure . Gain $ Filled z
+      (z:zs) -> pure . Gain $ Ambiguous (z:|zs)
+
+    where
+
+      go x = do
+        foldM (mergeAmb (Old $ Filled x)) None ys >>= \case
+          Gain (Filled y) -> pure $ Just y
+          Gain _ -> error "impossible"
+          None -> pure $ Just x
+          Conflict -> pure Nothing
+
   -- TYPE
   merge (Old (Filled RtTyF)) (New (Filled RtTyF)) = pure None
   merge (Old (Filled RtTyF)) (New (Filled _)) = pure Conflict
@@ -201,16 +328,19 @@ instance Lattice TyCheckM (Hole (RtValF TyTerm)) where
     unify b d
     pure None
   merge (Old (Filled x)) (New (Filled y)) = do
-    xVal <- liftIO $ embed <$> traverse gatherTy x
-    yVal <- liftIO $ embed <$> traverse gatherTy y
-    error $ "Haven't fully implemented merge for TyTerms yet:\n" <> show xVal <> "\n" <> show yVal
-  merge (Old Empty) (New (Filled y)) = pure $ Gain (Filled y)
+    xVal <- liftIO $ fmap embed . sequence <$> traverse gatherTy x
+    yVal <- liftIO $ fmap embed . sequence <$> traverse gatherTy y
+    error $ "Haven't fully implemented merge for TyTerms yet:\n" <> display xVal <> "\n" <> display yVal
+    where
+      display (One val) = show val
+      display (Many _) = "Ambiguous"
   merge _ (New Empty) =  pure None
+  merge (Old Empty) (New y) = pure $ Gain y
 
   bottom = pure Empty
 
   isTop (Filled _) = pure True
-  isTop Empty = pure False
+  isTop _ = pure False
 
 -- | Get the annotation of the tree's root
 treeRootTy :: TyTree -> TyTerm
@@ -230,36 +360,42 @@ treeValuesIntoTy (LocTree _ _ (TyExprF _ valTree)) = do
   tyTerm . Filled =<< traverse treeValuesIntoTy valTree
 
 -- | Gather the annotated type terms into values along the tree
-treeGatherAllTys :: LocTree RowCol TyExprF -> IO (LocTree RowCol GatheredF)
+treeGatherAllTys :: LocTree RowCol TyExprF -> IO (Either (NonEmpty TyTerm) (LocTree RowCol GatheredF))
 treeGatherAllTys (LocTree x y (TyExprF t val)) = do
-  val' <- GatheredF <$> gatherTy t <*> traverse treeGatherAllTys val
-  pure $ LocTree x y val'
+  t' <- gatherTy t
+  ts <- sequence <$> traverse treeGatherAllTys val
+  case (t', ts) of
+    (Many xs, Left ys) -> pure $ Left $ xs <> ys
+    (One s, Right ss) -> pure . Right $ LocTree x y $ GatheredF s ss
+    (One _, Left ss) -> pure $ Left ss
+    (Many ss, Right _) -> pure $ Left ss
 
 -- | Gather the annotated type for the root node into a value
-treeGatherRootTy :: TyTree -> IO RtVal
+treeGatherRootTy :: TyTree -> IO (CollectedEither TyTerm RtVal)
 treeGatherRootTy tree = gatherTy $ tyF $ locContent tree
 
 -- | Gather the term into a value such that all
 -- constructors point directly to their children
 -- instead of through a term reference
-gatherTy :: TyTerm -> IO RtVal
+gatherTy :: TyTerm -> IO (CollectedEither TyTerm RtVal)
 gatherTy c = evalStateT (go c) (Map.empty, 0)
   where
-    go :: TyTerm -> StateT (Map Word32 Word32, Word32) IO RtVal
+    go :: TyTerm -> StateT (Map Word32 Word32, Word32) IO (CollectedEither TyTerm RtVal)
     go (TyTerm t) = do
       RootInfo thisCell _ uid _ _ <- liftIO $ rootInfo t
       liftIO (readRef $ value thisCell) >>= \case
-        Filled (RtProdF xs) -> RtProd <$> traverse go xs
-        Filled (RtArrF input output) -> RtArr <$> go input <*> go output
-        Filled RtTyF -> pure RtTy
-        Filled _ ->  undefined
+        Filled (RtProdF xs) -> fmap RtProd . sequence <$> traverse go xs
+        Filled (RtArrF input output) -> (\x y -> RtArr <$> x <*> y) <$> go input <*> go output
+        Filled RtTyF -> pure $ One RtTy
+        Filled _ -> undefined
+        Ambiguous _ -> pure $ Many (TyTerm t :| [])
         Empty ->
           Map.lookup uid . fst <$> get >>= \case
-            Just i -> pure $ RtVar i
+            Just i -> pure . One $ RtVar i
             Nothing -> do
               (tbl, n) <- get
               put $ (Map.insert uid n tbl, n + 1)
-              pure $ RtVar n
+              pure . One $ RtVar n
 
 disperseTy :: RtVal -> TyCheckM TyTerm
 disperseTy = cata (tyTerm . Filled <=< sequence)

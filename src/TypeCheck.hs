@@ -21,16 +21,13 @@ import Control.Monad.Logic
 import Control.Monad.State
 import Data.Foldable (for_)
 import qualified Data.HashSet as HS
-import Data.IORef
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Vector as Vec
 import Lexer (RowCol)
-import Runtime.Prop
-import Runtime.Ref
-import Runtime.Term
 import Runtime.Types
 import TypeCheck.Debug
 import TypeCheck.Types
@@ -44,42 +41,6 @@ ifFailThen firstOpt secondOpt = do
   ifte firstOpt pure $ do
     modify $ \st -> st {errors = oldErrors}
     secondOpt
-
--- | Throws an Ambiguity error if both terms gain info
--- If both branches throw arrows, it'll only keep errors from first branch
-exclusive :: (TyTerm -> TyCheckM a) -> (TyTerm -> TyCheckM a) -> TyCheckM a
-exclusive pathX pathY = do
-  x <- tyTerm Empty
-  y <- tyTerm Empty
-  RootInfo cellX _ _ _ _ <- rootInfo (unTyTerm x)
-  RootInfo cellY _ _ _ _ <- rootInfo (unTyTerm y)
-  xValRef <- newRef @_ @IORef @TyTerm undefined
-  nil <- cell ()
-  origBranch <- currentBranch <$> get
-  prop [Watched cellX] nil $ do
-    x `copyInto` xValRef
-    pure ()
-  prop [Watched cellY] nil $ do
-    subProblem "Ambiguity Check!" $ do
-      yVal <- liftIO (gatherTy y)
-      xTerm <- readRef xValRef
-      xVal <- liftIO (gatherTy xTerm)
-      debug $ show xVal <> " ~ " <> show yVal
-      ifte
-        (unify xTerm y)
-        (const $ debug "All good!" *> pure ())
-        ( do
-            b <- currentBranch <$> get
-            addErrorToBranch origBranch $ AmbiguousTypes b
-            pure ()
-        )
-  branch [pathX x, pathY y]
-  where
-    copyInto term ref = do
-      result <- liftIO $ gatherTy term
-      -- Copy the term and store it so it isn't
-      -- erased during back tracking
-      writeRef ref =<< disperseTy result
 
 -- | A wrapper around the LogicT <|> which
 -- handles branching and sub problem
@@ -180,10 +141,14 @@ typeCheck tree initSt setup = do
       st <- get
       if (currentBranch st `HS.member` failedBranches st)
         then debug "No Solution!" *> empty
-        else do
-          debug . ("Solution: " <>) . show =<< liftIO (treeGatherRootTy solution)
-          x <- liftIO $ treeGatherAllTys solution
-          pure (x, currentBranch st)
+        else
+          liftIO (treeGatherAllTys solution) >>= \case
+            Right gathered -> do
+              debug $ "Solution: " <> show (annF . locContent $ gathered)
+              pure (gathered, currentBranch st)
+            Left _ambiguousTerms -> do
+              failWith $ AmbiguousTypes (currentBranch st)
+              empty
 
 validErrors :: [Branch] -> TyCheckSt -> [(TCError, Branch)]
 validErrors xs st =
@@ -219,16 +184,8 @@ convertTree tree = AST.transform go tree
 
     -- PRODUCT
     go _ _ (ProdF []) = subProblem "ProdF []" $ do
-      asValue `branchIfFails` asType
-      where
-        asType = do
-          debug "trying unit term as type"
-          term <- tyTerm (Filled RtTyF)
-          pure $ TyExprF term unitF
-        asValue = do
-          debug "trying unit as value"
-          term <- (tyTerm $ Filled unitF)
-          pure $ TyExprF term $ unitF
+      term <- tyTerm $ Ambiguous (RtTyF :| [unitF])
+      pure $ TyExprF term unitF
     go _ _ (ProdF checkElems) = subProblem "ProdF [..]" $ do
       elemTrees <- sequence checkElems
       let tys = tyF . locContent <$> elemTrees

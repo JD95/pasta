@@ -9,6 +9,8 @@ import AST.LocTree
 import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Logic
+import Data.List.NonEmpty
 import Data.Text (Text)
 import Lexer
 import Lib
@@ -51,7 +53,9 @@ main = do
           testCase "can infer type of symbols" infersSymbolTy,
           testCase "\"() : ()\" type checks" checkAnn,
           testCase "annotated lambdas type check" lambdasCheck,
-          testCase "non-dependent function application checks" checkAppNonDep
+          testCase "non-dependent function application checks" checkAppNonDep,
+          testCase "merging filled values into ambiguous values works" mergeFilledIntoAmb,
+          testCase "merging ambiguous values into filled values works" mergeAmbIntoFilled
         ]
 
 exampleParses :: IO ()
@@ -87,8 +91,8 @@ typeMergeIsCommunative = do
             inform b =<< (readRef $ value a)
             inform a =<< (readRef $ value b)
       let test = liftIO $ do
-            xVal <- gatherTy x
-            yVal <- gatherTy y
+            xVal <- unambiguous "xVal" =<< gatherTy x
+            yVal <- unambiguous "yVal" =<< gatherTy y
             xVal @?= yVal
       (xCell `then_` yCell *> test) <|> (yCell `then_` xCell *> test)
 
@@ -101,10 +105,42 @@ unifyIsCommunative = do
       i0 <- tyTerm $ Empty
       y <- tyTerm $ Filled $ RtArrF i0 i0
       unify x y
-      xVal <- liftIO $ gatherTy x
-      yVal <- liftIO $ gatherTy y
-      liftIO $ xVal @?= RtArr unit unit
-      liftIO $ yVal @?= RtArr unit unit
+      liftIO $ do
+        xVal <- unambiguous "xVal" =<< gatherTy x
+        xVal @?= RtArr unit unit
+        yVal <- unambiguous "yVal" =<< gatherTy y
+        yVal @?= RtArr unit unit
+
+mergeFilledIntoAmb :: IO ()
+mergeFilledIntoAmb = void $
+  withTyCheckM defaultTyCheckSt $ do
+    let old = Old $ Ambiguous (RtTyF :| [unitF])
+    let new = New $ Filled RtTyF
+    ifte
+      (merge @_ @(Hole (RtValF TyTerm)) old new)
+      ( \case
+          Gain (Filled RtTyF) -> pure ()
+          _ -> liftIO $ assertFailure "nope"
+      )
+      (liftIO $ assertFailure "merge failed")
+
+mergeAmbIntoFilled :: IO ()
+mergeAmbIntoFilled = void $
+  withTyCheckM defaultTyCheckSt $ do
+    let old = Old $ Filled RtTyF
+    let new = New $ Ambiguous (RtTyF :| [unitF])
+    ifte
+      (merge @_ @(Hole (RtValF TyTerm)) old new)
+      ( \case
+          None -> pure ()
+          Conflict -> liftIO $ assertFailure "Conflict!"
+          _ -> liftIO $ assertFailure "nope"
+      )
+      (liftIO $ assertFailure "merge failed")
+
+unambiguous :: String -> CollectedEither b a -> IO a
+unambiguous _ (One x) = pure x
+unambiguous name (Many _) = assertFailure $ name <> " was ambiguous"
 
 errorFilter :: IO ()
 errorFilter = do
@@ -125,7 +161,7 @@ checkingErrorsGoThrough = do
         t <- tyTerm $ Filled RtTyF
         void $ assuming "foo" $ Other $ TyExpr t unitF
   typeCheck input defaultTyCheckSt setup
-    `expectTyErrors` [TypeMismatch, TypeMismatch]
+    `expectTyErrors` [TypeMismatch]
 
 infersArrTy :: IO ()
 infersArrTy = do

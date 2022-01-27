@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 
 module TypeCheck.Debug where
 
@@ -7,8 +8,11 @@ import Control.Monad.Logic
 import Control.Monad.State
 import TypeCheck.Types
 
+(<&>) :: Functor f => f a -> (a -> b) -> f b
+(<&>) = flip fmap
+
 debugTypeChecking :: Bool
-debugTypeChecking = True
+debugTypeChecking = False
 
 debug :: String -> TyCheckM ()
 debug msg =
@@ -27,8 +31,11 @@ debugNoFormat msg =
 debugShowTreeTy :: TyTree -> TyCheckM ()
 debugShowTreeTy tree = do
   let val = treeStripTypes tree
-  t <- liftIO $ treeGatherRootTy tree
-  debug $ "type of " <> show val <> " is " <> show t
+  result <-
+    liftIO (treeGatherRootTy tree) <&> \case
+      One t -> show t
+      Many _ -> "ambiguous"
+  debug $ "type of " <> show val <> " is " <> result
 
 subProblem :: String -> TyCheckM b -> TyCheckM b
 subProblem msg check = do
