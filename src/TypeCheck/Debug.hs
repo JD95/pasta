@@ -8,7 +8,7 @@ import Control.Monad.State
 import TypeCheck.Types
 
 debugTypeChecking :: Bool
-debugTypeChecking = False
+debugTypeChecking = True
 
 debug :: String -> TyCheckM ()
 debug msg =

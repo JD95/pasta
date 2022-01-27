@@ -30,7 +30,7 @@ data RtVal
   | RtVar Word32
   | RtLam RtVal
   | RtArr RtVal RtVal
-  | RtApp RtVal RtVal
+  | RtApp RtVal (Vector RtVal)
   | RtTy
   deriving (Show, Eq)
 

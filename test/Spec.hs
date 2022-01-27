@@ -46,12 +46,12 @@ main = do
           testCase "type merge is communative" typeMergeIsCommunative,
           testCase "unify is communative" unifyIsCommunative,
           testCase "errors raised while type checking are outputted" checkingErrorsGoThrough,
-          testCase "inferred type of just () is ambiguous" cannotInferUnitTy,
           testCase "inferred type of foo is the provided type" infersSymbolTy,
           testCase "can infer type of arrow" infersArrTy,
           testCase "can infer type of symbols" infersSymbolTy,
           testCase "\"() : ()\" type checks" checkAnn,
-          testCase "annotated lambdas type check" lambdasCheck
+          testCase "annotated lambdas type check" lambdasCheck,
+          testCase "non-dependent function application checks" checkAppNonDep
         ]
 
 exampleParses :: IO ()
@@ -118,12 +118,6 @@ unitEvalsToUnit :: IO ()
 unitEvalsToUnit = do
   eval unit @?= unit
 
-cannotInferUnitTy :: IO ()
-cannotInferUnitTy = do
-  input <- testParse "()"
-  typeCheck input defaultTyCheckSt noSetup
-    `expectTyErrors` [AmbiguousTypes (Branch 1)]
-
 checkingErrorsGoThrough :: IO ()
 checkingErrorsGoThrough = do
   input <- testParse "foo : ()"
@@ -131,7 +125,7 @@ checkingErrorsGoThrough = do
         t <- tyTerm $ Filled RtTyF
         void $ assuming "foo" $ Other $ TyExpr t unitF
   typeCheck input defaultTyCheckSt setup
-    `expectTyErrors` [TypeMismatch]
+    `expectTyErrors` [TypeMismatch, TypeMismatch]
 
 infersArrTy :: IO ()
 infersArrTy = do
@@ -157,6 +151,12 @@ lambdasCheck = do
 checkAnn :: IO ()
 checkAnn = do
   input <- testParse "() : ()"
+  typeCheck input defaultTyCheckSt noSetup
+    `expectTy` unit
+
+checkAppNonDep :: IO ()
+checkAppNonDep = do
+  input <- testParse "((\\x -> x) : () -> ()) ()"
   typeCheck input defaultTyCheckSt noSetup
     `expectTy` unit
 

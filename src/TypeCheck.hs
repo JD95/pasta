@@ -106,6 +106,24 @@ branch (x : xs) = do
       debugNoFormat $ show b <> " -> " <> show b' <> ": " <> replicate 30 '-'
       y <|> go b depth ys
 
+branchIfFails :: TyCheckM a -> TyCheckM a -> TyCheckM a
+branchIfFails orig backup = do
+  b <- currentBranch <$> get
+  depth <- problemDepth <$> get
+  orig <|> do
+    fails <- failedBranches <$> get
+    if b `HS.member` fails
+      then do
+        modify $ \st ->
+          st
+            { currentBranch = Branch (unBranch (currentBranch st) + 1),
+              problemDepth = depth
+            }
+        Branch b' <- currentBranch <$> get
+        debugNoFormat $ show (unBranch b) <> " -> " <> show b' <> ": " <> replicate 30 '-'
+        backup
+      else empty
+
 -- | Adds an error to the error list
 failWith :: TCError -> TyCheckM ()
 failWith e = do
@@ -201,15 +219,15 @@ convertTree tree = AST.transform go tree
 
     -- PRODUCT
     go _ _ (ProdF []) = subProblem "ProdF []" $ do
-      exclusive asType asValue
+      asValue `branchIfFails` asType
       where
-        asType term = do
+        asType = do
           debug "trying unit term as type"
-          unify term =<< tyTerm (Filled RtTyF)
+          term <- tyTerm (Filled RtTyF)
           pure $ TyExprF term unitF
-        asValue term = do
+        asValue = do
           debug "trying unit as value"
-          unify term =<< (tyTerm $ Filled unitF)
+          term <- (tyTerm $ Filled unitF)
           pure $ TyExprF term $ unitF
     go _ _ (ProdF checkElems) = subProblem "ProdF [..]" $ do
       elemTrees <- sequence checkElems
@@ -260,6 +278,19 @@ convertTree tree = AST.transform go tree
     go x y (SymbolF name) = subProblem "SymbolF" $ do
       debug $ "looking up type for symbol " <> Text.unpack name
       exprToTree x y <$> lookupBinding name
+    go _ _ (AppF checkFunc checkInputs) = subProblem "AppF" $ do
+      funcTree <- checkFunc
+      inputTrees <- sequence checkInputs
+      outTy <- tyTerm Empty
+      (unify (treeRootTy funcTree) =<< funcTy (treeRootTy <$> inputTrees) outTy)
+        `ifFailThen` failWith TypeMismatch
+      pure $ TyExprF outTy $ RtAppF funcTree (Vec.fromList inputTrees)
+      where
+        funcTy :: [TyTerm] -> TyTerm -> TyCheckM TyTerm
+        funcTy [] outTy = pure outTy
+        funcTy (t : ts) outTy = do
+          output <- funcTy ts outTy
+          tyTerm $ Filled $ RtArrF t output
     go _ _ _ = undefined
 
 lookupBinding :: Text -> TyCheckM TyExpr

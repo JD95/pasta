@@ -36,9 +36,9 @@ eval val = evalState (runEvalM (cata go val)) (RtEnv [])
     go :: RtValF (EvalM RtVal) -> EvalM RtVal
     go (RtProdF xs) = RtProd <$> sequence xs
     go (RtLamF evalBody) = evalBody
-    go (RtAppF evalFunc evalInput) = do
-      input <- evalInput
-      push input evalFunc
+    go (RtAppF evalFunc evalInputs) = do
+      inputs <- sequence evalInputs
+      foldr push evalFunc inputs
     go (RtArrF evalInput evalOutput) = do
       input <- evalInput
       push input $ do
