@@ -30,7 +30,7 @@ displayReport input (Report i ex rest) =
 grammar :: Grammar r (Prod r String Token AST)
 grammar = mdo
   expr <- rule $ ann <|> lvl2
-  lvl2 <- rule $ arrTy <|> lvl3
+  lvl2 <- rule $ depArr <|> nonDepArr <|> lvl3
   lvl3 <- rule $ app <|> lvl4
   lvl4 <- rule $ let_ <|> lvl5
   lvl5 <- rule $ lam <|> lvl6
@@ -46,18 +46,44 @@ grammar = mdo
       mkApp
         <$> lvl6
         <*> some (some space *> lvl6)
-  arrTy <-
-    rule $
-      biCon ArrF
-        <$> lvl3
-        <*> (spaced arr *> lvl4)
-  ann <-
-    rule $
-      biCon AnnF
-        <$> lvl2
-        <*> (spaced colon *> lvl2)
-  lam <- rule (lambda expr)
+  nonDepArr <- rule $ arrow lvl3 lvl2
+  depArr <- rule $ depArrow lvl3 lvl2
+  ann <- rule $ annotation lvl2
+  lam <- rule $ lambda expr
   pure expr
+
+annotation :: Prod r String Token AST -> Prod r String Token AST
+annotation expr =
+  biCon AnnF
+    <$> expr
+    <*> (spaced colon *> expr <* many space)
+
+depArrow ::
+  Prod r String Token AST ->
+  Prod r String Token AST ->
+  Prod r String Token AST
+depArrow lft rt = mk <$> input <*> (spaced arr *> rt <* many space)
+  where
+    mk ((start, n), inTy) outTy =
+      LocTree start (locEnd outTy) (ArrF (Just n) inTy outTy)
+
+    input =
+      between Lex.Paren $
+        (,)
+          <$> (many space *> terminal name <* spaced colon)
+          <*> (lft <* many space)
+
+    name (Token (Lex.Symbol t) rc) = Just (rc, t)
+    name _ = Nothing
+
+arrow ::
+  Prod r String Token AST ->
+  Prod r String Token AST ->
+  Prod r String Token AST
+arrow lft rt = mk <$> lft <*> (spaced arr *> rt)
+  where
+    mk inTy outTy =
+      LocTree (locStart inTy) (locEnd outTy) (ArrF Nothing inTy outTy)
 
 lambda :: Prod r String Token AST -> Prod r String Token AST
 lambda expr =
@@ -121,7 +147,7 @@ unit =
     close = Lex.Paren Close
     go x = satisfy (\(Token y _) -> x == y)
 
-between :: (Pair -> Lexeme) -> Prod r String Token AST -> Prod r String Token AST
+between :: (Pair -> Lexeme) -> Prod r String Token a -> Prod r String Token a
 between p e = (go open <?> show open) *> e <* (go close <?> show close)
   where
     open = p Open

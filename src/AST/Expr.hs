@@ -15,7 +15,7 @@ data Expr
   | Ann Expr Expr
   | Let Expr Expr Expr
   | App Expr [Expr]
-  | Arr Expr Expr
+  | Arr (Maybe Text) Expr Expr
   | Symbol Text
   | Prod [Expr]
   deriving (Show, Eq)

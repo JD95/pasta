@@ -11,14 +11,19 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Logic
 import Data.List.NonEmpty
-import Data.Text (Text)
-import Lexer
-import Lib
+import Data.Text (Text, unpack)
+import Lexer (Token (..), lexer)
+import Parser
+import Runtime
 import Runtime.Prop
+import Runtime.Ref
 import Runtime.Term
+import Runtime.Types
 import System.Environment
 import Test.Tasty
 import Test.Tasty.HUnit
+import TypeCheck
+import TypeCheck.Types
 
 main :: IO ()
 main = do
@@ -33,6 +38,7 @@ main = do
         [ testCase "() parses" unitParses,
           testCase "example parses" exampleParses,
           testCase "Annotations parse" annParses,
+          testCase "dependent arrows parse" parseArrDep,
           testCase "annotations have highest parsing priority" annHasPriorityOverArrow
         ]
 
@@ -67,6 +73,16 @@ unitParses = do
   result <- testParse "()"
   spine result @?= Prod []
 
+parseArrNonDep :: IO ()
+parseArrNonDep = do
+  result <- testParse "Type -> Type"
+  spine result @?= Arr Nothing (Symbol "Type") (Symbol "Type")
+
+parseArrDep :: IO ()
+parseArrDep = do
+  result <- testParse "(A : Type) -> A -> A"
+  spine result @?= Arr (Just "A") (Symbol "Type") (Arr Nothing (Symbol "A") (Symbol "A"))
+
 annParses :: IO ()
 annParses = do
   result <- testParse "() : ()"
@@ -75,7 +91,7 @@ annParses = do
 annHasPriorityOverArrow :: IO ()
 annHasPriorityOverArrow = do
   result <- testParse "foo : () -> ()"
-  spine result @?= (AST.Symbol "foo" `Ann` (unitE `Arr` unitE))
+  spine result @?= (AST.Symbol "foo" `Ann` (Arr Nothing unitE unitE))
 
 typeMergeIsCommunative :: IO ()
 typeMergeIsCommunative = do
@@ -196,6 +212,23 @@ checkAppNonDep = do
   typeCheck input defaultTyCheckSt noSetup
     `expectTy` unit
 
+checkAppDep :: IO ()
+checkAppDep = do
+  input <- testParse "(A : Type) -> (B : A -> Type) -> (x : A) -> B x -> (A, B x)"
+  typeCheck input defaultTyCheckSt noSetup
+    `expectTy` RtArr
+      RtTy -- A : Type
+      ( RtArr
+          (RtArr (RtVar 0) RtTy) -- B : A -> Type
+          ( RtArr
+              (RtVar 1) -- x : A
+              ( RtArr
+                  (RtApp (RtVar 1) [RtVar 0]) -- B x
+                  (RtProd [RtVar 3, RtApp (RtVar 2) [RtVar 1]]) -- (A, B x)
+              )
+          )
+      )
+
 testLex :: Text -> IO [Token]
 testLex input =
   case lexer "test" input of
@@ -204,8 +237,9 @@ testLex input =
 
 testParse :: Text -> IO AST
 testParse input = do
-  parse <$> (testLex input) >>= \case
-    ([], report) -> assertFailure ("parse fail: " <> show report)
+  tokens <- testLex input
+  case parse tokens of
+    ([], report) -> assertFailure (unpack $ "parse fail: " <> displayReport tokens report)
     (result : _, _) -> pure result
 
 expectTy :: Show a => IO (Either a (LocTree l GatheredF)) -> RtVal -> IO ()

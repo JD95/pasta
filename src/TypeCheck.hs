@@ -170,7 +170,7 @@ convertTree tree = AST.transform go tree
     go :: RowCol -> RowCol -> ExprF (TyCheckM TyTree) -> TyCheckM (TyExprF TyTree)
 
     -- ARROW
-    go _ _ (ArrF inferInput inferOutput) = subProblem "ArrF" $ do
+    go _ _ (ArrF _ inferInput inferOutput) = subProblem "ArrF" $ do
       inputTree <- inferInput
       debugShowTreeTy inputTree
       (unify (treeRootTy inputTree) =<< tyTerm (Filled RtTyF))
@@ -216,6 +216,21 @@ convertTree tree = AST.transform go tree
       thisTy <- tyTerm $ Filled $ RtArrF inputTy (treeRootTy bodyTree)
       pure $ TyExprF thisTy (RtLamF bodyTree)
 
+    -- APPLICATION
+    go _ _ (AppF checkFunc checkInputs) = subProblem "AppF" $ do
+      funcTree <- checkFunc
+      inputTrees <- sequence checkInputs
+      outTy <- tyTerm Empty
+      (unify (treeRootTy funcTree) =<< funcTy (treeRootTy <$> inputTrees) outTy)
+        `ifFailThen` failWith TypeMismatch
+      pure $ TyExprF outTy $ RtAppF funcTree (Vec.fromList inputTrees)
+      where
+        funcTy :: [TyTerm] -> TyTerm -> TyCheckM TyTerm
+        funcTy [] outTy = pure outTy
+        funcTy (t : ts) outTy = do
+          output <- funcTy ts outTy
+          tyTerm $ Filled $ RtArrF t output
+
     -- ANNOTATION
     go _ _ (AnnF checkVal checkAnn) = subProblem "AnnF" $ do
       debug "inferring type of annotation..."
@@ -235,19 +250,6 @@ convertTree tree = AST.transform go tree
     go x y (SymbolF name) = subProblem "SymbolF" $ do
       debug $ "looking up type for symbol " <> Text.unpack name
       exprToTree x y <$> lookupBinding name
-    go _ _ (AppF checkFunc checkInputs) = subProblem "AppF" $ do
-      funcTree <- checkFunc
-      inputTrees <- sequence checkInputs
-      outTy <- tyTerm Empty
-      (unify (treeRootTy funcTree) =<< funcTy (treeRootTy <$> inputTrees) outTy)
-        `ifFailThen` failWith TypeMismatch
-      pure $ TyExprF outTy $ RtAppF funcTree (Vec.fromList inputTrees)
-      where
-        funcTy :: [TyTerm] -> TyTerm -> TyCheckM TyTerm
-        funcTy [] outTy = pure outTy
-        funcTy (t : ts) outTy = do
-          output <- funcTy ts outTy
-          tyTerm $ Filled $ RtArrF t output
     go _ _ _ = undefined
 
 lookupBinding :: Text -> TyCheckM TyExpr
