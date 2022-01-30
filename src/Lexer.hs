@@ -36,6 +36,7 @@ data Lexeme
   | Lambda
   | Arrow
   | Colon
+  | Comma
   | Equals
   deriving (Show, Eq)
 
@@ -78,6 +79,7 @@ token = do
         <|> symbol
         <|> (Arrow <$ chunk "->")
         <|> (Colon <$ char ':')
+        <|> (Comma <$ char ',')
         <|> (Equals <$ char '=')
         <|> (Space <$ some (char ' '))
         <|> newLine

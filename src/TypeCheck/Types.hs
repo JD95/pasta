@@ -14,6 +14,8 @@
 
 module TypeCheck.Types where
 
+import qualified Data.Text as Text
+import Data.List
 import Data.Maybe
 import Control.Monad
 import Control.Applicative
@@ -81,6 +83,8 @@ data TyCheckSt = TyCheckSt
     -- - Lambda Expressions
     -- - Let Expressions
     bindings :: Map Text Binding,
+    -- | Bound Values
+    varStack :: [TyTerm],
     -- | How many lambdas have
     -- been passed up until this
     -- point.
@@ -98,7 +102,7 @@ data TyCheckSt = TyCheckSt
   }
 
 data TCError
-  = TypeMismatch
+  = TypeMismatch RowCol RowCol RtVal RtVal
   | AmbiguousTypes
       -- | The duplicate branch
       -- that caused the ambiguity
@@ -108,7 +112,19 @@ data TCError
 instance Exception TCError where
   toException e = SomeException e
   fromException (SomeException e) = cast e
-  displayException TypeMismatch = "Type Mistmatch!"
+  displayException (TypeMismatch start end actual expected)
+    = concat @[]
+    [ "Type Mistmatch at ",
+      show start,
+      "-",
+      show end,
+      ":\nexpected '",
+      show expected,
+      "'\nactual '",
+      show actual,
+      "'"
+    ]
+
   displayException (AmbiguousTypes _) = "Ambiguous Types!"
 
 data Binding
@@ -208,6 +224,7 @@ defaultTyCheckSt :: TyCheckSt
 defaultTyCheckSt =
   TyCheckSt
     { bindings = Map.empty,
+      varStack = [],
       lambdaDepth = 0,
       uidList = [0..], -- TODO: Do better
       errors = [],
@@ -327,13 +344,14 @@ instance Lattice TyCheckM (Hole (RtValF TyTerm)) where
     unify a c
     unify b d
     pure None
+  merge (Old (Filled (RtVarF i))) (New (Filled (RtVarF j))) = do
+    pure $ if i == j
+      then None
+      else Conflict
   merge (Old (Filled x)) (New (Filled y)) = do
-    xVal <- liftIO $ fmap embed . sequence <$> traverse gatherTy x
-    yVal <- liftIO $ fmap embed . sequence <$> traverse gatherTy y
-    error $ "Haven't fully implemented merge for TyTerms yet:\n" <> display xVal <> "\n" <> display yVal
-    where
-      display (One val) = show val
-      display (Many _) = "Ambiguous"
+    xVal <- liftIO $ embed . fmap fst <$> traverse gatherTy x
+    yVal <- liftIO $ embed . fmap fst <$> traverse gatherTy y
+    error $ "Haven't fully implemented merge for TyTerms yet:\n" <> show xVal <> "\n" <> show yVal
   merge _ (New Empty) =  pure None
   merge (Old Empty) (New y) = pure $ Gain y
 
@@ -360,42 +378,53 @@ treeValuesIntoTy (LocTree _ _ (TyExprF _ valTree)) = do
   tyTerm . Filled =<< traverse treeValuesIntoTy valTree
 
 -- | Gather the annotated type terms into values along the tree
-treeGatherAllTys :: LocTree RowCol TyExprF -> IO (Either (NonEmpty TyTerm) (LocTree RowCol GatheredF))
+treeGatherAllTys :: LocTree RowCol TyExprF -> IO (LocTree RowCol GatheredF, [TyTerm])
 treeGatherAllTys (LocTree x y (TyExprF t val)) = do
-  t' <- gatherTy t
-  ts <- sequence <$> traverse treeGatherAllTys val
-  case (t', ts) of
-    (Many xs, Left ys) -> pure $ Left $ xs <> ys
-    (One s, Right ss) -> pure . Right $ LocTree x y $ GatheredF s ss
-    (One _, Left ss) -> pure $ Left ss
-    (Many ss, Right _) -> pure $ Left ss
+  (t', ambs) <- gatherTy t
+  tsF <- traverse treeGatherAllTys val
+  let moreAmbs = foldr (<>) [] $ snd <$> tsF
+  let ts = fst <$> tsF
+  pure $ (LocTree x y $ GatheredF t' ts, ambs <> moreAmbs)
 
 -- | Gather the annotated type for the root node into a value
-treeGatherRootTy :: TyTree -> IO (CollectedEither TyTerm RtVal)
-treeGatherRootTy tree = gatherTy $ tyF $ locContent tree
+treeGatherRootTy :: TyTree -> IO RtVal
+treeGatherRootTy tree = fst <$> gatherTy (tyF $ locContent tree)
 
 -- | Gather the term into a value such that all
 -- constructors point directly to their children
 -- instead of through a term reference
-gatherTy :: TyTerm -> IO (CollectedEither TyTerm RtVal)
-gatherTy c = evalStateT (go c) (Map.empty, 0)
+gatherTy :: TyTerm -> IO (RtVal, [TyTerm])
+gatherTy c = do
+  (result, (_,_,amb)) <- runStateT (go c) (Map.empty, 0, [])
+  pure (result, amb)
   where
-    go :: TyTerm -> StateT (Map Word32 Word32, Word32) IO (CollectedEither TyTerm RtVal)
+    go :: TyTerm -> StateT (Map Word32 Word32, Word32, [TyTerm]) IO RtVal
     go (TyTerm t) = do
       RootInfo thisCell _ uid _ _ <- liftIO $ rootInfo t
       liftIO (readRef $ value thisCell) >>= \case
-        Filled (RtProdF xs) -> fmap RtProd . sequence <$> traverse go xs
-        Filled (RtArrF input output) -> (\x y -> RtArr <$> x <*> y) <$> go input <*> go output
-        Filled RtTyF -> pure $ One RtTy
-        Filled _ -> undefined
-        Ambiguous _ -> pure $ Many (TyTerm t :| [])
-        Empty ->
-          Map.lookup uid . fst <$> get >>= \case
-            Just i -> pure . One $ RtVar i
+        Filled (RtProdF xs) -> RtProd <$> traverse go xs
+        Filled (RtArrF input output) ->  RtArr <$> go input <*> go output
+        Filled RtTyF -> pure $ RtTy
+        Filled (RtAppF func ins) -> RtApp <$> go func <*> traverse go ins
+        Filled (RtPrimF _) -> undefined
+        Filled (RtConF _ _) -> undefined
+        Filled (RtVarF i) -> pure $ RtVar i
+        Filled (RtLamF _) -> undefined
+        Filled (RtUnknownF _) -> undefined
+        Filled (RtAmbiguousF _) -> undefined
+        Ambiguous xs -> do
+          modify $ \(x,y,z) -> (x,y, TyTerm t:z)
+          RtAmbiguous <$> traverse (fmap embed . traverse go) xs
+        Empty -> do
+          (tbl, n, as) <- get
+          case Map.lookup uid tbl of
+            Just i -> pure $ RtVar i
             Nothing -> do
-              (tbl, n) <- get
-              put $ (Map.insert uid n tbl, n + 1)
-              pure . One $ RtVar n
+              put $ (Map.insert uid n tbl, n + 1, as)
+              pure $  RtUnknown n
+
+tyExprToValue :: TyExpr -> IO RtVal
+tyExprToValue t = embed <$> traverse tyExprToValue (expr t)
 
 disperseTy :: RtVal -> TyCheckM TyTerm
 disperseTy = cata (tyTerm . Filled <=< sequence)
@@ -404,3 +433,19 @@ disperseTy = cata (tyTerm . Filled <=< sequence)
 treeStripTypes :: TyTree -> RtVal
 treeStripTypes (LocTree _ _ (TyExprF _ e)) =
   embed $ treeStripTypes <$> e
+
+displayBindings :: Map Text Binding -> TyCheckM String
+displayBindings bs = do
+  pairs <- traverse go $ Map.assocs bs
+  pure $ "{" <> (intercalate ", " $ pairs) <> "}"
+
+  where
+
+  go :: (Text, Binding) -> TyCheckM String
+  go (_, LambdaBound x i) = do
+    depth <- lambdaDepth <$> get
+    (t, _) <- liftIO $ gatherTy x
+    pure $ "#" <> show (depth - i - 1) <> ": " <> displayRtVal t
+  go (name, Other x) = do
+    val <- displayRtVal <$> liftIO (tyExprToValue x)
+    pure $ Text.unpack name <> ": " <> val

@@ -48,3 +48,5 @@ eval val = evalState (runEvalM (cata go val)) (RtEnv [])
     go RtTyF = pure RtTy
     go (RtPrimF p) = pure $ RtPrim p
     go (RtConF i x) = RtCon i <$> x
+    go (RtUnknownF _) = undefined
+    go (RtAmbiguousF _) = undefined

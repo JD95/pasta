@@ -13,6 +13,7 @@ import Lexer (Lexeme, Pair (..), RowCol, Token (..))
 import qualified Lexer as Lex
 import Text.Earley hiding (parser)
 import qualified Text.Earley as E
+import Prelude hiding (product)
 
 type AST = LocTree RowCol ExprF
 
@@ -34,7 +35,7 @@ grammar = mdo
   lvl3 <- rule $ app <|> lvl4
   lvl4 <- rule $ let_ <|> lvl5
   lvl5 <- rule $ lam <|> lvl6
-  lvl6 <- rule $ someSymbol <|> unit <|> between Lex.Paren expr
+  lvl6 <- rule $ someSymbol <|> unit <|> prod <|> between Lex.Paren expr
   let_ <-
     rule $
       triCon LetF
@@ -50,7 +51,17 @@ grammar = mdo
   depArr <- rule $ depArrow lvl3 lvl2
   ann <- rule $ annotation lvl2
   lam <- rule $ lambda expr
+  prod <- rule $ product expr
   pure expr
+
+product :: Prod r String Token AST -> Prod r String Token AST
+product expr =
+  between Lex.Paren $
+    many space
+      *> (mk <$> some (expr <* many space <* comma) <*> (many space *> expr))
+      <* many space
+  where
+    mk xs x = LocTree (locStart $ head xs) (locEnd x) $ ProdF (xs <> [x])
 
 annotation :: Prod r String Token AST -> Prod r String Token AST
 annotation expr =
@@ -62,7 +73,7 @@ depArrow ::
   Prod r String Token AST ->
   Prod r String Token AST ->
   Prod r String Token AST
-depArrow lft rt = mk <$> input <*> (spaced arr *> rt <* many space)
+depArrow _ yesRec = mk <$> input <*> (spaced arr *> yesRec <* many space)
   where
     mk ((start, n), inTy) outTy =
       LocTree start (locEnd outTy) (ArrF (Just n) inTy outTy)
@@ -71,7 +82,7 @@ depArrow lft rt = mk <$> input <*> (spaced arr *> rt <* many space)
       between Lex.Paren $
         (,)
           <$> (many space *> terminal name <* spaced colon)
-          <*> (lft <* many space)
+          <*> (yesRec <* many space)
 
     name (Token (Lex.Symbol t) rc) = Just (rc, t)
     name _ = Nothing
@@ -80,7 +91,7 @@ arrow ::
   Prod r String Token AST ->
   Prod r String Token AST ->
   Prod r String Token AST
-arrow lft rt = mk <$> lft <*> (spaced arr *> rt)
+arrow noRec yesRec = mk <$> noRec <*> (spaced arr *> yesRec)
   where
     mk inTy outTy =
       LocTree (locStart inTy) (locEnd outTy) (ArrF Nothing inTy outTy)
@@ -129,6 +140,12 @@ colon :: Prod r String Token Token
 colon = satisfy go <?> "type annotation"
   where
     go (Token Lex.Colon _) = True
+    go _ = False
+
+comma :: Prod r String Token Token
+comma = satisfy go <?> "comma"
+  where
+    go (Token Lex.Comma _) = True
     go _ = False
 
 equals :: Prod r String Token Token

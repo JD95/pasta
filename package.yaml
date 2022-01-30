@@ -30,6 +30,7 @@ dependencies:
 - recursion-schemes
 - text
 - unordered-containers
+- ansi-terminal
 - vector
 
 library:

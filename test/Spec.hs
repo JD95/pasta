@@ -38,8 +38,10 @@ main = do
         [ testCase "() parses" unitParses,
           testCase "example parses" exampleParses,
           testCase "Annotations parse" annParses,
+          testCase "arrows parse" parseArrNonDep,
           testCase "dependent arrows parse" parseArrDep,
-          testCase "annotations have highest parsing priority" annHasPriorityOverArrow
+          testCase "annotations have highest parsing priority" annHasPriorityOverArrow,
+          testCase "products parse" productsParse
         ]
 
     runtime =
@@ -61,7 +63,8 @@ main = do
           testCase "annotated lambdas type check" lambdasCheck,
           testCase "non-dependent function application checks" checkAppNonDep,
           testCase "merging filled values into ambiguous values works" mergeFilledIntoAmb,
-          testCase "merging ambiguous values into filled values works" mergeAmbIntoFilled
+          testCase "merging ambiguous values into filled values works" mergeAmbIntoFilled,
+          testCase "dependent arrows check" checkArrDep
         ]
 
 exampleParses :: IO ()
@@ -92,6 +95,11 @@ annHasPriorityOverArrow :: IO ()
 annHasPriorityOverArrow = do
   result <- testParse "foo : () -> ()"
   spine result @?= (AST.Symbol "foo" `Ann` (Arr Nothing unitE unitE))
+
+productsParse :: IO ()
+productsParse = do
+  result <- testParse "(x,y,z)"
+  spine result @?= (Prod [Symbol "x", Symbol "y", Symbol "z"])
 
 typeMergeIsCommunative :: IO ()
 typeMergeIsCommunative = do
@@ -154,9 +162,9 @@ mergeAmbIntoFilled = void $
       )
       (liftIO $ assertFailure "merge failed")
 
-unambiguous :: String -> CollectedEither b a -> IO a
-unambiguous _ (One x) = pure x
-unambiguous name (Many _) = assertFailure $ name <> " was ambiguous"
+unambiguous :: String -> (a, [b]) -> IO a
+unambiguous _ (x, []) = pure x
+unambiguous name (_, _ : _) = assertFailure $ name <> " was ambiguous"
 
 errorFilter :: IO ()
 errorFilter = do
@@ -175,9 +183,9 @@ checkingErrorsGoThrough = do
   input <- testParse "foo : ()"
   let setup = do
         t <- tyTerm $ Filled RtTyF
-        void $ assuming "foo" $ Other $ TyExpr t unitF
+        assuming' "foo" $ Other $ TyExpr t unitF
   typeCheck input defaultTyCheckSt setup
-    `expectTyErrors` [TypeMismatch]
+    `expectTyErrors` [someTypeMismatch]
 
 infersArrTy :: IO ()
 infersArrTy = do
@@ -190,7 +198,7 @@ infersSymbolTy = do
   input <- testParse "foo"
   let setup = do
         t <- tyTerm $ Filled unitF
-        void $ assuming "foo" $ Other $ TyExpr t unitF
+        assuming' "foo" $ Other $ TyExpr t unitF
   typeCheck input defaultTyCheckSt setup
     `expectTy` unit
 
@@ -208,13 +216,23 @@ checkAnn = do
 
 checkAppNonDep :: IO ()
 checkAppNonDep = do
-  input <- testParse "((\\x -> x) : () -> ()) ()"
-  typeCheck input defaultTyCheckSt noSetup
-    `expectTy` unit
+  input <- testParse "B x"
+  let setup = do
+        t <- tyTerm $ Filled $ RtTyF
+        b <- tyTerm $ Filled $ RtArrF t t
+        assuming' "B" $ Other $ TyExpr b unitF
+        assuming' "x" $ Other $ TyExpr t unitF
+  typeCheck input defaultTyCheckSt setup
+    `expectTy` RtTy
 
-checkAppDep :: IO ()
-checkAppDep = do
+checkArrDep :: IO ()
+checkArrDep = do
   input <- testParse "(A : Type) -> (B : A -> Type) -> (x : A) -> B x -> (A, B x)"
+  -- Type -> (#0 -> Type) -> #1 -> (#1 #0) -> (#3, #2 #1)
+  -- {#0 : Type}
+  -- {#1 : Type, #0: #1 -> Type}
+  -- {#2 : Type, #1: #2 -> Type, #0: #2}
+  -- {#3 : Type, #2: #3 -> Type, #1: #3}
   typeCheck input defaultTyCheckSt noSetup
     `expectTy` RtArr
       RtTy -- A : Type
@@ -254,21 +272,39 @@ expectTy check expected =
     Right (LocTree _ _ (GatheredF actual _)) -> do
       actual @?= expected
 
-expectTyErrors :: (Eq a, Show a) => IO (Either a (LocTree l GatheredF)) -> a -> IO ()
+expectTyErrors :: IO (Either [TCError] (LocTree l GatheredF)) -> [ExpectedErr] -> IO ()
 expectTyErrors check expected =
   check >>= \case
     Left actual ->
-      if actual == expected
+      if matchesErrExpectation expected actual
         then pure ()
         else
           assertFailure $
             "Type checking returned these errors:\n"
               <> show actual
               <> "\nBut these errors were expected:\n"
-              <> show expected
+              <> show (msg <$> expected)
     Right (LocTree _ _ (GatheredF result _)) -> do
       assertFailure $
         "Type checking returned with:\n"
           <> show result
           <> "\nBut these errors were expected:\n"
-          <> show expected
+          <> show (msg <$> expected)
+
+matchesErrExpectation :: [ExpectedErr] -> [TCError] -> Bool
+matchesErrExpectation [] [] = True
+matchesErrExpectation [] (_ : _) = False
+matchesErrExpectation (e : es) actual = go actual []
+  where
+    go [] _ = False
+    go (x : xs) prev =
+      if Main.pred e x
+        then matchesErrExpectation es (prev <> xs)
+        else go xs prev
+
+data ExpectedErr = ExpectedErr {msg :: String, pred :: (TCError -> Bool)}
+
+someTypeMismatch :: ExpectedErr
+someTypeMismatch = ExpectedErr "TypeMismatch" $ \case
+  TypeMismatch _ _ _ _ -> True
+  _ -> False
