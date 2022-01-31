@@ -15,7 +15,6 @@
 module TypeCheck.Types where
 
 import Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import Data.List
 import Data.Maybe
