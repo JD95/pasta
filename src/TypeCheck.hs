@@ -24,6 +24,7 @@ import qualified Data.HashSet as HS
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Vector as Vec
@@ -109,8 +110,12 @@ convertTree tree = AST.transform go tree
             inferOutput
         Nothing -> do
           oldDepth <- lambdaDepth <$> get
-          modify $ \st -> st {lambdaDepth = oldDepth + 1}
-          inferOutput <* modify (\st -> st {lambdaDepth = oldDepth})
+          oldStack <- varStack <$> get
+          tTy <- treeValuesIntoTy inputTree
+          modify $ \st -> st {lambdaDepth = oldDepth + 1, varStack = oldStack Seq.|> tTy}
+          result <- inferOutput
+          modify (\st -> st {lambdaDepth = oldDepth, varStack = oldStack})
+          pure result
       debugShowTreeTy outputTree
       expectedOutputTy <- tyTerm (Filled RtTyF)
       (unify (treeRootTy outputTree) expectedOutputTy)
@@ -203,8 +208,7 @@ lookupBinding name = do
   table <- bindings <$> get
   case Map.lookup name table of
     Just (LambdaBound t depth) -> do
-      thisDepth <- lambdaDepth <$> get
-      pure $ TyExpr t $ RtVarF $ thisDepth - depth - 1
+      pure $ TyExpr t $ RtVarF $ depth
     Just (Other result) -> pure result
     Nothing -> error "No type for symbol"
 
@@ -304,7 +308,7 @@ assuming name t action = do
     st
       { bindings = Map.insert name t (bindings st),
         lambdaDepth = oldDepth + 1,
-        varStack = tTerm : oldStack
+        varStack = oldStack Seq.|> tTerm
       }
   result <- action
   modify $ \st ->

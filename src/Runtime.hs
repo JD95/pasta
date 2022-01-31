@@ -11,27 +11,29 @@ module Runtime where
 import Control.Monad
 import Control.Monad.State
 import Data.Functor.Foldable
+import Data.Sequence
 import Data.Word
 import Runtime.Types
 import Prelude hiding (const, id, log)
 
-data RtEnv = RtEnv {stack :: [RtVal]}
+data RtEnv = RtEnv {stack :: Seq RtVal}
 
 newtype EvalM a = EvalM {runEvalM :: State RtEnv a}
   deriving (Functor, Applicative, Monad, MonadState RtEnv)
 
 push :: RtVal -> EvalM a -> EvalM a
 push x action = do
-  modify $ \st -> st {stack = x : stack st}
+  oldStack <- stack <$> get
+  modify $ \st -> st {stack = stack st |> x}
   result <- action
-  modify $ \st -> st {stack = tail $ stack st}
+  modify $ \st -> st {stack = oldStack}
   pure result
 
 access :: Word32 -> EvalM RtVal
-access i = (!! fromIntegral i) . stack <$> get
+access i = flip index (fromIntegral i) . stack <$> get
 
 eval :: RtVal -> RtVal
-eval val = evalState (runEvalM (cata go val)) (RtEnv [])
+eval val = evalState (runEvalM (cata go val)) (RtEnv Empty)
   where
     go :: RtValF (EvalM RtVal) -> EvalM RtVal
     go (RtProdF xs) = RtProd <$> sequence xs

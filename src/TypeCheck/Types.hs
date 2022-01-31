@@ -14,6 +14,8 @@
 
 module TypeCheck.Types where
 
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import Data.List
 import Data.Maybe
@@ -84,7 +86,7 @@ data TyCheckSt = TyCheckSt
     -- - Let Expressions
     bindings :: Map Text Binding,
     -- | Bound Values
-    varStack :: [TyTerm],
+    varStack :: Seq TyTerm,
     -- | How many lambdas have
     -- been passed up until this
     -- point.

@@ -61,6 +61,6 @@ displayRtVal = cata $ \case
   RtPrimF _ -> undefined
   RtUnknownF i -> "?" <> show i
   RtConF _ _ -> undefined
-  RtAmbiguousF _ -> undefined
+  RtAmbiguousF xs -> "{" <> intercalate ", " (toList xs) <> "}"
   where
     parens x = "(" <> x <> ")"
