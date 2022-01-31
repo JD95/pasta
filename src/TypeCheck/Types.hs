@@ -444,9 +444,8 @@ displayBindings bs = do
 
   go :: (Text, Binding) -> TyCheckM String
   go (_, LambdaBound x i) = do
-    depth <- lambdaDepth <$> get
     (t, _) <- liftIO $ gatherTy x
-    pure $ "#" <> show (depth - i - 1) <> ": " <> displayRtVal t
+    pure $ "#" <> show i <> ": " <> displayRtVal t
   go (name, Other x) = do
     val <- displayRtVal <$> liftIO (tyExprToValue x)
     pure $ Text.unpack name <> ": " <> val
