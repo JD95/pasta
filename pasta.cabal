@@ -1,0 +1,140 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.34.4.
+--
+-- see: https://github.com/sol/hpack
+
+name:           pasta
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/jd05/pasta#readme>
+homepage:       https://github.com/jd95/pasta#readme
+bug-reports:    https://github.com/jd95/pasta/issues
+author:         Jeffrey Dwyer
+maintainer:     jeffreydwyer95@outlook.com
+copyright:      2019 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/jd95/pasta
+
+library
+  exposed-modules:
+      AST.Expr
+      AST.LocTree
+      Lexer
+      Lib
+      Parser
+      Query
+      Runtime
+      Runtime.Backtracking
+      Runtime.Dsl
+      Runtime.Log
+      Runtime.Prop
+      Runtime.Ref
+      Runtime.Term
+      Runtime.Types
+      Tabling
+      TimeStampTrie
+      Trie
+      TypeCheck
+      TypeCheck.Debug
+      TypeCheck.Types
+  other-modules:
+      Paths_pasta
+  hs-source-dirs:
+      src
+  ghc-options: -Wall
+  build-depends:
+      Earley
+    , ansi-terminal
+    , base >=4.7 && <5
+    , containers
+    , hashable
+    , logict
+    , megaparsec
+    , mtl
+    , recursion-schemes
+    , text
+    , unordered-containers
+    , vector
+  default-language: Haskell2010
+
+executable compiler
+  main-is: Main.hs
+  other-modules:
+      Paths_pasta
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Earley
+    , ansi-terminal
+    , base >=4.7 && <5
+    , containers
+    , hashable
+    , logict
+    , megaparsec
+    , mtl
+    , pasta
+    , recursion-schemes
+    , text
+    , unordered-containers
+    , vector
+  default-language: Haskell2010
+
+executable repl
+  main-is: Main.hs
+  other-modules:
+      Paths_pasta
+  hs-source-dirs:
+      repl
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Earley
+    , ansi-terminal
+    , base >=4.7 && <5
+    , containers
+    , hashable
+    , haskeline
+    , logict
+    , megaparsec
+    , mtl
+    , pasta
+    , recursion-schemes
+    , text
+    , unordered-containers
+    , vector
+  default-language: Haskell2010
+
+test-suite test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      TablingTests
+      Paths_pasta
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Earley
+    , ansi-terminal
+    , base >=4.7 && <5
+    , containers
+    , hashable
+    , logict
+    , megaparsec
+    , mtl
+    , pasta
+    , recursion-schemes
+    , tasty
+    , tasty-hunit
+    , text
+    , unordered-containers
+    , vector
+  default-language: Haskell2010

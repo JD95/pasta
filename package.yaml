@@ -1,9 +1,9 @@
-name:                jelly
+name:                pasta
 version:             0.1.0.0
-github:              "githubuser/jelly"
+github:              "jd95/pasta"
 license:             BSD3
-author:              "Author name here"
-maintainer:          "example@example.com"
+author:              "Jeffrey Dwyer"
+maintainer:          "jeffreydwyer95@outlook.com"
 copyright:           "2019 Author name here"
 
 extra-source-files:
@@ -17,7 +17,7 @@ extra-source-files:
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/githubuser/jelly#readme>
+description:         Please see the README on GitHub at <https://github.com/jd05/pasta#readme>
 
 dependencies:
 - Earley
@@ -47,7 +47,7 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - jelly
+    - pasta
 
 
   repl:
@@ -58,7 +58,7 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - jelly
+    - pasta
     - haskeline
 
 tests:
@@ -70,6 +70,6 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - jelly
+    - pasta
     - tasty
     - tasty-hunit
