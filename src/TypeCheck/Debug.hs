@@ -14,7 +14,7 @@ import TypeCheck.Types
 (<&>) = flip fmap
 
 debugTypeChecking :: Bool
-debugTypeChecking = False
+debugTypeChecking = True
 
 debug :: String -> TyCheckM ()
 debug msg =

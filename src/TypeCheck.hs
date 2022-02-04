@@ -29,6 +29,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Vector as Vec
 import Lexer (RowCol)
+import Runtime (eval)
 import Runtime.Types
 import TypeCheck.Debug
 import TypeCheck.Types
@@ -86,6 +87,18 @@ restoreBindings :: Map Text Binding -> TyCheckM ()
 restoreBindings oldBindings =
   modify $ \st -> st {bindings = oldBindings}
 
+evalTy :: TyTerm -> TyCheckM TyTerm
+evalTy t = do
+  liftIO (gatherTy t) >>= \case
+    (t', []) -> disperseTy (eval t')
+    (_, ts) -> do
+      failWith =<< ambiguousTypes ts
+      pure t
+
+ambiguousTypes :: [TyTerm] -> TyCheckM TCError
+ambiguousTypes _ = do
+  AmbiguousTypes <$> (currentBranch <$> get)
+
 convertTree :: LocTree RowCol ExprF -> TyCheckM TyTree
 convertTree tree = AST.transform go tree
   where
@@ -105,16 +118,16 @@ convertTree tree = AST.transform go tree
       outputTree <- case inputName of
         Just t -> do
           depth <- lambdaDepth <$> get
-          tTy <- treeValuesIntoTy inputTree
-          assuming t (LambdaBound tTy depth) $
+          tTy <- evalTy =<< treeValuesIntoTy inputTree
+          assuming t (DepTyBound tTy depth) $
             inferOutput
         Nothing -> do
-          oldDepth <- lambdaDepth <$> get
-          oldStack <- varStack <$> get
+          oldDepth <- depTyDepth <$> get
+          oldStack <- depTyStack <$> get
           tTy <- treeValuesIntoTy inputTree
-          modify $ \st -> st {lambdaDepth = oldDepth + 1, varStack = oldStack Seq.|> tTy}
+          modify $ \st -> st {depTyDepth = oldDepth + 1, depTyStack = oldStack Seq.|> tTy}
           result <- inferOutput
-          modify (\st -> st {lambdaDepth = oldDepth, varStack = oldStack})
+          modify (\st -> st {depTyDepth = oldDepth, depTyStack = oldStack})
           pure result
       debugShowTreeTy outputTree
       expectedOutputTy <- tyTerm (Filled RtTyF)
@@ -183,7 +196,7 @@ convertTree tree = AST.transform go tree
         `ifFailThen` (failWith =<< typeMismatch annTree expectedAnnTy)
       valTree <- checkVal
       debugShowTreeTy valTree
-      x <- treeValuesIntoTy annTree
+      x <- evalTy =<< treeValuesIntoTy annTree
       unify (treeRootTy valTree) x
         `ifFailThen` (failWith =<< typeMismatch valTree x)
       debug "AnnF done"
@@ -208,7 +221,9 @@ lookupBinding name = do
   table <- bindings <$> get
   case Map.lookup name table of
     Just (LambdaBound t depth) -> do
-      pure $ TyExpr t $ RtVarF $ depth
+      pure $ TyExpr t $ RtVarF depth
+    Just (DepTyBound t depth) -> do
+      pure $ TyExpr t $ RtDepTyF depth
     Just (Other result) -> pure result
     Nothing -> error "No type for symbol"
 
@@ -299,25 +314,48 @@ failBranch b = do
 assuming :: Text -> Binding -> TyCheckM a -> TyCheckM a
 assuming name t action = do
   oldBindings <- bindings <$> get
-  oldDepth <- lambdaDepth <$> get
-  oldStack <- varStack <$> get
-  let tTerm = case t of
-        Other x -> ty x
-        LambdaBound x _ -> x
-  modify $ \st ->
-    st
-      { bindings = Map.insert name t (bindings st),
-        lambdaDepth = oldDepth + 1,
-        varStack = oldStack Seq.|> tTerm
-      }
-  result <- action
-  modify $ \st ->
-    st
-      { bindings = oldBindings,
-        lambdaDepth = oldDepth,
-        varStack = oldStack
-      }
-  pure result
+  case t of
+    Other _ -> do
+      modify $ \st ->
+        st {bindings = Map.insert name t (bindings st)}
+      result <- action
+      modify $ \st ->
+        st {bindings = oldBindings}
+      pure result
+    LambdaBound x _ -> do
+      oldDepth <- lambdaDepth <$> get
+      oldStack <- lamStack <$> get
+      modify $ \st ->
+        st
+          { bindings = Map.insert name t (bindings st),
+            lambdaDepth = oldDepth + 1,
+            lamStack = oldStack Seq.|> x
+          }
+      result <- action
+      modify $ \st ->
+        st
+          { bindings = oldBindings,
+            lambdaDepth = oldDepth,
+            lamStack = oldStack
+          }
+      pure result
+    DepTyBound x _ -> do
+      oldDepth <- depTyDepth <$> get
+      oldStack <- depTyStack <$> get
+      modify $ \st ->
+        st
+          { bindings = Map.insert name t (bindings st),
+            depTyDepth = oldDepth + 1,
+            depTyStack = oldStack Seq.|> x
+          }
+      result <- action
+      modify $ \st ->
+        st
+          { bindings = oldBindings,
+            depTyDepth = oldDepth,
+            depTyStack = oldStack
+          }
+      pure result
 
 assuming' :: Text -> Binding -> TyCheckM ()
 assuming' name t = do

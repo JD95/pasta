@@ -85,7 +85,9 @@ data TyCheckSt = TyCheckSt
     -- - Let Expressions
     bindings :: Map Text Binding,
     -- | Bound Values
-    varStack :: Seq TyTerm,
+    depTyStack :: Seq TyTerm,
+    depTyDepth :: Word32,
+    lamStack :: Seq TyTerm,
     -- | How many lambdas have
     -- been passed up until this
     -- point.
@@ -129,7 +131,10 @@ instance Exception TCError where
   displayException (AmbiguousTypes _) = "Ambiguous Types!"
 
 data Binding
-  = LambdaBound
+  = DepTyBound
+      TyTerm
+      Word32
+  | LambdaBound
       TyTerm
     -- | The depth of the lambda from the root, used to
     -- later calculate the De Bruijn indicies
@@ -225,7 +230,9 @@ defaultTyCheckSt :: TyCheckSt
 defaultTyCheckSt =
   TyCheckSt
     { bindings = Map.empty,
-      varStack = [],
+      depTyStack = [],
+      depTyDepth = 0,
+      lamStack = [],
       lambdaDepth = 0,
       uidList = [0..], -- TODO: Do better
       errors = [],
@@ -349,6 +356,10 @@ instance Lattice TyCheckM (Hole (RtValF TyTerm)) where
     pure $ if i == j
       then None
       else Conflict
+  merge (Old (Filled (RtDepTyF i))) (New (Filled (RtDepTyF j))) = do
+    pure $ if i == j
+      then None
+      else Conflict
   merge (Old (Filled x)) (New (Filled y)) = do
     xVal <- liftIO $ embed . fmap fst <$> traverse gatherTy x
     yVal <- liftIO $ embed . fmap fst <$> traverse gatherTy y
@@ -410,7 +421,8 @@ gatherTy c = do
         Filled (RtPrimF _) -> undefined
         Filled (RtConF _ _) -> undefined
         Filled (RtVarF i) -> pure $ RtVar i
-        Filled (RtLamF _) -> undefined
+        Filled (RtDepTyF i) -> pure $ RtDepTy i
+        Filled (RtLamF x) -> RtLam <$> go x
         Filled (RtUnknownF _) -> undefined
         Filled (RtAmbiguousF _) -> undefined
         Ambiguous xs -> do
@@ -444,6 +456,9 @@ displayBindings bs = do
 
   go :: (Text, Binding) -> TyCheckM String
   go (_, LambdaBound x i) = do
+    (t, _) <- liftIO $ gatherTy x
+    pure $ "$" <> show i <> ": " <> displayRtVal t
+  go (_, DepTyBound x i) = do
     (t, _) <- liftIO $ gatherTy x
     pure $ "#" <> show i <> ": " <> displayRtVal t
   go (name, Other x) = do

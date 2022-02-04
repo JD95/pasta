@@ -42,11 +42,9 @@ eval val = evalState (runEvalM (cata go val)) (RtEnv Empty)
       inputs <- sequence evalInputs
       foldr push evalFunc inputs
     go (RtArrF evalInput evalOutput) = do
-      input <- evalInput
-      push input $ do
-        output <- evalOutput
-        pure $ RtArr input output
+      RtArr <$> evalInput <*> evalOutput
     go (RtVarF i) = access i
+    go (RtDepTyF i) = pure $ RtDepTy i
     go RtTyF = pure RtTy
     go (RtPrimF p) = pure $ RtPrim p
     go (RtConF i x) = RtCon i <$> x

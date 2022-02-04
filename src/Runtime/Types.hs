@@ -31,10 +31,11 @@ data RtVal
   = RtPrim PrimVal
   | RtProd (Vector RtVal)
   | RtCon Word32 RtVal
-  | RtVar Word32
   | RtLam RtVal
   | RtArr RtVal RtVal
   | RtApp RtVal (Vector RtVal)
+  | RtVar Word32
+  | RtDepTy Word32
   | RtTy
   | RtUnknown Word32
   | RtAmbiguous (NonEmpty RtVal)
@@ -55,9 +56,10 @@ displayRtVal = cata $ \case
   RtArrF input output -> parens $ input <> " -> " <> output
   RtAppF func ins -> intercalate " " $ func : Vec.toList ins
   RtProdF xs -> parens $ intercalate ", " (Vec.toList xs)
-  RtVarF i -> "#" <> show i
+  RtVarF i -> "$" <> show i
   RtLamF body -> parens $ "\\ -> " <> body
   RtTyF -> "Type"
+  RtDepTyF i -> "#" <> show i
   RtPrimF _ -> undefined
   RtUnknownF i -> "?" <> show i
   RtConF _ _ -> undefined

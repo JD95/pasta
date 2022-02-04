@@ -228,9 +228,29 @@ checkAppNonDep = do
 checkArrDep :: IO ()
 checkArrDep = do
   input <- testParse "(A : Type) -> (B : A -> Type) -> (x : A) -> B x -> (A, B x)"
-  -- Type -> (#0 -> Type) -> #1 -> (#1 #2) -> (#0, #1 #2)
   typeCheck input defaultTyCheckSt noSetup
     `expectTy` RtTy
+
+checkAnnEval :: IO ()
+checkAnnEval = do
+  input <- testParse "foo : (\\x -> x) Type"
+  let setup = do
+        t <- tyTerm $ Filled RtTyF
+        assuming' "foo" $ Other $ TyExpr t unitF
+  typeCheck input defaultTyCheckSt setup
+    `expectTy` RtTy
+
+checkDepTyEval :: IO ()
+checkDepTyEval = do
+  input <- testParse "foo : (a : Type) -> (\\x -> x) a -> a"
+  let setup = do
+        x0 <- tyTerm $ Filled $ RtDepTyF 0
+        inTy <- tyTerm $ Filled $ RtTyF
+        outTy <- tyTerm $ Filled $ RtArrF x0 x0
+        full <- tyTerm $ Filled $ RtArrF inTy outTy
+        assuming' "foo" $ Other $ TyExpr full unitF
+  typeCheck input defaultTyCheckSt setup
+    `expectTy` (RtArr RtTy (RtArr (RtDepTy 0) (RtDepTy 0)))
 
 testLex :: Text -> IO [Token]
 testLex input =
