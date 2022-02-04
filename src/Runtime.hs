@@ -33,20 +33,23 @@ access :: Word32 -> EvalM RtVal
 access i = flip index (fromIntegral i) . stack <$> get
 
 eval :: RtVal -> RtVal
-eval val = evalState (runEvalM (cata go val)) (RtEnv Empty)
+eval val = evalState (runEvalM (para go val)) (RtEnv Empty)
   where
-    go :: RtValF (EvalM RtVal) -> EvalM RtVal
-    go (RtProdF xs) = RtProd <$> sequence xs
-    go (RtLamF evalBody) = evalBody
-    go (RtAppF evalFunc evalInputs) = do
-      inputs <- sequence evalInputs
-      foldr push evalFunc inputs
-    go (RtArrF evalInput evalOutput) = do
+    go :: RtValF (RtVal, EvalM (RtVal)) -> EvalM RtVal
+    go (RtProdF xs) = RtProd <$> sequence (snd <$> xs)
+    go (RtLamF (body, _)) = pure $ RtLam body
+    go (RtAppF (_, evalFunc) evalInputs) = do
+      evalFunc >>= \case
+        RtLam body -> do
+          inputs <- sequence (snd <$> evalInputs)
+          foldr push (para go body) inputs
+        _ -> undefined
+    go (RtArrF (_, evalInput) (_, evalOutput)) = do
       RtArr <$> evalInput <*> evalOutput
     go (RtVarF i) = access i
     go (RtDepTyF i) = pure $ RtDepTy i
     go RtTyF = pure RtTy
     go (RtPrimF p) = pure $ RtPrim p
-    go (RtConF i x) = RtCon i <$> x
+    go (RtConF i (_, x)) = RtCon i <$> x
     go (RtUnknownF _) = undefined
     go (RtAmbiguousF _) = undefined

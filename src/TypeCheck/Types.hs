@@ -402,6 +402,8 @@ treeGatherAllTys (LocTree x y (TyExprF t val)) = do
 treeGatherRootTy :: TyTree -> IO RtVal
 treeGatherRootTy tree = fst <$> gatherTy (tyF $ locContent tree)
 
+dropTypes tree = embed $ dropTypes <$> (bodyF $ locContent tree)
+
 -- | Gather the term into a value such that all
 -- constructors point directly to their children
 -- instead of through a term reference
