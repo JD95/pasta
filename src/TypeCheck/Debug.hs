@@ -27,9 +27,10 @@ debug msg =
 
 debugErr :: String -> TyCheckM ()
 debugErr msg = do
-  liftIO $ setSGR [SetColor Foreground Vivid Red]
-  debug msg
-  liftIO $ setSGR [Reset]
+  when debugTypeChecking $ do
+    liftIO $ setSGR [SetColor Foreground Vivid Red]
+    debug msg
+    liftIO $ setSGR [Reset]
 
 debugNoFormat :: String -> TyCheckM ()
 debugNoFormat msg =
@@ -38,17 +39,21 @@ debugNoFormat msg =
 
 debugShowTreeTy :: TyTree -> TyCheckM ()
 debugShowTreeTy tree = do
-  let val = treeStripTypes tree
-  result <- liftIO (treeGatherRootTy tree)
-  debug $ "type of '" <> displayRtVal val <> "' is '" <> displayRtVal result <> "'"
+  when debugTypeChecking $ do
+    let val = treeStripTypes tree
+    result <- liftIO (treeGatherRootTy tree)
+    debug $ "type of '" <> displayRtVal val <> "' is '" <> displayRtVal result <> "'"
 
 subProblem :: String -> TyCheckM b -> TyCheckM b
 subProblem msg check = do
-  bsTxt <- displayBindings =<< bindings <$> get
-  liftIO $ setSGR [SetColor Foreground Vivid Green]
-  debug $ msg <> " " <> bsTxt
-  liftIO $ setSGR [Reset]
-  modify $ \st -> st {problemDepth = problemDepth st + 1}
-  result <- check
-  modify $ \st -> st {problemDepth = problemDepth st - 1}
-  pure result
+  if debugTypeChecking
+    then do
+      bsTxt <- displayBindings =<< bindings <$> get
+      liftIO $ setSGR [SetColor Foreground Vivid Green]
+      debug $ msg <> " " <> bsTxt
+      liftIO $ setSGR [Reset]
+      modify $ \st -> st {problemDepth = problemDepth st + 1}
+      result <- check
+      modify $ \st -> st {problemDepth = problemDepth st - 1}
+      pure result
+    else check

@@ -43,7 +43,8 @@ main = do
           testCase "dependent arrows parse" parseArrDep,
           testCase "annotations have highest parsing priority" annHasPriorityOverArrow,
           testCase "products parse" productsParse,
-          appParsing
+          appParsing,
+          arrParsing
         ]
 
     runtime =
@@ -69,6 +70,21 @@ main = do
           testCase "dependent arrows check" checkArrDep,
           testCase "dependent arrows eval properly" checkDepTyEval
         ]
+
+arrParsing :: TestTree
+arrParsing =
+  testGroup
+    "arr parsing"
+    [ testCase "all spaces" $ go "foo : a -> b -> c",
+      testCase "indent before ann" $ go "foo\n: a -> b -> c",
+      testCase "indent after ann" $ go "foo :\n  a -> b -> c",
+      testCase "indent after first arr" $ go "foo : a ->\n  b -> c",
+      testCase "align arrows under ann" $ go "foo\n  : a\n  -> b\n  -> c"
+    ]
+  where
+    go input = do
+      actual <- testParse input
+      spine actual @?= Arr Nothing (Symbol "a") (Arr Nothing (Symbol "b") (Symbol "c"))
 
 appParsing :: TestTree
 appParsing =
