@@ -12,6 +12,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Logic
 import Data.List.NonEmpty
 import Data.Text (Text, unpack)
+import qualified Data.Text as Text
 import Lexer (Token (..), lexer)
 import Parser
 import Runtime
@@ -41,7 +42,9 @@ main = do
           testCase "arrows parse" parseArrNonDep,
           testCase "dependent arrows parse" parseArrDep,
           testCase "annotations have highest parsing priority" annHasPriorityOverArrow,
-          testCase "products parse" productsParse
+          testCase "products parse" productsParse,
+          testCase "indented application inputs parse" appIndent,
+          testCase "indented annotations parse" annIndent
         ]
 
     runtime =
@@ -64,8 +67,34 @@ main = do
           testCase "non-dependent function application checks" checkAppNonDep,
           testCase "merging filled values into ambiguous values works" mergeFilledIntoAmb,
           testCase "merging ambiguous values into filled values works" mergeAmbIntoFilled,
-          testCase "dependent arrows check" checkArrDep
+          testCase "dependent arrows check" checkArrDep,
+          testCase "dependent arrows eval properly" checkDepTyEval
         ]
+
+appIndent :: IO ()
+appIndent =
+  do
+    result <-
+      testParse $
+        Text.unlines
+          [ "foo",
+            " a",
+            " b"
+          ]
+    spine result @?= App (Symbol "foo") [Symbol "a", Symbol "b"]
+
+annIndent :: IO ()
+annIndent =
+  do
+    result <-
+      testParse $
+        Text.unlines
+          [ "foo",
+            "  :  a",
+            "  -> b",
+            "  -> c"
+          ]
+    spine result @?= Ann (Symbol "foo") (Arr Nothing (Symbol "a") (Arr Nothing (Symbol "b") (Symbol "c")))
 
 exampleParses :: IO ()
 exampleParses = do

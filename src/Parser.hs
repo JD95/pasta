@@ -8,7 +8,7 @@ import AST.LocTree
 import Control.Applicative
 import Control.Monad
 import Data.Maybe
-import Data.Text (Text, pack)
+import Data.Text (Text, pack, unpack)
 import Lexer (Lexeme, Pair (..), RowCol, Token (..))
 import qualified Lexer as Lex
 import Text.Earley hiding (parser)
@@ -23,10 +23,12 @@ parse = fullParses (E.parser grammar)
 displayReport :: [Token] -> Report String [Token] -> Text
 displayReport input (Report i ex rest) =
   pack . unlines $
-    [ "Parse Error at " <> show (pos (input !! (i - 1))),
+    [ "Parse Error at " <> displayErrPos (pos (input !! (i - 1))),
       "expected: " <> show ex,
-      "unconsumed: " <> (show $ lexeme <$> rest)
+      "unconsumed: " <> concat (unpack . Lex.displayLexeme . lexeme <$> rest)
     ]
+  where
+    displayErrPos (Lex.RowCol r c) = show r <> ":" <> show c
 
 grammar :: Grammar r (Prod r String Token AST)
 grammar = mdo
@@ -46,13 +48,16 @@ grammar = mdo
     rule $
       mkApp
         <$> lvl6
-        <*> some (some space *> lvl6)
+        <*> (some (some space *> lvl6) <|> indent (some (lvl6 <* many newline)))
   nonDepArr <- rule $ arrow lvl3 lvl2
   depArr <- rule $ depArrow lvl3 lvl2
   ann <- rule $ annotation lvl2
   lam <- rule $ lambda expr
   prod <- rule $ product expr
-  pure expr
+  pure (expr <* (many space <|> many newline))
+
+indent :: Prod r String Token a -> Prod r String Token a
+indent p = between Lex.Indent p <|> p
 
 product :: Prod r String Token AST -> Prod r String Token AST
 product expr =
@@ -128,10 +133,16 @@ arr = satisfy go <?> "arrow"
     go _ = False
 
 space :: Prod r String Token Token
-space = satisfy go
+space = satisfy s
   where
-    go (Token Lex.Space _) = True
-    go _ = False
+    s (Token Lex.Space _) = True
+    s _ = False
+
+newline :: Prod r String Token Token
+newline = satisfy s
+  where
+    s (Token Lex.NewLine _) = True
+    s _ = False
 
 spaced :: Prod r String Token a -> Prod r String Token a
 spaced x = some space *> x <* some space

@@ -2,15 +2,15 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Lexer (Pair (..), RowCol (..), Token (..), Lexeme (..), lexer) where
+module Lexer (Pair (..), RowCol (..), Token (..), Lexeme (..), lexer, displayLexeme) where
 
 import Control.Applicative (Alternative, (<|>))
 import Control.Monad (MonadPlus)
-import Control.Monad.State (State, evalState)
+import Control.Monad.State.Strict (MonadState (..), State, evalState, get, modify)
 import Data.Text (Text, pack)
-import Numeric.Natural
 import Text.Megaparsec
   ( MonadParsec,
     ParseErrorBundle,
@@ -29,7 +29,8 @@ data Pair = Open | Close
   deriving (Show, Eq)
 
 data Lexeme
-  = NewLine Natural
+  = Indent Pair
+  | NewLine
   | Space
   | Symbol Text
   | Paren Pair
@@ -40,6 +41,20 @@ data Lexeme
   | Equals
   deriving (Show, Eq)
 
+displayLexeme :: Lexeme -> Text
+displayLexeme NewLine = "\\n"
+displayLexeme (Indent Open) = "\\n{"
+displayLexeme (Indent Close) = "\\n}"
+displayLexeme Space = " "
+displayLexeme (Symbol t) = t
+displayLexeme (Paren Open) = "("
+displayLexeme (Paren Close) = ")"
+displayLexeme (Lambda) = "\\"
+displayLexeme (Arrow) = "->"
+displayLexeme (Colon) = ":"
+displayLexeme (Comma) = ","
+displayLexeme (Equals) = "="
+
 data RowCol = RowCol {row :: Pos, col :: Pos}
   deriving (Show, Eq, Ord)
 
@@ -49,16 +64,34 @@ data Token = Token {lexeme :: Lexeme, pos :: RowCol}
 data LexError = LexError
   deriving (Show, Eq, Ord)
 
-data LexSt = LexSt
+data LexSt = LexSt {indent :: [Int]}
 
 newtype Lex a = Lex {runLexer :: ParsecT LexError Text (State LexSt) a}
-  deriving newtype (Functor, Applicative, Alternative, Monad, MonadPlus, MonadParsec LexError Text)
+  deriving newtype (Functor, Applicative, Alternative, Monad, MonadPlus, MonadParsec LexError Text, MonadState LexSt)
 
-newLine :: Lex Lexeme
+newLine :: Lex [Lexeme]
 newLine = do
   _ <- char '\n'
   ss <- many (char ' ')
-  pure $ NewLine . fromIntegral $ length ss
+  ns <- indent <$> get
+  let m = length ss
+  case ns of
+    [] ->
+      if m > 0
+        then do
+          modify $ \st -> st {indent = [m]}
+          pure [Indent Open]
+        else pure [NewLine]
+    (n : _) ->
+      if
+          | n == m -> pure [NewLine]
+          | n < m -> do
+            modify $ \st -> st {indent = m : ns}
+            pure $ [Indent Open]
+          | otherwise -> do
+            let (toClose, remaining) = span (m <) ns
+            modify $ \st -> st {indent = remaining}
+            pure $ Indent Close <$ toClose
 
 symbol :: Lex Lexeme
 symbol = do
@@ -66,11 +99,11 @@ symbol = do
   tl <- many alphaNumChar
   pure . Symbol . pack $ hd : tl
 
-token :: Lex Token
+token :: Lex [Token]
 token = do
   SourcePos _ r c <- getSourcePos
-  l <- parse
-  pure $ Token l (RowCol r c)
+  l <- ((: []) <$> parse) <|> newLine
+  pure $ Token <$> l <*> pure (RowCol r c)
   where
     parse =
       (Paren Open <$ char '(')
@@ -82,7 +115,16 @@ token = do
         <|> (Comma <$ char ',')
         <|> (Equals <$ char '=')
         <|> (Space <$ some (char ' '))
-        <|> newLine
+
+lexTokens :: Lex [Token]
+lexTokens = do
+  ts <- many token
+  SourcePos _ r c <- getSourcePos
+  ns <- indent <$> get
+  let endIndents = Token (Indent Close) (RowCol r c) <$ ns
+  pure $ concat ts <> endIndents
 
 lexer :: String -> Text -> Either (ParseErrorBundle Text LexError) [Token]
-lexer srcFileName = flip evalState LexSt . runParserT (runLexer (many token)) srcFileName
+lexer srcFileName = flip evalState initSt . runParserT (runLexer lexTokens) srcFileName
+  where
+    initSt = LexSt []
