@@ -48,7 +48,11 @@ grammar = mdo
     rule $
       mkApp
         <$> lvl6
-        <*> (some (some space *> lvl6) <|> indent (some (lvl6 <* many newline)))
+        <*> ( between
+                Lex.Indent
+                (snoc <$> many (lvl6 <* some (space <|> newline)) <*> lvl6)
+                <|> some (some space *> lvl6)
+            )
   nonDepArr <- rule $ arrow lvl3 lvl2
   depArr <- rule $ depArrow lvl3 lvl2
   ann <- rule $ annotation lvl2
@@ -56,8 +60,8 @@ grammar = mdo
   prod <- rule $ product expr
   pure (expr <* (many space <|> many newline))
 
-indent :: Prod r String Token a -> Prod r String Token a
-indent p = between Lex.Indent p <|> p
+snoc :: [a] -> a -> [a]
+snoc xs x = xs <> [x]
 
 product :: Prod r String Token AST -> Prod r String Token AST
 product expr =

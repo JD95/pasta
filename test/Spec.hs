@@ -43,8 +43,7 @@ main = do
           testCase "dependent arrows parse" parseArrDep,
           testCase "annotations have highest parsing priority" annHasPriorityOverArrow,
           testCase "products parse" productsParse,
-          testCase "indented application inputs parse" appIndent,
-          testCase "indented annotations parse" annIndent
+          appParsing
         ]
 
     runtime =
@@ -71,17 +70,19 @@ main = do
           testCase "dependent arrows eval properly" checkDepTyEval
         ]
 
-appIndent :: IO ()
-appIndent =
-  do
-    result <-
-      testParse $
-        Text.unlines
-          [ "foo",
-            " a",
-            " b"
-          ]
-    spine result @?= App (Symbol "foo") [Symbol "a", Symbol "b"]
+appParsing :: TestTree
+appParsing =
+  testGroup
+    "app parsing"
+    [ testCase "all spaces" $ go "foo a b c",
+      testCase "indent inputs" $ go "foo\n  a b c",
+      testCase "indent few inputs" $ go "foo\n  a\n  b c",
+      testCase "indent each input" $ go "foo\n  a\n  b\n  c"
+    ]
+  where
+    go input = do
+      actual <- testParse input
+      spine actual @?= App (Symbol "foo") [Symbol "a", Symbol "b", Symbol "c"]
 
 annIndent :: IO ()
 annIndent =
