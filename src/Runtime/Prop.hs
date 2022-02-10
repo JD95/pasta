@@ -148,14 +148,15 @@ prop inputs@(Watched x : _) target fire = do
         val <- readRef $ value y
         bot <- bottom
         if val == bot
-          then -- No usable input yet, wait until
-          -- this cell gains input then check
-          -- the rest
-          do
+          then do
+            -- No usable input yet, wait until
+            -- this cell gains input then check
+            -- the rest
             listenToOnce (Prop ref) y
             backTrackingWriteRef ref (waitForInputs ref ys)
-          else -- This input has a usable value so
-          -- go check the rest
+          else do
+            -- This input has a usable value so
+            -- go check the rest
             waitForInputs ref ys
 
   -- Create action ref with temp value
@@ -168,38 +169,3 @@ prop inputs@(Watched x : _) target fire = do
   listenToOnce (Prop propAction) x
 
   waitForInputs propAction inputs
-
-liftP :: (Lattice m a, Lattice m b, Alternative m, Ref m r) => (a -> b) -> Cell m r a -> Cell m r b -> m ()
-liftP f input output = do
-  prop [Watched input] output $ do
-    f <$> readRef (value input)
-
-liftP2 :: (Lattice m a, Lattice m b, Lattice m c, Alternative m, Ref m r) => (a -> b -> c) -> Cell m r a -> Cell m r b -> Cell m r c -> m ()
-liftP2 f inA inB output = do
-  prop [Watched inA, Watched inB] output $ do
-    a <- readRef (value inA)
-    b <- readRef (value inB)
-    pure $ f a b
-
-adder :: (Alternative m, Ref m r) => Cell m r (Maybe Int) -> Cell m r (Maybe Int) -> Cell m r (Maybe Int) -> m ()
-adder x y z = do
-  liftP2 (liftA2 (+)) x y z
-  liftP2 (liftA2 (-)) z x y
-  liftP2 (liftA2 (-)) z y x
-
-pair ::
-  (Lattice m a, Lattice m b, Alternative m, Ref m r) =>
-  Cell m r a ->
-  Cell m r b ->
-  Cell m r (a, b) ->
-  m ()
-pair x y p = do
-  liftP2 (,) x y p
-  liftP fst p x
-  liftP snd p y
-
-tryList :: (Alternative m) => [a] -> m a
-tryList = foldr (<|>) empty . fmap pure
-
-var :: (Lattice m a, Ref m r) => m (Cell m r a)
-var = cell =<< bottom

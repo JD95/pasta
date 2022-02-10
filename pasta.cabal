@@ -30,18 +30,13 @@ library
       Lexer
       Lib
       Parser
-      Query
       Runtime
       Runtime.Backtracking
-      Runtime.Dsl
       Runtime.Log
       Runtime.Prop
       Runtime.Ref
       Runtime.Term
       Runtime.Types
-      Tabling
-      TimeStampTrie
-      Trie
       TypeCheck
       TypeCheck.Debug
       TypeCheck.Types
@@ -116,7 +111,6 @@ test-suite test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      TablingTests
       Paths_pasta
   hs-source-dirs:
       test
