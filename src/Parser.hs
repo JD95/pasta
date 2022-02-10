@@ -33,7 +33,7 @@ displayReport input (Report i ex rest) =
 grammar :: Grammar r (Prod r String Token AST)
 grammar = mdo
   expr <- rule $ ann <|> lvl2
-  lvl2 <- rule $ depArr <|> nonDepArr <|> lvl3
+  lvl2 <- rule $ arr <|> lvl3
   lvl3 <- rule $ app <|> lvl4
   lvl4 <- rule $ let_ <|> lvl5
   lvl5 <- rule $ lam <|> lvl6
@@ -44,17 +44,8 @@ grammar = mdo
         <$> (symbol "let" *> some space *> someSymbol)
         <*> (spaced equals *> expr)
         <*> (spaced (symbol "in") *> expr)
-  app <-
-    rule $
-      mkApp
-        <$> lvl6
-        <*> ( between
-                Lex.Indent
-                (snoc <$> many (lvl6 <* some (space <|> newline)) <*> lvl6)
-                <|> some (some space *> lvl6)
-            )
-  nonDepArr <- rule $ arrow lvl3 lvl2
-  depArr <- rule $ depArrow lvl3 lvl2
+  app <- rule $ application lvl6
+  arr <- rule $ arrow lvl3 lvl2
   ann <- rule $ annotation lvl2
   lam <- rule $ lambda expr
   prod <- rule $ product expr
@@ -62,6 +53,16 @@ grammar = mdo
 
 snoc :: [a] -> a -> [a]
 snoc xs x = xs <> [x]
+
+application :: Prod r String Token AST -> Prod r String Token AST
+application expr =
+  mkApp
+    <$> expr
+    <*> ( between
+            Lex.Indent
+            (snoc <$> many (expr <* some (space <|> newline)) <*> expr)
+            <|> some (some space *> expr)
+        )
 
 product :: Prod r String Token AST -> Prod r String Token AST
 product expr =
@@ -76,34 +77,39 @@ annotation :: Prod r String Token AST -> Prod r String Token AST
 annotation expr =
   biCon AnnF
     <$> expr
-    <*> (spaced colon *> expr <* many space)
-
-depArrow ::
-  Prod r String Token AST ->
-  Prod r String Token AST ->
-  Prod r String Token AST
-depArrow _ yesRec = mk <$> input <*> (spaced arr *> yesRec <* many space)
+    <*> (indAnn <|> nonIndAnn)
   where
-    mk ((start, n), inTy) outTy =
-      LocTree start (locEnd outTy) (ArrF (Just n) inTy outTy)
-
-    input =
-      between Lex.Paren $
-        (,)
-          <$> (many space *> terminal name <* spaced colon)
-          <*> (yesRec <* many space)
-
-    name (Token (Lex.Symbol t) rc) = Just (rc, t)
-    name _ = Nothing
+    indAnn = many space *> between Lex.Indent (colon *> some space *> expr)
+    nonIndAnn = space *> colon *> (indExpr <|> (space *> nonIndExpr))
+    indExpr = between Lex.Indent nonIndExpr
+    nonIndExpr = expr <* many space
 
 arrow ::
   Prod r String Token AST ->
   Prod r String Token AST ->
   Prod r String Token AST
-arrow noRec yesRec = mk <$> noRec <*> (spaced arr *> yesRec)
+arrow noRec yesRec = mk <$> input <*> ((space <|> newline) *> arr *> output)
   where
-    mk inTy outTy =
+    mk (Nothing, inTy) outTy =
       LocTree (locStart inTy) (locEnd outTy) (ArrF Nothing inTy outTy)
+    mk (Just (start, n), inTy) outTy =
+      LocTree start (locEnd outTy) (ArrF (Just n) inTy outTy)
+
+    input =
+      ( between Lex.Paren $
+          (,)
+            <$> (Just <$> (many space *> terminal name <* spaced colon))
+            <*> (yesRec <* many space)
+      )
+        <|> ((,) <$> pure Nothing <*> noRec)
+
+    output =
+      (between Lex.Indent yesRec)
+        <|> (newline *> yesRec)
+        <|> (space *> yesRec)
+
+    name (Token (Lex.Symbol t) rc) = Just (rc, t)
+    name _ = Nothing
 
 lambda :: Prod r String Token AST -> Prod r String Token AST
 lambda expr =

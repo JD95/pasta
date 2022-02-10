@@ -44,7 +44,8 @@ main = do
           testCase "annotations have highest parsing priority" annHasPriorityOverArrow,
           testCase "products parse" productsParse,
           appParsing,
-          arrParsing
+          arrParsing,
+          depArrParsing
         ]
 
     runtime =
@@ -76,7 +77,7 @@ arrParsing =
   testGroup
     "arr parsing"
     [ testCase "all spaces" $ go "foo : a -> b -> c",
-      testCase "indent before ann" $ go "foo\n: a -> b -> c",
+      testCase "indent before ann" $ go "foo\n  : a -> b -> c",
       testCase "indent after ann" $ go "foo :\n  a -> b -> c",
       testCase "indent after first arr" $ go "foo : a ->\n  b -> c",
       testCase "align arrows under ann" $ go "foo\n  : a\n  -> b\n  -> c"
@@ -84,7 +85,25 @@ arrParsing =
   where
     go input = do
       actual <- testParse input
-      spine actual @?= Arr Nothing (Symbol "a") (Arr Nothing (Symbol "b") (Symbol "c"))
+      spine actual @?= Ann (Symbol "foo") (Arr Nothing (Symbol "a") (Arr Nothing (Symbol "b") (Symbol "c")))
+
+depArrParsing :: TestTree
+depArrParsing =
+  testGroup
+    "arr parsing"
+    [ testCase "all spaces" $ go "foo : (bar : a) -> (fizz : b) -> c",
+      testCase "indent before ann" $ go "foo\n  : (bar : a) -> (fizz : b) -> c",
+      testCase "indent after ann" $ go "foo :\n  (bar : a) -> (fizz : b) -> c",
+      testCase "indent after first arr" $ go "foo : (bar : a) ->\n  (fizz : b) -> c",
+      testCase "align arrows under ann" $ go "foo\n  : (bar : a)\n  -> (fizz : b)\n  -> c"
+    ]
+  where
+    go input = do
+      actual <- testParse input
+      spine actual
+        @?= Ann
+          (Symbol "foo")
+          (Arr (Just "bar") (Symbol "a") (Arr (Just "fizz") (Symbol "b") (Symbol "c")))
 
 appParsing :: TestTree
 appParsing =
