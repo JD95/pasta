@@ -12,7 +12,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Logic
 import Data.List.NonEmpty
 import Data.Text (Text, unpack)
-import qualified Data.Text as Text
 import Lexer (Token (..), lexer)
 import Parser
 import Runtime
@@ -69,7 +68,8 @@ main = do
           testCase "merging filled values into ambiguous values works" mergeFilledIntoAmb,
           testCase "merging ambiguous values into filled values works" mergeAmbIntoFilled,
           testCase "dependent arrows check" checkArrDep,
-          testCase "dependent arrows eval properly" checkDepTyEval
+          testCase "dependent arrows eval properly" checkDepTyEval,
+          testCase "type annotations are reduced before terms are checked" checkAnnEval
         ]
 
 arrParsing :: TestTree
@@ -118,19 +118,6 @@ appParsing =
     go input = do
       actual <- testParse input
       spine actual @?= App (Symbol "foo") [Symbol "a", Symbol "b", Symbol "c"]
-
-annIndent :: IO ()
-annIndent =
-  do
-    result <-
-      testParse $
-        Text.unlines
-          [ "foo",
-            "  :  a",
-            "  -> b",
-            "  -> c"
-          ]
-    spine result @?= Ann (Symbol "foo") (Arr Nothing (Symbol "a") (Arr Nothing (Symbol "b") (Symbol "c")))
 
 exampleParses :: IO ()
 exampleParses = do
