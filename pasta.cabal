@@ -33,6 +33,7 @@ library
       Runtime
       Runtime.Backtracking
       Runtime.Log
+      Runtime.Logic
       Runtime.Prop
       Runtime.Ref
       Runtime.Term
