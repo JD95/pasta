@@ -1,17 +1,16 @@
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 module Runtime.Prop where
 
-import Control.Applicative
-import Control.Monad
+import Control.Applicative ( Alternative(empty) )
+import Control.Monad ( join, forM_ )
 import Runtime.Ref
+    ( backTrackingWriteRef, backTrackingModifyRef, MonadRef(..) )
 
 data Info a
   = Gain a
@@ -78,7 +77,7 @@ data Watched m r where
 
 data Keep = Keep | Remove
 
-data Prop m r = Prop
+newtype Prop m r = Prop
   { action :: r (m ())
   }
 
@@ -90,13 +89,13 @@ data Cell m r a = Cell
 instance Eq (r a) => Eq (Cell m r a) where
   x == y = value x == value y
 
-cell :: forall a m r. Ref m r => a -> m (Cell m r a)
+cell :: forall a m. MonadRef m => a -> m (Cell m (Ref m) a)
 cell val = do
   x <- newRef val
   trig <- newRef []
   pure $ Cell x trig
 
-inform :: (Lattice m a, Alternative m, Ref m r) => Cell m r a -> a -> m ()
+inform :: (Lattice m a, Alternative m, MonadRef m) => Cell m (Ref m) a -> a -> m ()
 inform target new = do
   old <- readRef (value target)
   merge (Old old) (New new) >>= \case
@@ -116,7 +115,7 @@ inform target new = do
           False -> pure $ kept
       fireAll x xs next
 
-listenWhile :: (Alternative m, Ref m r) => (a -> m Bool) -> Prop m r -> Cell m r a -> m ()
+listenWhile :: (Alternative m, MonadRef m) => (a -> m Bool) -> Prop m (Ref m) -> Cell m (Ref m) a -> m ()
 listenWhile cond p c = do
   backTrackingModifyRef (triggerWatchers c) $ \others ->
     let new = do
@@ -124,13 +123,13 @@ listenWhile cond p c = do
           pure cond
      in new : others
 
-listenToOnce :: (Alternative m, Ref m r) => Prop m r -> Cell m r a -> m ()
+listenToOnce :: (Alternative m, MonadRef m) => Prop m (Ref m) -> Cell m (Ref m) a -> m ()
 listenToOnce = listenWhile (const $ pure False)
 
-listenToAlways :: (Alternative m, Ref m r) => Prop m r -> Cell m r a -> m ()
+listenToAlways :: (Alternative m, MonadRef m) => Prop m (Ref m) -> Cell m (Ref m) a -> m ()
 listenToAlways = listenWhile (const $ pure True)
 
-prop :: (Lattice m a, Alternative m, Ref m r) => [Watched m r] -> Cell m r a -> m a -> m ()
+prop :: (Lattice m a, Alternative m, MonadRef m) => [Watched m (Ref m)] -> Cell m (Ref m) a -> m a -> m ()
 prop [] target fire = inform target =<< fire
 prop inputs@(Watched x : _) target fire = do
   let fireInto = do
