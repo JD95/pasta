@@ -3,6 +3,7 @@
 
 module TypeCheck.Debug where
 
+{-
 import Control.Monad
 import Control.Monad.Logic
 import Control.Monad.State
@@ -57,3 +58,4 @@ subProblem msg check = do
       modify $ \st -> st {problemDepth = problemDepth st - 1}
       pure result
     else check
+-}

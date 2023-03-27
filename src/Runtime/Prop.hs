@@ -4,13 +4,21 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Runtime.Prop where
 
-import Control.Applicative ( Alternative(empty) )
-import Control.Monad ( join, forM_ )
+import Control.Applicative (Alternative (empty))
+import Control.Monad (filterM, forM_, join, unless, (<=<))
+import Data.Bool
 import Runtime.Ref
-    ( backTrackingWriteRef, backTrackingModifyRef, MonadRef(..) )
+  ( GenTag (..),
+    Ref (..),
+    Strict (..),
+    backTrackingModifyRef,
+    backTrackingWriteRef,
+  )
+import System.Mem.StableName
 
 data Info a
   = Gain a
@@ -63,17 +71,22 @@ instance (Monad m) => Lattice m () where
   merge (Old ()) (New ()) = pure None
 
 instance (Monad m, Lattice m a, Lattice m b) => Lattice m (a, b) where
-  merge (Old (a, x)) (New (b, y)) = do
-    left <- merge (Old a) (New b)
-    right <- merge (Old x) (New y)
-    pure $ (,) <$> left <*> right
+  merge (Old (oldL, oldR)) (New (newL, newR)) = do
+    l <- merge (Old oldL) (New newL)
+    r <- merge (Old oldR) (New newR)
+    pure $ case (l, r) of
+      (Gain upL, Gain upR) -> Gain (upL, upR)
+      (Gain upL, None) -> Gain (upL, oldR)
+      (None, Gain upR) -> Gain (oldL, upR)
+      (None, None) -> None
+      (_, _) -> Conflict
 
   bottom = (,) <$> bottom <*> bottom
 
   isTop (x, y) = (&&) <$> isTop x <*> isTop y
 
-data Watched m r where
-  Watched :: Lattice m a => Cell m r a -> Watched m r
+data Watched m where
+  Watched :: (Lattice m a, Ref m r) => Cell t m r a -> Watched m
 
 data Keep = Keep | Remove
 
@@ -81,90 +94,117 @@ newtype Prop m r = Prop
   { action :: r (m ())
   }
 
-data Cell m r a = Cell
-  { value :: r a,
-    triggerWatchers :: r [m (a -> m Bool)]
-  }
+data Cell t m r a where
+  RawCell :: r a -> r [m (a -> m Bool)] -> Cell t m r a
+  TagCell :: r (t a, a) -> r [m (a -> m Bool)] -> Cell t m r a
 
-instance Eq (r a) => Eq (Cell m r a) where
-  x == y = value x == value y
+readCell :: (Ref m r) => Cell t m r a -> m a
+readCell (RawCell ref _) = readRef ref
+readCell (TagCell ref _) = snd <$> readRef ref
 
-cell :: forall a m. MonadRef m => a -> m (Cell m (Ref m) a)
+triggerWatchers :: Cell t m r a -> r [m (a -> m Bool)]
+triggerWatchers (RawCell _ trigs) = trigs
+triggerWatchers (TagCell _ trigs) = trigs
+
+backTrackingWriteCell :: (Alternative m, GenTag m t, Ref m r) => Cell t m r a -> a -> m ()
+backTrackingWriteCell (RawCell ref _) x =
+  backTrackingWriteRef ref x
+backTrackingWriteCell (TagCell ref _) x = do
+  tag <- genTag $ Strict x
+  backTrackingWriteRef ref (tag, x)
+
+cell :: forall r t a m. Ref m r => a -> m (Cell t m r a)
 cell val = do
-  x <- newRef val
-  trig <- newRef []
-  pure $ Cell x trig
+  RawCell <$> newRef val <*> newRef []
 
-inform :: (Lattice m a, Alternative m, MonadRef m) => Cell m (Ref m) a -> a -> m ()
+tagCell :: forall r t a m. (GenTag m t, Ref m r) => a -> m (Cell t m r a)
+tagCell a = do
+  tag <- genTag $ Strict a
+  TagCell <$> newRef (tag, a) <*> newRef []
+
+inform :: (Lattice m a, Alternative m, GenTag m t, Ref m r) => Cell t m r a -> a -> m ()
 inform target new = do
-  old <- readRef (value target)
+  old <- readCell target
   merge (Old old) (New new) >>= \case
     Gain result -> do
-      backTrackingWriteRef (value target) result
-      trigs <- readRef (triggerWatchers target)
-      fireAll result [] $ trigs
+      backTrackingWriteCell target result
+      oldTriggers <- readRef (triggerWatchers target)
+      -- Empty the list to avoid duplicates in
+      -- the next steps
+      writeRef (triggerWatchers target) []
+      -- Fire all the propagators and keep the ones
+      -- that want to stay active
+      kept <- filterM (join . (<*> pure result)) oldTriggers
+      -- So, in all, include the kept ones from last time
+      -- and also the ones added from this round of
+      -- propagation
+      backTrackingModifyRef (triggerWatchers target) (kept <>)
     None -> pure ()
     Conflict -> empty
-  where
-    fireAll _ kept [] = backTrackingWriteRef (triggerWatchers target) kept
-    fireAll x kept (fire : xs) = do
-      p <- fire
-      next <-
-        p x >>= \case
-          True -> pure $ fire : kept
-          False -> pure $ kept
-      fireAll x xs next
 
-listenWhile :: (Alternative m, MonadRef m) => (a -> m Bool) -> Prop m (Ref m) -> Cell m (Ref m) a -> m ()
-listenWhile cond p c = do
-  backTrackingModifyRef (triggerWatchers c) $ \others ->
-    let new = do
-          join $ readRef (action p)
-          pure cond
-     in new : others
+listenWhile ::
+  (Alternative m, Ref m r1, Ref m r2) =>
+  -- | Given the result, is this trigger needed anymore?
+  (a -> m Bool) ->
+  Prop m r1 ->
+  Cell t m r2 a ->
+  m ()
+listenWhile cond p target = do
+  backTrackingModifyRef (triggerWatchers target) $
+    (:) (cond <$ (join $ readRef $ action p))
 
-listenToOnce :: (Alternative m, MonadRef m) => Prop m (Ref m) -> Cell m (Ref m) a -> m ()
+listenToOnce :: (Alternative m, Ref m r1, Ref m r2) => Prop m r1 -> Cell t m r2 a -> m ()
 listenToOnce = listenWhile (const $ pure False)
 
-listenToAlways :: (Alternative m, MonadRef m) => Prop m (Ref m) -> Cell m (Ref m) a -> m ()
+listenToAlways :: (Alternative m, Ref m r1, Ref m r2) => Prop m r1 -> Cell t m r2 a -> m ()
 listenToAlways = listenWhile (const $ pure True)
 
-prop :: (Lattice m a, Alternative m, MonadRef m) => [Watched m (Ref m)] -> Cell m (Ref m) a -> m a -> m ()
-prop [] target fire = inform target =<< fire
-prop inputs@(Watched x : _) target fire = do
+prop :: (Eq (t a), Lattice m a, Alternative m, GenTag m t, Ref m r) => [Watched m] -> Cell t m r a -> m a -> m ()
+prop [] target fire = do
+  inform target =<< fire
+prop inputs (target :: Cell t m r a) fire = do
+  -- Create action ref with temp value
+  -- using the same type of ref as the
+  -- target cell
+  propAction <- newRef @m @r (pure ())
+
   let fireInto = do
         result <- fire
-        inform target result
+        case target of
+          RawCell _ _ ->
+            inform target result
+          TagCell r _ -> do
+            heldTag <- fst <$> readRef r
+            resultTag <- genTag $ Strict result
+            unless (heldTag == resultTag) $
+              inform target result
 
-      waitForInputs ref [] = do
-        -- Now that all the inputs have usable
-        -- values, fire the propagator now and
-        -- every time one of them updates
-        forM_ inputs $ \(Watched w) -> listenWhile (fmap not . isTop) (Prop ref) w
-        backTrackingWriteRef ref fireInto
+      waitForInputs [] = do
+        forM_ inputs $ \(Watched input) ->
+          -- Now that all the inputs have usable
+          -- values, set them to trigger
+          -- every on every update
+          listenWhile (fmap not . isTop) (Prop propAction) input
+        backTrackingWriteRef propAction fireInto
+        -- Fire the propagator for the first time
         fireInto
-      waitForInputs ref (Watched y : ys) = do
-        val <- readRef $ value y
+      waitForInputs (Watched thisInput : ys) = do
+        val <- readCell thisInput
         bot <- bottom
         if val == bot
           then do
-            -- No usable input yet, wait until
-            -- this cell gains input then check
-            -- the rest
-            listenToOnce (Prop ref) y
-            backTrackingWriteRef ref (waitForInputs ref ys)
+            -- No usable input yet
+            -- Change the action to wait for the rest of the inputs
+            backTrackingWriteRef propAction (waitForInputs ys)
+            -- And have it be called when thisInput fires,
+            -- once it does, it *must* have usable input
+            listenToOnce (Prop propAction) thisInput
           else do
             -- This input has a usable value so
             -- go check the rest
-            waitForInputs ref ys
+            waitForInputs ys
 
-  -- Create action ref with temp value
-  propAction <- newRef (pure ())
   -- Override with proper action now that we have the ref
-  writeRef propAction (waitForInputs propAction inputs)
+  writeRef propAction (waitForInputs inputs)
 
-  -- Have the first watched input trigger
-  -- this propagator when it gains info
-  listenToOnce (Prop propAction) x
-
-  waitForInputs propAction inputs
+  waitForInputs inputs

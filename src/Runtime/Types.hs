@@ -8,6 +8,7 @@
 
 module Runtime.Types where
 
+{-
 import Data.Functor.Foldable
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.List
@@ -66,3 +67,4 @@ displayRtVal = cata $ \case
   RtAmbiguousF xs -> "{" <> intercalate ", " (toList xs) <> "}"
   where
     parens x = "(" <> x <> ")"
+-}

@@ -8,6 +8,7 @@
 
 module Runtime where
 
+{-
 import Control.Monad
 import Control.Monad.State
 import Data.Functor.Foldable
@@ -53,3 +54,4 @@ eval val = evalState (runEvalM (para go val)) (RtEnv Empty)
     go (RtConF i (_, x)) = RtCon i <$> x
     go (RtUnknownF _) = undefined
     go (RtAmbiguousF _) = undefined
+-}

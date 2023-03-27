@@ -3,6 +3,7 @@
 
 module Runtime.Term where
 
+{-
 import Control.Applicative
 import Control.Monad
 import Data.Foldable (for_)
@@ -111,4 +112,5 @@ decide :: MonadRef m => TermM m -> TermM m -> m Bool
 decide m n =
   True <$ is m n
     <|> False <$ isn't m n
+-}
 -}

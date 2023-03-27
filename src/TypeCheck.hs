@@ -13,6 +13,7 @@
 
 module TypeCheck where
 
+{-
 import AST.Expr
 import AST.LocTree
 import qualified AST.LocTree as AST
@@ -360,3 +361,4 @@ assuming name t action = do
 assuming' :: Text -> Binding -> TyCheckM ()
 assuming' name t = do
   modify $ \st -> st {bindings = Map.insert name t (bindings st)}
+-}

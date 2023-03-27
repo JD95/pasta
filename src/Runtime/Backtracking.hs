@@ -2,6 +2,7 @@
 
 module Runtime.Backtracking where
 
+{-
 import Data.Kind
 import Runtime.Ref
 
@@ -37,3 +38,4 @@ backtrackProp = go Forward
       writeRef (target b) (value b)
       let f = BackItem (target b) prev
       go Back (BackSt (f : fs) bs)
+-}
