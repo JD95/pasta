@@ -179,15 +179,6 @@ prop inputs (target :: Cell t m r a) fire = do
             unless (heldTag == resultTag) $
               inform target result
 
-      waitForInputs [] = do
-        forM_ inputs $ \(Watched input) ->
-          -- Now that all the inputs have usable
-          -- values, set them to trigger
-          -- every on every update
-          listenWhile (fmap not . isTop) (Prop propAction) input
-        backTrackingWriteRef propAction fireInto
-        -- Fire the propagator for the first time
-        fireInto
       waitForInputs (Watched thisInput : ys) = do
         val <- readCell thisInput
         bot <- bottom
@@ -203,6 +194,15 @@ prop inputs (target :: Cell t m r a) fire = do
             -- This input has a usable value so
             -- go check the rest
             waitForInputs ys
+      waitForInputs [] = do
+        forM_ inputs $ \(Watched input) ->
+          -- Now that all the inputs have usable
+          -- values, set them to trigger
+          -- every on every update
+          listenWhile (fmap not . isTop) (Prop propAction) input
+        backTrackingWriteRef propAction fireInto
+        -- Fire the propagator for the first time
+        fireInto
 
   -- Override with proper action now that we have the ref
   writeRef propAction (waitForInputs inputs)

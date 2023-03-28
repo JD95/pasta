@@ -6,6 +6,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -23,7 +24,6 @@ import qualified Data.Vector as Vec
 import GHC.Word
 import Runtime.Prop
 import Runtime.Ref
-import Prelude hiding (Bool (..))
 
 unify ::
   (Eq (t a), Lattice m a, Alternative m, GenTag m t, Ref m r1, Ref m r2) =>
@@ -57,3 +57,37 @@ pair x y pair = do
     fst <$> readCell pair
   prop [Watched pair] y $ do
     snd <$> readCell pair
+
+data ListH h a
+  = Cons (h a) (h (ListH h a))
+  | Nil
+
+newtype List a = List (Maybe (ListH Maybe a))
+
+instance Eq a => Eq (List a) where
+  List Nothing == List Nothing = True
+  List (Just Nil) == List (Just Nil) = True
+  List (Just (Cons x xs)) == List (Just (Cons y ys)) =
+    x == y && List xs == List ys
+  List _ == List _ = False
+
+instance (Eq a, Monad m) => Lattice m (List a) where
+  bottom = pure $ List Nothing
+
+  isTop (List (Just (Cons (Just _) (Just _)))) = pure $ True
+  isTop (List (Just Nil)) = pure $ True
+  isTop _ = pure $ False
+
+  merge (Old (List _)) (New (List Nothing)) =
+    pure None
+  merge (Old (List Nothing)) (New (List (Just x))) =
+    pure $ Gain (List (Just x))
+  merge (Old (List (Just x))) (New (List (Just y))) =
+    case (x, y) of
+      (Nil, Nil) -> pure None
+      (Nil, Cons _ _) -> pure Conflict
+      (Cons _ _, Nil) -> pure Conflict
+      (Cons x xs, Cons y ys) ->
+        if x == y
+          then merge (Old (List xs)) (New (List ys))
+          else pure Conflict
