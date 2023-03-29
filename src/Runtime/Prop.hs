@@ -9,8 +9,7 @@
 module Runtime.Prop where
 
 import Control.Applicative (Alternative (empty))
-import Control.Monad (filterM, forM_, join, unless, (<=<))
-import Data.Bool
+import Control.Monad (filterM, forM_, join, unless)
 import Runtime.Ref
   ( GenTag (..),
     Ref (..),
@@ -18,7 +17,6 @@ import Runtime.Ref
     backTrackingModifyRef,
     backTrackingWriteRef,
   )
-import System.Mem.StableName
 
 data Info a
   = Gain a
@@ -47,46 +45,46 @@ newtype New a = New a
 
 newtype Old a = Old a
 
-class (Monad m, Eq a) => Lattice m a where
-  bottom :: m a
-  isTop :: a -> m Bool
-  merge :: Old a -> New a -> m (Info a)
+class (Eq a) => Lattice a where
+  bottom :: a
+  isTop :: a -> Bool
+  merge :: Old a -> New a -> Info a
 
-instance (Monad m, Eq a) => Lattice m (Maybe a) where
-  bottom = pure Nothing
+instance (Eq a) => Lattice (Maybe a) where
+  bottom = Nothing
 
-  isTop (Just _) = pure True
-  isTop Nothing = pure False
+  isTop (Just _) = True
+  isTop Nothing = False
 
+  merge (Old Nothing) (New Nothing) = None
+  merge (Old (Just _)) (New Nothing) = None
+  merge (Old Nothing) (New (Just x)) = Gain (Just x)
   merge (Old (Just x)) (New (Just y))
-    | x == y = pure None
-    | otherwise = pure Conflict
-  merge (Old (Just _)) (New Nothing) = pure None
-  merge (Old Nothing) (New (Just x)) = pure $ Gain (Just x)
-  merge (Old Nothing) (New Nothing) = pure None
+    | x == y = None
+    | otherwise = Conflict
 
-instance (Monad m) => Lattice m () where
-  bottom = pure ()
-  isTop _ = pure True
-  merge (Old ()) (New ()) = pure None
+instance Lattice () where
+  bottom = ()
+  isTop _ = True
+  merge (Old ()) (New ()) = None
 
-instance (Monad m, Lattice m a, Lattice m b) => Lattice m (a, b) where
-  merge (Old (oldL, oldR)) (New (newL, newR)) = do
-    l <- merge (Old oldL) (New newL)
-    r <- merge (Old oldR) (New newR)
-    pure $ case (l, r) of
-      (Gain upL, Gain upR) -> Gain (upL, upR)
-      (Gain upL, None) -> Gain (upL, oldR)
-      (None, Gain upR) -> Gain (oldL, upR)
-      (None, None) -> None
-      (_, _) -> Conflict
+instance (Lattice a, Lattice b) => Lattice (a, b) where
+  merge (Old (oldL, oldR)) (New (newL, newR)) =
+    let l = merge (Old oldL) (New newL)
+        r = merge (Old oldR) (New newR)
+     in case (l, r) of
+          (Gain upL, Gain upR) -> Gain (upL, upR)
+          (Gain upL, None) -> Gain (upL, oldR)
+          (None, Gain upR) -> Gain (oldL, upR)
+          (None, None) -> None
+          (_, _) -> Conflict
 
-  bottom = (,) <$> bottom <*> bottom
+  bottom = (bottom, bottom)
 
-  isTop (x, y) = (&&) <$> isTop x <*> isTop y
+  isTop (x, y) = isTop x && isTop y
 
 data Watched m where
-  Watched :: (Lattice m a, Ref m r) => Cell t m r a -> Watched m
+  Watched :: (Lattice a, Ref m r) => Cell t m r a -> Watched m
 
 data Keep = Keep | Remove
 
@@ -95,14 +93,14 @@ newtype Prop m r = Prop
   }
 
 data Cell t m r a where
-  RawCell :: r a -> r [m (a -> m Bool)] -> Cell t m r a
-  TagCell :: r (t a, a) -> r [m (a -> m Bool)] -> Cell t m r a
+  RawCell :: r a -> r [m (a -> Bool)] -> Cell t m r a
+  TagCell :: r (t a, a) -> r [m (a -> Bool)] -> Cell t m r a
 
 readCell :: (Ref m r) => Cell t m r a -> m a
 readCell (RawCell ref _) = readRef ref
 readCell (TagCell ref _) = snd <$> readRef ref
 
-triggerWatchers :: Cell t m r a -> r [m (a -> m Bool)]
+triggerWatchers :: Cell t m r a -> r [m (a -> Bool)]
 triggerWatchers (RawCell _ trigs) = trigs
 triggerWatchers (TagCell _ trigs) = trigs
 
@@ -122,10 +120,10 @@ tagCell a = do
   tag <- genTag $ Strict a
   TagCell <$> newRef (tag, a) <*> newRef []
 
-inform :: (Lattice m a, Alternative m, GenTag m t, Ref m r) => Cell t m r a -> a -> m ()
+inform :: (Lattice a, Alternative m, GenTag m t, Ref m r) => Cell t m r a -> a -> m ()
 inform target new = do
   old <- readCell target
-  merge (Old old) (New new) >>= \case
+  case merge (Old old) (New new) of
     Gain result -> do
       backTrackingWriteCell target result
       oldTriggers <- readRef (triggerWatchers target)
@@ -134,7 +132,7 @@ inform target new = do
       writeRef (triggerWatchers target) []
       -- Fire all the propagators and keep the ones
       -- that want to stay active
-      kept <- filterM (join . (<*> pure result)) oldTriggers
+      kept <- filterM ((<*> pure result)) oldTriggers
       -- So, in all, include the kept ones from last time
       -- and also the ones added from this round of
       -- propagation
@@ -145,7 +143,7 @@ inform target new = do
 listenWhile ::
   (Alternative m, Ref m r1, Ref m r2) =>
   -- | Given the result, is this trigger needed anymore?
-  (a -> m Bool) ->
+  (a -> Bool) ->
   Prop m r1 ->
   Cell t m r2 a ->
   m ()
@@ -154,12 +152,12 @@ listenWhile cond p target = do
     (:) (cond <$ (join $ readRef $ action p))
 
 listenToOnce :: (Alternative m, Ref m r1, Ref m r2) => Prop m r1 -> Cell t m r2 a -> m ()
-listenToOnce = listenWhile (const $ pure False)
+listenToOnce = listenWhile (const False)
 
 listenToAlways :: (Alternative m, Ref m r1, Ref m r2) => Prop m r1 -> Cell t m r2 a -> m ()
-listenToAlways = listenWhile (const $ pure True)
+listenToAlways = listenWhile (const True)
 
-prop :: (Eq (t a), Lattice m a, Alternative m, GenTag m t, Ref m r) => [Watched m] -> Cell t m r a -> m a -> m ()
+prop :: (Eq (t a), Lattice a, Alternative m, GenTag m t, Ref m r) => [Watched m] -> Cell t m r a -> m a -> m ()
 prop [] target fire = do
   inform target =<< fire
 prop inputs (target :: Cell t m r a) fire = do
@@ -181,8 +179,7 @@ prop inputs (target :: Cell t m r a) fire = do
 
       waitForInputs (Watched thisInput : ys) = do
         val <- readCell thisInput
-        bot <- bottom
-        if val == bot
+        if val == bottom
           then do
             -- No usable input yet
             -- Change the action to wait for the rest of the inputs
@@ -199,7 +196,7 @@ prop inputs (target :: Cell t m r a) fire = do
           -- Now that all the inputs have usable
           -- values, set them to trigger
           -- every on every update
-          listenWhile (fmap not . isTop) (Prop propAction) input
+          listenWhile (not . isTop) (Prop propAction) input
         backTrackingWriteRef propAction fireInto
         -- Fire the propagator for the first time
         fireInto

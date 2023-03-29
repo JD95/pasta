@@ -9,7 +9,6 @@ import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Logic
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
-import Data.Kind
 import System.Mem.StableName
 
 class Monad m => Ref m r where
