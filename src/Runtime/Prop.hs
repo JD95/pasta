@@ -10,6 +10,7 @@ module Runtime.Prop where
 
 import Control.Applicative (Alternative (empty))
 import Control.Monad (filterM, forM_, join, unless)
+import Data.Void
 import Runtime.Ref
   ( GenTag (..),
     Ref (..),
@@ -45,17 +46,18 @@ newtype New a = New a
 
 newtype Old a = Old a
 
-class (Eq a) => Lattice a where
-  bottom :: a
-  isTop :: a -> Bool
+class Mergeable a where
   merge :: Old a -> New a -> Info a
 
-instance (Eq a) => Lattice (Maybe a) where
-  bottom = Nothing
+class Bottom a where
+  bottom :: a
 
-  isTop (Just _) = True
-  isTop Nothing = False
+class Top a where
+  isTop :: a -> Bool
 
+class (Mergeable a, Top a, Bottom a) => Lattice a
+
+instance (Eq a) => Mergeable (Maybe a) where
   merge (Old Nothing) (New Nothing) = None
   merge (Old (Just _)) (New Nothing) = None
   merge (Old Nothing) (New (Just x)) = Gain (Just x)
@@ -63,12 +65,30 @@ instance (Eq a) => Lattice (Maybe a) where
     | x == y = None
     | otherwise = Conflict
 
-instance Lattice () where
-  bottom = ()
-  isTop _ = True
+instance Mergeable Void where
+  merge (Old x) _ = absurd x
+
+instance Bottom (Maybe a) where
+  bottom = Nothing
+
+instance Top (Maybe a) where
+  isTop (Just _) = True
+  isTop Nothing = False
+
+instance Eq a => Lattice (Maybe a)
+
+instance Mergeable () where
   merge (Old ()) (New ()) = None
 
-instance (Lattice a, Lattice b) => Lattice (a, b) where
+instance Bottom () where
+  bottom = ()
+
+instance Top () where
+  isTop _ = True
+
+instance Lattice ()
+
+instance (Mergeable a, Mergeable b) => Mergeable (a, b) where
   merge (Old (oldL, oldR)) (New (newL, newR)) =
     let l = merge (Old oldL) (New newL)
         r = merge (Old oldR) (New newR)
@@ -79,12 +99,16 @@ instance (Lattice a, Lattice b) => Lattice (a, b) where
           (None, None) -> None
           (_, _) -> Conflict
 
+instance (Bottom a, Bottom b) => Bottom (a, b) where
   bottom = (bottom, bottom)
 
+instance (Top a, Top b) => Top (a, b) where
   isTop (x, y) = isTop x && isTop y
 
+instance (Top a, Bottom a, Top b, Bottom b, Mergeable a, Mergeable b) => Lattice (a, b)
+
 data Watched m where
-  Watched :: (Lattice a, Ref m r) => Cell t m r a -> Watched m
+  Watched :: (Lattice a, Eq a, Ref m r) => Cell t m r a -> Watched m
 
 data Keep = Keep | Remove
 

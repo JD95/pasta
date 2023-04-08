@@ -18,11 +18,14 @@ module Runtime.Logic where
 
 import Control.Applicative
 import Control.Monad (join)
+import Runtime.Logic.Context
+import Runtime.Logic.Partial
+import Runtime.Logic.Partial.List
 import Runtime.Prop
 import Runtime.Ref
 
 unify ::
-  (Eq (t a), Lattice a, Alternative m, GenTag m t, Ref m r1, Ref m r2) =>
+  (Eq a, Eq (t a), Lattice a, Alternative m, GenTag m t, Ref m r1, Ref m r2) =>
   Cell t m r1 a ->
   Cell t m r2 a ->
   m ()
@@ -31,7 +34,9 @@ unify x y = do
   prop [Watched y] x $ readCell y
 
 pair ::
-  ( Eq (t a),
+  ( Eq a,
+    Eq b,
+    Eq (t a),
     Eq (t b),
     Eq (t (a, b)),
     Lattice a,
@@ -56,7 +61,7 @@ pair x y z = do
 
 newtype Product a = Product {unProduct :: Maybe [a]}
   deriving (Eq)
-  deriving newtype (Lattice)
+  deriving newtype (Mergeable, Top, Bottom, Lattice)
 
 product ::
   (Eq a, Eq (t (Product a)), Alternative m, GenTag m t, Ref m r, Lattice a) =>
@@ -67,112 +72,8 @@ product inputs output = do
   prop (Watched <$> inputs) output $ do
     Product . Just <$> traverse readCell inputs
 
-data ListL a
-  = Cons a (Maybe (ListL a))
-  | Nil
-
-newtype List a = List {unList :: Maybe (ListL a)}
-
-instance Eq a => Eq (List a) where
-  List Nothing == List Nothing = True
-  List (Just Nil) == List (Just Nil) = True
-  List (Just (Cons x xs)) == List (Just (Cons y ys)) =
-    x == y && List xs == List ys
-  List _ == List _ = False
-
-instance (Eq a, Lattice a) => Lattice (List a) where
-  bottom = List Nothing
-
-  isTop (List (Just (Cons val (Just _)))) = isTop val
-  isTop (List (Just Nil)) = True
-  isTop _ = False
-
-  merge (Old (List _)) (New (List Nothing)) =
-    None
-  merge (Old (List Nothing)) (New (List (Just x))) =
-    Gain (List (Just x))
-  merge (Old (List (Just old))) (New (List (Just new))) =
-    case (old, new) of
-      (Nil, Nil) -> None
-      (Nil, Cons _ _) -> Conflict
-      (Cons _ _, Nil) -> Conflict
-      (Cons x xs, Cons y ys) ->
-        if x == y
-          then merge (Old (List xs)) (New (List ys))
-          else Conflict
-
-instance Semigroup (List a) where
-  (<>) = appendListL
-
-instance Monoid (List a) where
-  mempty = List (Just Nil)
-
-cons ::
-  (Lattice a, Eq (t (List a)), Eq (t a), GenTag m t, Alternative m, Ref m r) =>
-  Cell t m r a ->
-  Cell t m r (List a) ->
-  Cell t m r (List a) ->
-  m ()
-cons x xs list = do
-  prop [Watched x, Watched xs] list $ do
-    List . Just <$> (Cons <$> readCell x <*> (unList <$> readCell xs))
-  prop [Watched list] x $ do
-    readCell list >>= \case
-      List (Just (Cons val _)) -> pure val
-      List (Just Nil) -> empty
-      List Nothing -> pure bottom
-  prop [Watched list] xs $ do
-    readCell list >>= \case
-      List (Just (Cons _ val)) -> pure $ List val
-      List (Just Nil) -> empty
-      List Nothing -> pure $ List Nothing
-
-append ::
-  (Lattice a, Eq (t (List a)), GenTag m t, Alternative m, Ref m r) =>
-  Cell t m r (List a) ->
-  Cell t m r (List a) ->
-  Cell t m r (List a) ->
-  m ()
-append xs ys zs = do
-  prop [Watched xs, Watched ys] zs $ do
-    left <- readCell xs
-    right <- readCell ys
-    pure $ left <> right
-  prop [Watched xs, Watched zs] ys $ do
-    front <- readCell xs
-    full <- readCell zs
-    pure $
-      fromMaybeList $
-        (drop . length)
-          <$> (fromListL front)
-          <*> (fromListL full)
-  prop [Watched ys, Watched zs] xs $ do
-    back <- readCell ys
-    full <- readCell zs
-    pure $
-      fromMaybeList $
-        (zipWith const . reverse)
-          <$> (fromListL full)
-          <*> (fromListL back)
-
-fromMaybeList :: Maybe [a] -> List a
-fromMaybeList = List . join . fmap (unList . toListL)
-
-fromListL :: List a -> Maybe [a]
-fromListL (List Nothing) = Nothing
-fromListL (List (Just Nil)) = Just []
-fromListL (List (Just (Cons x xs))) = (x :) <$> fromListL (List xs)
-
-toListL :: [a] -> List a
-toListL [] = List (Just Nil)
-toListL (x : xs) = List (Just (Cons x (unList (toListL xs))))
-
-appendListL :: List a -> List a -> List a
-appendListL xs ys =
-  List $ join $ fmap (unList . toListL) $ (<>) <$> (fromListL xs) <*> (fromListL ys)
-
 func ::
-  (Alternative m, GenTag m t, Ref m r, Lattice a, Lattice b, Eq (t b)) =>
+  (Eq a, Alternative m, GenTag m t, Ref m r, Lattice a, Lattice b, Eq (t b)) =>
   (a -> b) ->
   Cell t m r a ->
   Cell t m r b ->
