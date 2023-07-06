@@ -36,49 +36,28 @@ import Prelude hiding (const, log)
 
 newtype ConstF f b a = ConstF {unConstF :: f b}
 
-data RtVal r
-  = RtArr (Maybe r) (RtVal r) (RtVal r)
-  | RtTy
-  | RtLam (Maybe r) (RtVal r)
-  | RtVar r
+data RtVal
+  = RtTy
+  | RtProduct [RtVal]
+  | RtTag Int RtVal
   deriving (Show, Eq)
 
 makeBaseFunctor ''RtVal
 
-deriving instance (Eq r, Eq a) => Eq (RtValF r a)
-
-instance EqH (ConstF (RtValF Void)) where
-  eqH (ConstF x) (ConstF y) = x == y
-
-instance MergeableH (ConstF (RtValF Void)) where
-  mergeH (Old (ConstF old)) (New (ConstF new)) =
-    case (old, new) of
-      (RtArrF oldName oldTy oldOut, RtArrF newName newTy newOut) ->
-        let name = sequenceA $ merge <$> (Old <$> oldName) <*> (New <$> newName)
-            ty = merge (Old oldTy) (New newTy)
-            out = merge (Old oldOut) (New newOut)
-         in coerce $ RtArrF <$> name <*> ty <*> out
-
-instance TopH (ConstF (RtValF Void)) where
-  isTopH = f . unConstF
-    where
-      f RtTyF = True
-      f (RtArrF _ x y) = isTop x && isTop y
-      f (RtLamF _ x) = isTop x
-      f (RtVarF x) = absurd x
-
 data Expr a
-  = Lam a a
-  | Case a [Expr]
-  | App a a a
+  = Lam a (Expr a)
+  | Case [Expr a] a a
+  | App (Expr a) (Expr a) a
+  | Var a
+  | Bot
 
-rtIdTy :: RtVal String
-rtIdTy = RtArr (Just "a") RtTy (RtArr Nothing (RtVar "a") (RtVar "a"))
+exprId :: IO (Expr Term)
+exprId = do
+  ty <- Term <$> cell Bot
+  x <- Term <$> cell Bot
+  pure $ Lam ty (Lam x (Var x))
 
-rtId :: RtVal String
-rtId = RtLam Nothing (RtLam (Just "x") (RtVar "x"))
-
-newtype Term = Term {unTerm :: Cell StableName IO IORef (Partial (ConstF (RtValF Void)) ())}
+newtype Term = Term {unTerm :: Cell StableName IO IORef (Expr Term)}
 
 {-
 readTerm = readCell . unTerm

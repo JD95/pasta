@@ -18,12 +18,14 @@ module Runtime.Logic where
 
 import Control.Applicative
 import Control.Monad (join)
+import Runtime.Lattice
 import Runtime.Logic.Context
 import Runtime.Logic.Partial
 import Runtime.Logic.Partial.List
-import Runtime.Prop
+-- import Runtime.Prop
 import Runtime.Ref
 
+{-
 unify ::
   (Eq a, Eq (t a), Lattice a, Alternative m, GenTag m t, Ref m r1, Ref m r2) =>
   Cell t m r1 a ->
@@ -82,3 +84,4 @@ func f input output = do
   prop [Watched input] output $ do
     x <- readCell input
     pure $ f x
+-}
