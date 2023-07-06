@@ -2,11 +2,11 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Perle.Runtime.Ref where
+module Runtime.Ref where
 
-import Data.Kind
 import Control.Applicative
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.Kind
 
 class Monad m => MonadRef m where
   type Ref m :: Type -> Type

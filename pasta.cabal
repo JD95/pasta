@@ -31,16 +31,9 @@ library
       Lib
       Parser
       Runtime
-      Runtime.Backtracking
-      Runtime.Log
-      Runtime.Logic
       Runtime.Prop
       Runtime.Ref
-      Runtime.Term
-      Runtime.Types
-      TypeCheck
-      TypeCheck.Debug
-      TypeCheck.Types
+      Refinement
   other-modules:
       Paths_pasta
   hs-source-dirs:
@@ -59,6 +52,7 @@ library
     , text
     , unordered-containers
     , vector
+    , ghc-prim
   default-language: Haskell2010
 
 executable compiler
