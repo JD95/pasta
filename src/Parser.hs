@@ -1,9 +1,13 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Parser (AST, parse, displayReport) where
 
-import AST.Expr (ExprF (..))
+import AST.Expr (ExprF (..), Src)
 import AST.LocTree
 import Control.Applicative
 import Control.Monad
@@ -15,7 +19,7 @@ import Text.Earley hiding (parser)
 import qualified Text.Earley as E
 import Prelude hiding (product)
 
-type AST = LocTree RowCol (ExprF Text Text Text)
+type AST = LocTree RowCol (ExprF Src)
 
 parse :: [Token] -> ([AST], Report String [Token])
 parse = fullParses (E.parser grammar)
@@ -192,10 +196,10 @@ between p e = (go open <?> show open) *> e <* (go close <?> show close)
     close = p Close
     go x = satisfy (\(Token y _) -> x == y)
 
-biCon :: (AST -> AST -> ExprF Text Text Text AST) -> AST -> AST -> AST
+biCon :: (AST -> AST -> ExprF Src AST) -> AST -> AST -> AST
 biCon f input body = fromJust $ mkLocTree (locStart input) (locEnd body) (f input body)
 
-triCon :: (AST -> AST -> AST -> ExprF Text Text Text AST) -> AST -> AST -> AST -> AST
+triCon :: (AST -> AST -> AST -> ExprF Src AST) -> AST -> AST -> AST -> AST
 triCon f x y z = fromJust $ mkLocTree (locStart x) (locEnd z) (f x y z)
 
 mkApp :: AST -> [AST] -> AST

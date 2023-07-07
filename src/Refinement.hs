@@ -1,10 +1,13 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -13,14 +16,11 @@ module Refinement where
 import AST.Expr
 import Control.Applicative
 import Control.Monad.Reader
-import Data.Text
 import Lattice
 import Runtime.Prop
 import Runtime.Ref
 
-newtype SrcExpr = SrcExpr (Expr Text (Maybe Text) SrcExpr)
-
-newtype RtExpr m = RtExpr (Expr (Val m) (Val m) (Val m))
+type Rt m = 'ExprConfig (Val m) (Val m) (Val m)
 
 {-
 Another issue to work through: what exactly
@@ -70,12 +70,10 @@ This allows the lattice code to be pure
 
 -}
 
-refine :: MonadRefine m => SrcExpr -> m (RtExpr m)
-refine (SrcExpr expr) =
-  case expr of
-    Hole _ -> do
-      holeId <- newHoleId
-      RtExpr . Hole <$> newVal (RtHole holeId)
+refine :: MonadRefine m => Expr Src -> m (Expr (Rt m))
+refine (Hole _) = do
+  holeId <- newHoleId
+  Hole <$> newVal (RtHole holeId)
 
 --   (Lambda _ body) -> do
 --     input <- newVal Unbound
@@ -84,7 +82,7 @@ refine (SrcExpr expr) =
 --   (Case i x) -> undefined
 --   (Var i) -> undefined
 
-realize :: RtExpr m -> m SrcExpr
+realize :: Expr (Rt m) -> m (Expr Src)
 realize _ = undefined
 
 eval :: Env m -> RtVal -> m RtVal
