@@ -2,6 +2,7 @@
 
 module Lattice where
 
+import Control.Applicative
 import Data.Coerce
 import GHC.Prim
 
@@ -28,6 +29,10 @@ instance Applicative Info where
   Conflict <*> (Gain _) = Conflict
   Conflict <*> None = Conflict
   Conflict <*> Conflict = Conflict
+
+instance Alternative Info where
+  empty = Conflict
+  (<|>) = undefined
 
 newtype New a = New a
 
@@ -100,18 +105,6 @@ instance (Lattice a, Lattice b) => Lattice (Sum a b) where
         Sum . Just . Left <$> merge (Old x) (New y)
       (Just (Right x), Just (Right y)) ->
         Sum . Just . Right <$> merge (Old x) (New y)
-
-newtype PtrOpt a = PtrOpt a
-
-instance Lattice a => Lattice (PtrOpt a) where
-  bottom = PtrOpt bottom
-
-  isTop (PtrOpt x) = isTop x
-
-  merge (Old (PtrOpt x)) (New (PtrOpt y)) =
-    case reallyUnsafePtrEquality# x y of
-      1# -> None
-      _ -> PtrOpt <$> merge (Old x) (New y)
 
 newtype LatOrd a = LatOrd a
 

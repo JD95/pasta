@@ -17,7 +17,14 @@ import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Kind
 import Data.Text
 
-data ExprConfig = ExprConfig Type Type Type
+data ExprConfig
+  = ExprConfig
+  -- | Lambda Type
+  Type
+  -- | Hole Type
+  Type
+  -- | Ref Type
+  Type
 
 type family LamTy (i :: ExprConfig) :: Type where
   LamTy ('ExprConfig ty _ _) = ty
@@ -32,11 +39,11 @@ data Expr (c :: ExprConfig)
   = Lam (LamTy c) (Expr c)
   | Ann (Expr c) (Expr c)
   | Let (Expr c) (Expr c) (Expr c)
-  | App (Expr c) [(Expr c)]
+  | App (Expr c) [Expr c]
   | Arr (Maybe (RefTy c)) (Expr c) (Expr c)
   | Symbol (RefTy c)
   | Hole (HoleTy c)
-  | Prod [(Expr c)]
+  | Prod [Expr c]
 
 makeBaseFunctor ''Expr
 
