@@ -4,7 +4,6 @@ module Lattice where
 
 import Control.Applicative
 import Data.Coerce
-import GHC.Prim
 
 data Info a
   = Gain a

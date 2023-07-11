@@ -17,7 +17,6 @@ module Refinement where
 import AST.Expr
 import Control.Applicative
 import Control.Monad.Reader
-import Data.List
 import Lattice
 import Runtime.Prop
 import Runtime.Ref
@@ -53,7 +52,6 @@ data RtVal m
     RtIndex Int (RtVal m)
   | RtSumTy (RtVal m)
   | RtCase Int (RtVal m)
-  | RtVar Int
   | -- | Lambdas
     --
     -- Since it doesn't make sense in general
@@ -70,9 +68,9 @@ data RtVal m
     Unbound
 
 zipFail :: Alternative f => (a -> b -> f c) -> [a] -> [b] -> f [c]
-zipFail f [] [] = pure []
-zipFail f (_ : _) [] = empty
-zipFail f [] (_ : _) = empty
+zipFail _ [] [] = pure []
+zipFail _ (_ : _) [] = empty
+zipFail _ [] (_ : _) = empty
 zipFail f (x : xs) (y : ys) =
   (:) <$> f x y <*> zipFail f xs ys
 
@@ -82,8 +80,21 @@ instance Lattice (RtVal m) where
     case (old, new) of
       (Unbound, Unbound) -> None
       (Unbound, other) -> Gain other
-      (RtLam _, _) -> Conflict
+      (RtLam (Stable x _), RtLam (Stable y _)) ->
+        if x == y then None else Conflict
+      (RtLam (Stable _ _), _) -> Conflict
       (RtArr xs, RtArr ys) -> RtArr <$> zipFail merge (Old <$> xs) (New <$> ys)
+      (RtArr _, _) -> Conflict
+      (RtProdTy x, RtProdTy y) -> merge (Old x) (New y)
+      (RtProdTy _, _) -> Conflict
+      (RtIndex i x, RtIndex j y) ->
+        if i == j then merge (Old x) (New y) else Conflict
+      (RtIndex _ _, _) -> Conflict
+      (RtSumTy x, RtSumTy y) -> merge (Old x) (New y)
+      (RtSumTy _, _) -> Conflict
+      (RtCase i x, RtCase j y) ->
+        if i == j then merge (Old x) (New y) else Conflict
+      (RtCase _ _, _) -> Conflict
 
   isTop _ = False
 
@@ -118,16 +129,6 @@ realize _ = undefined
 
 newVal :: RtVal m -> m (Val m)
 newVal = undefined
-
-stackPush :: Val m -> m ()
-stackPush x = undefined
-
-stackPop :: m (Val m)
-stackPop = undefined
-
-withBound :: Applicative m => Val m -> m a -> m a
-withBound val action =
-  stackPush val *> action <* stackPop
 
 propUnify :: (MonadRef m, Alternative m) => Cell m (Ref m) (RtVal m) -> Cell m (Ref m) (RtVal m) -> m ()
 propUnify x y = do
