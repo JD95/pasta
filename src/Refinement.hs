@@ -8,19 +8,39 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Refinement where
 
 import AST.Expr
+import AST.LocTree
 import Control.Applicative
 import Control.Monad.Reader
+import Data.Functor.Foldable
 import Lattice
+import Lexer (RowCol)
 import Runtime.Prop
 import Runtime.Ref
 import System.Mem.StableName
+
+type AST a = LocTree RowCol (ExprF a)
+
+refine :: MonadRefine m => AST Src -> m (AST (Rt m))
+refine = transform $ \_start _end -> \case
+  (HoleF _) -> do
+    HoleF <$> newVal Unbound
+  _ -> undefined
+
+realize :: Monad m => Expr (Rt m) -> m (Expr Src)
+realize = transverse go
+  where
+    go :: ExprF (Rt m) (m a) -> m (ExprF Src a)
+    go (HoleF _) = undefined
+    go _ = undefined
 
 type Rt m = 'ExprConfig (Val m) (Val m) (Val m)
 
@@ -31,10 +51,6 @@ will the tree workon and refine?
 There shouldn't be some separate tree from the
 one constructed by refinement.
 -}
-
-data RExpr m
-  = RLambda (Val m) (Val m)
-  | RCase {- ??? -}
 
 data Stable a = Stable (StableName a) a
 
@@ -80,18 +96,25 @@ instance Lattice (RtVal m) where
     case (old, new) of
       (Unbound, Unbound) -> None
       (Unbound, other) -> Gain other
+      --
       (RtLam (Stable x _), RtLam (Stable y _)) ->
         if x == y then None else Conflict
       (RtLam (Stable _ _), _) -> Conflict
-      (RtArr xs, RtArr ys) -> RtArr <$> zipFail merge (Old <$> xs) (New <$> ys)
+      --
+      (RtArr xs, RtArr ys) ->
+        RtArr <$> zipFail merge (Old <$> xs) (New <$> ys)
       (RtArr _, _) -> Conflict
+      --
       (RtProdTy x, RtProdTy y) -> merge (Old x) (New y)
       (RtProdTy _, _) -> Conflict
+      --
       (RtIndex i x, RtIndex j y) ->
         if i == j then merge (Old x) (New y) else Conflict
       (RtIndex _ _, _) -> Conflict
+      --
       (RtSumTy x, RtSumTy y) -> merge (Old x) (New y)
       (RtSumTy _, _) -> Conflict
+      --
       (RtCase i x, RtCase j y) ->
         if i == j then merge (Old x) (New y) else Conflict
       (RtCase _ _, _) -> Conflict
@@ -106,7 +129,8 @@ data Env m = Env [Val m]
 class
   ( MonadReader (Env m) m,
     Alternative m,
-    MonadRef m
+    MonadRef m,
+    Monad m
   ) =>
   MonadRefine m
   where
@@ -119,13 +143,6 @@ Reduction could happen via certain propagations that force eval
 This allows the lattice code to be pure
 
 -}
-
-refine :: MonadRefine m => Expr Src -> m (Expr (Rt m))
-refine (Hole _) = do
-  Hole <$> newVal Unbound
-
-realize :: Expr (Rt m) -> m (Expr Src)
-realize _ = undefined
 
 newVal :: RtVal m -> m (Val m)
 newVal = undefined
