@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -11,6 +13,7 @@ import AST.Expr (ExprF (..), Src)
 import AST.LocTree
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Writer.Strict
 import Data.Maybe
 import Data.Text (Text, pack, unpack)
 import Lexer (Lexeme, Pair (..), RowCol, Token (..))
@@ -44,10 +47,11 @@ grammar = mdo
   lvl6 <- rule $ someSymbol <|> unit <|> prod <|> between Lex.Paren expr
   let_ <-
     rule $
-      triCon LetF
-        <$> (symbol "let" *> some space *> someSymbol)
-        <*> (spaced equals *> expr)
-        <*> (spaced (symbol "in") *> expr)
+      fmap constr $
+        LetF
+          <$> (symbol "let" *> some space *> someSymbol)
+          <*> (spaced equals *> expr)
+          <*> (spaced (symbol "in") *> expr)
   app <- rule $ application lvl6
   arr <- rule $ arrow lvl3 lvl2
   ann <- rule $ annotation lvl2
@@ -60,13 +64,14 @@ snoc xs x = xs <> [x]
 
 application :: Prod r String Token AST -> Prod r String Token AST
 application expr =
-  mkApp
-    <$> expr
-    <*> ( between
-            Lex.Indent
-            (snoc <$> many (expr <* some (space <|> newline)) <*> expr)
-            <|> some (some space *> expr)
-        )
+  fmap constr $
+    AppF
+      <$> expr
+      <*> ( between
+              Lex.Indent
+              (snoc <$> many (expr <* some (space <|> newline)) <*> expr)
+              <|> some (some space *> expr)
+          )
 
 product :: Prod r String Token AST -> Prod r String Token AST
 product expr =
@@ -79,9 +84,7 @@ product expr =
 
 annotation :: Prod r String Token AST -> Prod r String Token AST
 annotation expr =
-  biCon AnnF
-    <$> expr
-    <*> (indAnn <|> nonIndAnn)
+  fmap constr $ AnnF <$> expr <*> (indAnn <|> nonIndAnn)
   where
     indAnn = many space *> between Lex.Indent (colon *> some space *> expr)
     nonIndAnn = space *> colon *> (indExpr <|> (space *> nonIndExpr))
@@ -131,13 +134,15 @@ lambda expr =
 symbol :: Text -> Prod r String Token AST
 symbol t = terminal go <?> "symbol"
   where
-    go (Token (Lex.Symbol s) rc) = guard (t == s) *> (mkLocTree rc rc $ SymbolF t)
+    go (Token (Lex.Symbol s) rc) =
+      guard (t == s) *> (mkLocTree rc rc $ SymbolF t)
     go _ = Nothing
 
 someSymbol :: Prod r String Token AST
 someSymbol = terminal go <?> "symbol"
   where
-    go (Token (Lex.Symbol t) rc) = mkLocTree rc rc $ SymbolF t
+    go (Token (Lex.Symbol t) rc) =
+      mkLocTree rc rc $ SymbolF t
     go _ = Nothing
 
 arr :: Prod r String Token Token
@@ -147,16 +152,14 @@ arr = satisfy go <?> "arrow"
     go _ = False
 
 space :: Prod r String Token Token
-space = satisfy s
-  where
-    s (Token Lex.Space _) = True
-    s _ = False
+space = satisfy $ \case
+  (Token Lex.Space _) -> True
+  _ -> False
 
 newline :: Prod r String Token Token
-newline = satisfy s
-  where
-    s (Token Lex.NewLine _) = True
-    s _ = False
+newline = satisfy $ \case
+  (Token Lex.NewLine _) -> True
+  _ -> False
 
 spaced :: Prod r String Token a -> Prod r String Token a
 spaced x = some space *> x <* some space
@@ -196,11 +199,24 @@ between p e = (go open <?> show open) *> e <* (go close <?> show close)
     close = p Close
     go x = satisfy (\(Token y _) -> x == y)
 
-biCon :: (AST -> AST -> ExprF Src AST) -> AST -> AST -> AST
-biCon f input body = fromJust $ mkLocTree (locStart input) (locEnd body) (f input body)
+data LocRange
+  = LocRange RowCol RowCol
+  | LocRangeEmpty
 
-triCon :: (AST -> AST -> AST -> ExprF Src AST) -> AST -> AST -> AST -> AST
-triCon f x y z = fromJust $ mkLocTree (locStart x) (locEnd z) (f x y z)
+instance Semigroup LocRange where
+  LocRangeEmpty <> LocRangeEmpty = LocRangeEmpty
+  x@(LocRange _ _) <> LocRangeEmpty = x
+  LocRangeEmpty <> y@(LocRange _ _) = y
+  (LocRange xStart xEnd) <> (LocRange yStart yEnd) =
+    LocRange (min xStart yStart) (max xEnd yEnd)
 
-mkApp :: AST -> [AST] -> AST
-mkApp f xs = fromJust $ mkLocTree (locStart f) (locEnd $ last xs) (AppF f xs)
+instance Monoid LocRange where
+  mempty = LocRangeEmpty
+
+constr :: ExprF Src AST -> AST
+constr this =
+  case runWriter $ traverse go this of
+    (body, LocRange start end) -> fromJust $ mkLocTree start end body
+    (_, LocRangeEmpty) -> undefined
+  where
+    go x = writer (x, LocRange (locStart x) (locEnd x))
