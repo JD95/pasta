@@ -6,6 +6,8 @@ module AST.LocTree
     AST.LocTree.spine,
     LocTree (..),
     mkLocTree,
+    prepend,
+    append,
   )
 where
 
@@ -19,6 +21,18 @@ data LocTree l f = LocTree {locStart :: l, locEnd :: l, locContent :: f (LocTree
 -- | A smart constructor for LocTree which ensures locStart <= locEnd
 mkLocTree :: Ord l => l -> l -> f (LocTree l f) -> Maybe (LocTree l f)
 mkLocTree x y inner = LocTree x y inner <$ guard (x <= y)
+
+prepend :: Ord l => l -> LocTree l f -> LocTree l f
+prepend x tree =
+  if x < locStart tree
+    then tree {locStart = x}
+    else tree
+
+append :: Ord l => l -> LocTree l f -> LocTree l f
+append x tree =
+  if locEnd tree < x
+    then tree {locEnd = x}
+    else tree
 
 -- | Given a location, lookup the smallest subtree with the range that contains the location
 lookup :: (Foldable f, Ord l) => l -> LocTree l f -> Maybe (LocTree l f)

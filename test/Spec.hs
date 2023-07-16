@@ -11,14 +11,6 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Logic
 import Data.List.NonEmpty
-import Data.Text (Text, unpack)
-import Lexer (Token (..), lexer)
-import Parser
-import Runtime
-import Runtime.Prop
-import Runtime.Ref
-import Runtime.Term
-import Runtime.Types
 import System.Environment
 import qualified Test.Parsing as Parsing
 import qualified Test.Runtime as Runtime

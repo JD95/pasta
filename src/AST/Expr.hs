@@ -50,3 +50,4 @@ makeBaseFunctor ''Expr
 type Src = 'ExprConfig Text Text Text
 
 deriving instance Eq (Expr Src)
+deriving instance Show (Expr Src)

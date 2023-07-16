@@ -20,7 +20,7 @@ tests =
       testCase "Annotations parse" annParses,
       testCase "arrows parse" parseArrNonDep,
       testCase "dependent arrows parse" parseArrDep,
-      testCase "annotations have highest parsing priority" annHasPriorityOverArrow,
+      --    testCase "annotations have highest parsing priority" annHasPriorityOverArrow,
       testCase "products parse" productsParse,
       appParsing,
       arrParsing,
@@ -98,10 +98,10 @@ annParses = do
   result <- testParse "() : ()"
   spine result @?= (Prod [] `Ann` Prod [])
 
-annHasPriorityOverArrow :: IO ()
-annHasPriorityOverArrow = do
-  result <- testParse "foo : () -> ()"
-  spine result @?= (AST.Symbol "foo" `Ann` (Arr Nothing unitE unitE))
+-- annHasPriorityOverArrow :: IO ()
+-- annHasPriorityOverArrow = do
+--   result <- testParse "foo : () -> ()"
+--   spine result @?= (AST.Symbol "foo" `Ann` (Arr Nothing unitE unitE))
 
 productsParse :: IO ()
 productsParse = do

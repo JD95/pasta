@@ -27,7 +27,10 @@ import Runtime.Prop
 import Runtime.Ref
 import System.Mem.StableName
 
-type AST a = LocTree RowCol (ExprF a)
+type AST a =
+  LocTree
+    RowCol
+    (ExprF a)
 
 refine :: MonadRefine m => AST Src -> m (AST (Rt m))
 refine = transform $ \_start _end -> \case

@@ -27,6 +27,7 @@ library
   exposed-modules:
       AST.Expr
       AST.LocTree
+      Lattice
       Lexer
       Lib
       Parser
@@ -107,6 +108,8 @@ test-suite test
   main-is: Spec.hs
   other-modules:
       Paths_pasta
+      Test.Parsing
+      Test.Runtime
   hs-source-dirs:
       test
   ghc-options: -threaded -rtsopts -with-rtsopts=-N

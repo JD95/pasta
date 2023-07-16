@@ -1,0 +1,1 @@
+ghcid --clear --no-height-limit --color=never --command="cabal v2-repl test" --test="Main.main"

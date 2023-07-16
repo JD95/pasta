@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
@@ -16,7 +17,8 @@ import Control.Monad
 import Control.Monad.Writer.Strict
 import Data.Maybe
 import Data.Text (Text, pack, unpack)
-import Lexer (Lexeme, Pair (..), RowCol, Token (..))
+import Grouper
+import Lexer (Content (..), Grouping (..), Lexeme, Pair (..), RowCol, Token (..))
 import qualified Lexer as Lex
 import Text.Earley hiding (parser)
 import qualified Text.Earley as E
@@ -25,9 +27,12 @@ import Prelude hiding (product)
 type AST = LocTree RowCol (ExprF Src)
 
 parse :: [Token] -> ([AST], Report String [Token])
-parse = fullParses (E.parser grammar)
+parse = undefined -- fullParses (E.parser grammar)
 
 displayReport :: [Token] -> Report String [Token] -> Text
+displayReport = undefined
+
+{-
 displayReport input (Report i ex rest) =
   pack . unlines $
     [ "Parse Error at " <> displayErrPos (pos (input !! (i - 1))),
@@ -46,12 +51,11 @@ grammar = mdo
   lvl5 <- rule $ lam <|> lvl6
   lvl6 <- rule $ someSymbol <|> unit <|> prod <|> between Lex.Paren expr
   let_ <-
-    rule $
-      fmap constr $
-        LetF
-          <$> (symbol "let" *> some space *> someSymbol)
-          <*> (spaced equals *> expr)
-          <*> (spaced (symbol "in") *> expr)
+    rule . fmap constr $
+      LetF
+        <$> (symbol "let" *> some space *> someSymbol)
+        <*> (spaced equals *> expr)
+        <*> (spaced (symbol "in") *> expr)
   app <- rule $ application lvl6
   arr <- rule $ arrow lvl3 lvl2
   ann <- rule $ annotation lvl2
@@ -80,7 +84,7 @@ product expr =
       *> (mk <$> some (expr <* many space <* comma) <*> (many space *> expr))
       <* many space
   where
-    mk xs x = LocTree (locStart $ head xs) (locEnd x) $ ProdF (xs <> [x])
+    mk xs x = LocTree (locStart $ head xs) (locEnd x) . ProdF $ snoc xs x
 
 annotation :: Prod r String Token AST -> Prod r String Token AST
 annotation expr =
@@ -120,10 +124,9 @@ arrow noRec yesRec = mk <$> input <*> ((space <|> newline) *> arr *> output)
 
 lambda :: Prod r String Token AST -> Prod r String Token AST
 lambda expr =
-  (\start inputName body -> fromJust $ mkLocTree start (locEnd body) $ LamF inputName body)
+  prepend
     <$> (terminal lam <* many space)
-    <*> terminal name
-    <*> (spaced arr *> expr)
+    <*> fmap constr (LamF <$> terminal name <*> (spaced arr *> expr))
   where
     lam (Token Lex.Lambda rc) = Just rc
     lam _ = Nothing
@@ -220,3 +223,4 @@ constr this =
     (_, LocRangeEmpty) -> undefined
   where
     go x = writer (x, LocRange (locStart x) (locEnd x))
+-}
