@@ -1,4 +1,6 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -10,27 +12,108 @@
 
 module Parser (AST, parse, displayReport) where
 
-import AST.Expr (ExprF (..), Src)
+import AST.Expr (AST, ExprF (..))
+import AST.Expr.Source
 import AST.LocTree
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Writer.Strict
 import Data.Maybe
 import Data.Text (Text, pack, unpack)
-import Grouper
-import Lexer (Content (..), Grouping (..), Lexeme, Pair (..), RowCol, Token (..))
+import Lexer (Lexeme, Pair (..), RowCol, Token (..))
 import qualified Lexer as Lex
 import Text.Earley hiding (parser)
 import qualified Text.Earley as E
 import Prelude hiding (product)
 
-type AST = LocTree RowCol (ExprF Src)
-
-parse :: [Token] -> ([AST], Report String [Token])
+parse :: [Token] -> ([AST Src], Report String [Token])
 parse = undefined -- fullParses (E.parser grammar)
 
 displayReport :: [Token] -> Report String [Token] -> Text
 displayReport = undefined
+
+type P r a = Prod r String Token a
+
+caseOf :: P r (AST Src) -> P r (AST Src)
+caseOf e =
+  fmap constr $
+    CaseOfF
+      <$> (symbol "case" *> e <* symbol "of")
+      <*> block
+        ( liftA2
+            (,)
+            (someSymbol)
+            (space *> symbol "->" *> e <* newline)
+        )
+
+block ::
+  P r a ->
+  P r [a]
+block e =
+  between Lex.Indent $
+    many $ e <* newline
+
+between :: (Pair -> Lexeme) -> Prod r String Token a -> Prod r String Token a
+between p e = (open p <?> show (p Open)) *> e <* (close p <?> show (p Close))
+
+open :: (Pair -> Lexeme) -> Prod r String Token Token
+open p = satisfy $ \(Token x _) -> x == p Open
+
+close :: (Pair -> Lexeme) -> Prod r String Token Token
+close p = satisfy $ \(Token x _) -> x == p Close
+
+newline :: Prod r String Token Token
+newline = satisfy $ \case
+  (Token Lex.NewLine _) -> True
+  _ -> False
+
+application :: P r (AST Src) -> P r (AST Src)
+application e =
+  fmap constr $
+    AppF
+      <$> e
+      <*> (undefined <$> block ((:) <$> e <*> many (space *> e)))
+
+symbol :: Text -> Prod r String Token (AST Src)
+symbol t = terminal go <?> "symbol"
+  where
+    go (Token (Lex.Symbol s) rc) =
+      guard (t == s) *> (mkLocTree rc rc $ SymbolF t)
+    go _ = Nothing
+
+data LocRange
+  = LocRange RowCol RowCol
+  | LocRangeEmpty
+
+instance Semigroup LocRange where
+  LocRangeEmpty <> LocRangeEmpty = LocRangeEmpty
+  x@(LocRange _ _) <> LocRangeEmpty = x
+  LocRangeEmpty <> y@(LocRange _ _) = y
+  (LocRange xStart xEnd) <> (LocRange yStart yEnd) =
+    LocRange (min xStart yStart) (max xEnd yEnd)
+
+instance Monoid LocRange where
+  mempty = LocRangeEmpty
+
+constr :: ExprF Src (AST Src) -> (AST Src)
+constr this =
+  case runWriter $ traverse go this of
+    (body, LocRange start end) -> fromJust $ mkLocTree start end body
+    (_, LocRangeEmpty) -> undefined
+  where
+    go x = writer (x, LocRange (locStart x) (locEnd x))
+
+space :: Prod r String Token Token
+space = satisfy $ \case
+  (Token Lex.Space _) -> True
+  _ -> False
+
+someSymbol :: Prod r String Token (AST Src)
+someSymbol = terminal go <?> "symbol"
+  where
+    go (Token (Lex.Symbol t) rc) =
+      mkLocTree rc rc $ SymbolF t
+    go _ = Nothing
 
 {-
 displayReport input (Report i ex rest) =
@@ -134,35 +217,11 @@ lambda expr =
     name (Token (Lex.Symbol s) _) = pure s
     name _ = Nothing
 
-symbol :: Text -> Prod r String Token AST
-symbol t = terminal go <?> "symbol"
-  where
-    go (Token (Lex.Symbol s) rc) =
-      guard (t == s) *> (mkLocTree rc rc $ SymbolF t)
-    go _ = Nothing
-
-someSymbol :: Prod r String Token AST
-someSymbol = terminal go <?> "symbol"
-  where
-    go (Token (Lex.Symbol t) rc) =
-      mkLocTree rc rc $ SymbolF t
-    go _ = Nothing
-
 arr :: Prod r String Token Token
 arr = satisfy go <?> "arrow"
   where
     go (Token Lex.Arrow _) = True
     go _ = False
-
-space :: Prod r String Token Token
-space = satisfy $ \case
-  (Token Lex.Space _) -> True
-  _ -> False
-
-newline :: Prod r String Token Token
-newline = satisfy $ \case
-  (Token Lex.NewLine _) -> True
-  _ -> False
 
 spaced :: Prod r String Token a -> Prod r String Token a
 spaced x = some space *> x <* some space
@@ -195,32 +254,4 @@ unit =
     close = Lex.Paren Close
     go x = satisfy (\(Token y _) -> x == y)
 
-between :: (Pair -> Lexeme) -> Prod r String Token a -> Prod r String Token a
-between p e = (go open <?> show open) *> e <* (go close <?> show close)
-  where
-    open = p Open
-    close = p Close
-    go x = satisfy (\(Token y _) -> x == y)
-
-data LocRange
-  = LocRange RowCol RowCol
-  | LocRangeEmpty
-
-instance Semigroup LocRange where
-  LocRangeEmpty <> LocRangeEmpty = LocRangeEmpty
-  x@(LocRange _ _) <> LocRangeEmpty = x
-  LocRangeEmpty <> y@(LocRange _ _) = y
-  (LocRange xStart xEnd) <> (LocRange yStart yEnd) =
-    LocRange (min xStart yStart) (max xEnd yEnd)
-
-instance Monoid LocRange where
-  mempty = LocRangeEmpty
-
-constr :: ExprF Src AST -> AST
-constr this =
-  case runWriter $ traverse go this of
-    (body, LocRange start end) -> fromJust $ mkLocTree start end body
-    (_, LocRangeEmpty) -> undefined
-  where
-    go x = writer (x, LocRange (locStart x) (locEnd x))
 -}

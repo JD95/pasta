@@ -13,33 +13,24 @@
 
 module AST.Expr where
 
+import AST.LocTree
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Kind
 import Data.Text
+import Lexer (RowCol)
 
-data ExprConfig
-  = ExprConfig
-  -- | Lambda Type
-  Type
-  -- | Hole Type
-  Type
-  -- | Ref Type
-  Type
+class ExprConfig c where
+  type LamTy c :: Type
+  type BranchTy c :: Type
+  type HoleTy c :: Type
+  type RefTy c :: Type
 
-type family LamTy (i :: ExprConfig) :: Type where
-  LamTy ('ExprConfig ty _ _) = ty
-
-type family HoleTy (i :: ExprConfig) :: Type where
-  HoleTy ('ExprConfig _ ty _) = ty
-
-type family RefTy (i :: ExprConfig) :: Type where
-  RefTy ('ExprConfig _ _ ty) = ty
-
-data Expr (c :: ExprConfig)
+data Expr c
   = Lam (LamTy c) (Expr c)
   | Ann (Expr c) (Expr c)
   | Let (Expr c) (Expr c) (Expr c)
   | App (Expr c) [Expr c]
+  | CaseOf (Expr c) [(BranchTy c, Expr c)]
   | Arr (Maybe (RefTy c)) (Expr c) (Expr c)
   | Symbol (RefTy c)
   | Hole (HoleTy c)
@@ -47,7 +38,4 @@ data Expr (c :: ExprConfig)
 
 makeBaseFunctor ''Expr
 
-type Src = 'ExprConfig Text Text Text
-
-deriving instance Eq (Expr Src)
-deriving instance Show (Expr Src)
+type AST x = LocTree RowCol (ExprF x)

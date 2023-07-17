@@ -28,6 +28,7 @@ data Block a
   | Cont [a] a [Block a]
   deriving (Functor)
 
+{-
 data GroupingError = GroupingError
   deriving (Eq, Ord)
 
@@ -36,3 +37,4 @@ newtype Group a = Group {runGrouper :: ParsecT GroupingError [Lexeme] Identity a
 
 grouper :: String -> Text -> Either (ParseErrorBundle Text GroupingError) (Block Content)
 grouper = undefined
+-}

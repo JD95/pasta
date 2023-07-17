@@ -17,20 +17,17 @@
 module Refinement where
 
 import AST.Expr
+import AST.Expr.Source
 import AST.LocTree
 import Control.Applicative
 import Control.Monad.Reader
 import Data.Functor.Foldable
+import Data.Kind
 import Lattice
 import Lexer (RowCol)
 import Runtime.Prop
 import Runtime.Ref
 import System.Mem.StableName
-
-type AST a =
-  LocTree
-    RowCol
-    (ExprF a)
 
 refine :: MonadRefine m => AST Src -> m (AST (Rt m))
 refine = transform $ \_start _end -> \case
@@ -45,7 +42,13 @@ realize = transverse go
     go (HoleF _) = undefined
     go _ = undefined
 
-type Rt m = 'ExprConfig (Val m) (Val m) (Val m)
+data Rt (m :: Type -> Type)
+
+instance ExprConfig (Rt m) where
+  type LamTy (Rt m) = Val m
+  type BranchTy (Rt m) = Int
+  type HoleTy (Rt m) = Val m
+  type RefTy (Rt m) = Val m
 
 {-
 Another issue to work through: what exactly

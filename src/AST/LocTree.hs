@@ -13,10 +13,17 @@ where
 
 import Control.Monad (guard)
 import Data.Foldable (toList)
+import Data.Functor.Classes
 import Data.Functor.Foldable
 
 -- | Annotates a recursive structure with the segment of the source text it occupies
 data LocTree l f = LocTree {locStart :: l, locEnd :: l, locContent :: f (LocTree l f)}
+
+instance (Show1 f, Show l) => Show (LocTree l f) where
+  show (LocTree s e c) = undefined
+
+instance (Eq1 f, Eq l) => Eq (LocTree l f) where
+  (LocTree a c e) == (LocTree b d f) = undefined
 
 -- | A smart constructor for LocTree which ensures locStart <= locEnd
 mkLocTree :: Ord l => l -> l -> f (LocTree l f) -> Maybe (LocTree l f)
