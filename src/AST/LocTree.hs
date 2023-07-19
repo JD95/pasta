@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE TypeFamilies #-}
+
 module AST.LocTree
   ( AST.LocTree.lookup,
     AST.LocTree.fold,
@@ -5,6 +8,7 @@ module AST.LocTree
     AST.LocTree.transform,
     AST.LocTree.spine,
     LocTree (..),
+    LocTreeF (..),
     mkLocTree,
     prepend,
     append,
@@ -18,6 +22,17 @@ import Data.Functor.Foldable
 
 -- | Annotates a recursive structure with the segment of the source text it occupies
 data LocTree l f = LocTree {locStart :: l, locEnd :: l, locContent :: f (LocTree l f)}
+
+data LocTreeF l f a = LocTreeF l l (f a)
+  deriving (Functor)
+
+type instance Base (LocTree l f) = LocTreeF l f
+
+instance Functor f => Recursive (LocTree l f) where
+  project (LocTree x y z) = LocTreeF x y z
+
+instance Functor f => Corecursive (LocTree l f) where
+  embed (LocTreeF x y z) = LocTree x y z
 
 instance (Show1 f, Show l) => Show (LocTree l f) where
   show (LocTree s e c) = undefined

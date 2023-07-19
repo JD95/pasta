@@ -10,7 +10,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Parser (AST, parse, displayReport) where
+module Parsing.Grammar (parse, displayReport) where
 
 import AST.Expr (AST, ExprF (..))
 import AST.Expr.Source
@@ -21,8 +21,8 @@ import Control.Monad.Writer.Strict
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe
 import Data.Text (Text, pack, unpack)
-import Lexer (Lexeme, Pair (..), RowCol, Token (..))
-import qualified Lexer as Lex
+import Parsing.Lexer (Lexeme, Pair (..), RowCol, Token (..))
+import qualified Parsing.Lexer as Lex
 import Text.Earley hiding (parser)
 import qualified Text.Earley as E
 import qualified Text.Earley.Grammar as E

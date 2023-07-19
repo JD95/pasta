@@ -17,7 +17,7 @@ import AST.LocTree
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Kind
 import Data.Text
-import Lexer (RowCol)
+import Parsing.Lexer (RowCol)
 
 class ExprConfig c where
   type LamTy c :: Type

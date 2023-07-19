@@ -8,8 +8,8 @@ import AST.Expr.Source
 import AST.LocTree
 import Control.Monad (void)
 import Data.Text (Text, unlines, unpack)
-import Lexer (Token (..), lexer)
-import Parser
+import Parsing.Grammar
+import Parsing.Lexer (Token (..), lexer)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Prelude hiding (unlines)

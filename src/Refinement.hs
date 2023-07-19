@@ -24,7 +24,7 @@ import Control.Monad.Reader
 import Data.Functor.Foldable
 import Data.Kind
 import Lattice
-import Lexer (RowCol)
+import Parsing.Lexer (RowCol)
 import Runtime.Prop
 import Runtime.Ref
 import System.Mem.StableName

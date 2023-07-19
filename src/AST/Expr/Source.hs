@@ -12,7 +12,7 @@ import Data.Functor.Classes
 import Data.Functor.Classes.Generic
 import Data.Text
 import GHC.Generics
-import Lexer (RowCol)
+import Parsing.Lexer (RowCol)
 
 data Src
 

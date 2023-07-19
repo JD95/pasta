@@ -5,7 +5,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Lexer (Pair (..), RowCol (..), Token (..), Lexeme (..), lexer, displayLexeme) where
+module Parsing.Lexer (Pair (..), RowCol (..), Token (..), Lexeme (..), lexer, displayLexeme) where
 
 import Control.Applicative (Alternative, (<|>))
 import Control.Monad (MonadPlus)

@@ -27,11 +27,13 @@ library
   exposed-modules:
       AST.Expr
       AST.Expr.Source
+      AST.Expr.Plain
       AST.LocTree
       Lattice
-      Lexer
+      Parsing.Lexer
+      Parsing.Grammar
+      Parsing.Desugar
       Lib
-      Parser
       Runtime
       Runtime.Prop
       Runtime.Ref
@@ -45,17 +47,19 @@ library
       Earley
     , ansi-terminal
     , base >=4.7 && <5
+    , comonad
     , containers
+    , free
+    , ghc-prim
     , hashable
     , logict
     , megaparsec
     , mtl
     , recursion-schemes
     , text
+    , transformers-compat
     , unordered-containers
     , vector
-    , ghc-prim
-    , transformers-compat
   default-language: Haskell2010
 
 executable compiler
