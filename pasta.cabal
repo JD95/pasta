@@ -26,6 +26,7 @@ source-repository head
 library
   exposed-modules:
       AST.Expr
+      AST.Expr.Source
       AST.LocTree
       Lattice
       Lexer
@@ -106,10 +107,11 @@ executable repl
 
 test-suite test
   type: exitcode-stdio-1.0
-  main-is: Spec.hs
+  main-is: Driver.hs
   other-modules:
       Paths_pasta
-      Test.Parsing
+      Test.Parsing.Infra
+      Test.Parsing.Application
       Test.Runtime
   hs-source-dirs:
       test
@@ -127,7 +129,10 @@ test-suite test
     , recursion-schemes
     , tasty
     , tasty-hunit
+    , tasty-discover
     , text
     , unordered-containers
     , vector
+  build-tool-depends:
+    tasty-discover:tasty-discover
   default-language: Haskell2010

@@ -43,8 +43,8 @@ data Lexeme
 
 displayLexeme :: Lexeme -> Text
 displayLexeme NewLine = "\\n"
-displayLexeme (Indent Open) = "\\n{"
-displayLexeme (Indent Close) = "\\n}"
+displayLexeme (Indent Open) = "\\i{"
+displayLexeme (Indent Close) = "\\i}"
 displayLexeme Space = " "
 displayLexeme (Symbol t) = t
 displayLexeme (Paren Open) = "("

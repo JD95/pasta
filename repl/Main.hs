@@ -2,6 +2,7 @@
 
 module Main where
 
+{-
 import Control.Monad.IO.Class
 import Data.Text
 import Lexer
@@ -40,3 +41,5 @@ main = do
               ([], report) -> outputStrLn (show report)
             Left e -> outputStrLn (show e)
           loop
+-}
+main = pure ()

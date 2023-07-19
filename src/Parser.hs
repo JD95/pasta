@@ -18,40 +18,92 @@ import AST.LocTree
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Writer.Strict
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe
 import Data.Text (Text, pack, unpack)
 import Lexer (Lexeme, Pair (..), RowCol, Token (..))
 import qualified Lexer as Lex
 import Text.Earley hiding (parser)
 import qualified Text.Earley as E
+import qualified Text.Earley.Grammar as E
 import Prelude hiding (product)
-
-parse :: [Token] -> ([AST Src], Report String [Token])
-parse = undefined -- fullParses (E.parser grammar)
-
-displayReport :: [Token] -> Report String [Token] -> Text
-displayReport = undefined
 
 type P r a = Prod r String Token a
 
-caseOf :: P r (AST Src) -> P r (AST Src)
-caseOf e =
+parse :: [Token] -> ([AST Src], Report String [Token])
+parse = fullParses (E.parser grammar)
+
+displayReport ::
+  (Show e, Foldable t, Functor t) =>
+  [Token] ->
+  Report e (t Token) ->
+  Text
+displayReport input (Report i ex rest) =
+  pack . unlines $
+    [ "Parse Error at " <> displayErrPos (pos (input !! (i - 1))),
+      "expected: " <> show ex,
+      "unconsumed: " <> concat (unpack . Lex.displayLexeme . lexeme <$> rest)
+    ]
+  where
+    displayErrPos (Lex.RowCol r c) = show r <> ":" <> show c
+
+grammar :: Grammar r (Prod r String Token (AST Src))
+grammar = mdo
+  expr <- rule $ parens expr <|> someSymbol <|> app
+  -- The top level of noApp can't
+  -- be an application, but if it's
+  -- in a paren it can
+  noApp <- rule $ parens expr <|> someSymbol
+  app <- rule $ application noApp
+  --
+  pure $ expr
+
+parens :: P r (AST Src) -> P r (AST Src)
+parens e = between Lex.Paren e
+
+application :: P r (AST Src) -> P r (AST Src)
+application e =
   fmap constr $
-    CaseOfF
-      <$> (symbol "case" *> e <* symbol "of")
-      <*> block
-        ( liftA2
-            (,)
-            (someSymbol)
-            (space *> symbol "->" *> e <* newline)
-        )
+    AppF
+      <$> e
+      <*> inputs
+  where
+    inputs =
+      flip E.alts (pure id) $
+        [noBlock, noFirstLine]
+    noBlock =
+      (\xs ys -> xs <> fromMaybe [] ys)
+        <$> firstLine
+        <*> optional continued
+    noFirstLine =
+      (\xs ys -> fromMaybe [] xs <> ys)
+        <$> optional firstLine
+        <*> continued
+    firstLine = some (space *> e)
+    blockArgs = block $ (:) <$> e <*> many (space *> e)
+    continued = concat <$> blockArgs
+
+-- caseOf :: P r (AST Src) -> P r (AST Src)
+-- caseOf e =
+--   fmap constr $
+--     CaseOfF
+--       <$> (symbol "case" *> e <* symbol "of")
+--       <*> block
+--         ( liftA2
+--             (,)
+--             (someSymbol)
+--             (space *> symbol "->" *> e <* newline)
+--         )
 
 block ::
   P r a ->
-  P r [a]
+  P r (NonEmpty a)
 block e =
   between Lex.Indent $
-    many $ e <* newline
+    sepBy1 e newline
+
+sepBy1 :: P r a -> P r b -> P r (NonEmpty a)
+sepBy1 e sep = (:|) <$> e <*> many (sep *> e)
 
 between :: (Pair -> Lexeme) -> Prod r String Token a -> Prod r String Token a
 between p e = (open p <?> show (p Open)) *> e <* (close p <?> show (p Close))
@@ -66,13 +118,6 @@ newline :: Prod r String Token Token
 newline = satisfy $ \case
   (Token Lex.NewLine _) -> True
   _ -> False
-
-application :: P r (AST Src) -> P r (AST Src)
-application e =
-  fmap constr $
-    AppF
-      <$> e
-      <*> (undefined <$> block ((:) <$> e <*> many (space *> e)))
 
 symbol :: Text -> Prod r String Token (AST Src)
 symbol t = terminal go <?> "symbol"
@@ -115,37 +160,26 @@ someSymbol = terminal go <?> "symbol"
       mkLocTree rc rc $ SymbolF t
     go _ = Nothing
 
+-- expr <- rule $ ann <|> lvl2
+-- lvl2 <- rule $ arr <|> lvl3
+-- lvl3 <- rule $ app <|> lvl4
+-- lvl4 <- rule $ let_ <|> lvl5
+-- lvl5 <- rule $ lam <|> lvl6
+-- lvl6 <- rule $ someSymbol <|> unit <|> prod <|> between Lex.Paren expr
+-- let_ <-
+--   rule . fmap constr $
+--     LetF
+--       <$> (symbol "let" *> some space *> someSymbol)
+--       <*> (spaced equals *> expr)
+--       <*> (spaced (symbol "in") *> expr)
+-- app <- rule $ application lvl6
+-- arr <- rule $ arrow lvl3 lvl2
+-- ann <- rule $ annotation lvl2
+-- lam <- rule $ lambda expr
+-- prod <- rule $ product expr
+-- pure (expr <* (many space <|> many newline))
+
 {-
-displayReport input (Report i ex rest) =
-  pack . unlines $
-    [ "Parse Error at " <> displayErrPos (pos (input !! (i - 1))),
-      "expected: " <> show ex,
-      "unconsumed: " <> concat (unpack . Lex.displayLexeme . lexeme <$> rest)
-    ]
-  where
-    displayErrPos (Lex.RowCol r c) = show r <> ":" <> show c
-
-grammar :: Grammar r (Prod r String Token AST)
-grammar = mdo
-  expr <- rule $ ann <|> lvl2
-  lvl2 <- rule $ arr <|> lvl3
-  lvl3 <- rule $ app <|> lvl4
-  lvl4 <- rule $ let_ <|> lvl5
-  lvl5 <- rule $ lam <|> lvl6
-  lvl6 <- rule $ someSymbol <|> unit <|> prod <|> between Lex.Paren expr
-  let_ <-
-    rule . fmap constr $
-      LetF
-        <$> (symbol "let" *> some space *> someSymbol)
-        <*> (spaced equals *> expr)
-        <*> (spaced (symbol "in") *> expr)
-  app <- rule $ application lvl6
-  arr <- rule $ arrow lvl3 lvl2
-  ann <- rule $ annotation lvl2
-  lam <- rule $ lambda expr
-  prod <- rule $ product expr
-  pure (expr <* (many space <|> many newline))
-
 snoc :: [a] -> a -> [a]
 snoc xs x = xs <> [x]
 
