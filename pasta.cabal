@@ -117,6 +117,7 @@ test-suite test
       Paths_pasta
       Test.Parsing.Infra
       Test.Parsing.Application
+      Test.Parsing.Product
       Test.Runtime
   hs-source-dirs:
       test

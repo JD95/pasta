@@ -10,7 +10,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Parsing.Grammar (ParseError, parse) where
+module Parsing.Grammar (ParseError (..), parse) where
 
 import AST.Expr (AST, ExprF (..))
 import AST.Expr.Source
@@ -20,6 +20,7 @@ import Control.Monad
 import Control.Monad.Writer.Strict
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe
+import Data.Text (Text, pack, unpack)
 import Parsing.Lexer (Lexeme, Pair (..), RowCol, Token (..))
 import qualified Parsing.Lexer as Lex
 import Text.Earley hiding (parser)
@@ -27,46 +28,46 @@ import qualified Text.Earley as E
 import qualified Text.Earley.Grammar as E
 import Prelude hiding (product)
 
--- import Data.Text (Text, pack, unpack)
-
 type P r a = Prod r String Token a
 
-data ParseError = ParseError
+data ParseError
+  = NoParse Text
+  | AmbiguousParse
 
 parse :: [Token] -> Either ParseError (AST Src)
 parse input =
   case fullParses (E.parser grammar) input of
-    ([], _) -> Left ParseError
-    (_ : _ : _, _) -> Left ParseError
+    ([], e) -> Left (NoParse (displayReport input e))
+    (_ : _ : _, _) -> Left AmbiguousParse
     ([src], _) -> Right src
 
--- displayReport ::
---   (Show e, Foldable t, Functor t) =>
---   [Token] ->
---   Report e (t Token) ->
---   Text
--- displayReport input (Report i ex rest) =
---   pack . unlines $
---     [ "Parse Error at " <> displayErrPos (pos (input !! (i - 1))),
---       "expected: " <> show ex,
---       "unconsumed: " <> concat (unpack . Lex.displayLexeme . lexeme <$> rest)
---     ]
---   where
---     displayErrPos (Lex.RowCol r c) = show r <> ":" <> show c
+displayReport ::
+  (Show e, Foldable t, Functor t) =>
+  [Token] ->
+  Report e (t Token) ->
+  Text
+displayReport input (Report i ex rest) =
+  pack . unlines $
+    [ "Parse Error at " <> displayErrPos (pos (input !! (i - 1))),
+      "expected: " <> show ex,
+      "unconsumed: " <> concat (unpack . Lex.displayLexeme . lexeme <$> rest)
+    ]
+  where
+    displayErrPos (Lex.RowCol r c) = show r <> ":" <> show c
 
 grammar :: Grammar r (Prod r String Token (AST Src))
 grammar = mdo
-  expr <- rule $ parens expr <|> someSymbol <|> app
-  -- The top level of noApp can't
-  -- be an application, but if it's
-  -- in a paren it can
-  noApp <- rule $ parens expr <|> someSymbol
-  app <- rule $ application noApp
-  --
-  pure $ expr
+  expr <- rule $ freeRec <|> app
+  -- The rules which can freely nest
+  freeRec <- rule $ parens expr <|> product expr <|> someSymbol
+  -- Rules like app want to exclude themselves in
+  -- the first layer of their parse. Otherwise we
+  -- get things like (f x y) parsing as (f (x y))
+  app <- rule $ application freeRec
+  pure $ expr <* optional newline
 
 parens :: P r (AST Src) -> P r (AST Src)
-parens e = between Lex.Paren e
+parens = betweenInc Lex.Paren
 
 application :: P r (AST Src) -> P r (AST Src)
 application e =
@@ -90,30 +91,43 @@ application e =
     blockArgs = block $ (:) <$> e <*> many (space *> e)
     continued = concat <$> blockArgs
 
--- caseOf :: P r (AST Src) -> P r (AST Src)
--- caseOf e =
---   fmap constr $
---     CaseOfF
---       <$> (symbol "case" *> e <* symbol "of")
---       <*> block
---         ( liftA2
---             (,)
---             (someSymbol)
---             (space *> symbol "->" *> e <* newline)
---         )
+product :: P r (AST Src) -> P r (AST Src)
+product e =
+  between
+    Lex.SqrBracket
+    (\a x b -> LocTree (pos a) (pos b) $ ProdF x)
+    (tupleCase <|> unitCase)
+  where
+    item = (optional space *> e <* optional space <* optional newline)
+    unitCase = pure []
+    items =
+      (\x y zs -> x : y : zs)
+        <$> (optional comma *> item)
+        <*> (comma *> item)
+        <*> (many (comma *> item) <* optional comma)
+
+    tupleCase = optional newline *> items
 
 block ::
   P r a ->
   P r (NonEmpty a)
 block e =
-  between Lex.Indent $
+  betweenEx Lex.Indent $
     sepBy1 e newline
 
 sepBy1 :: P r a -> P r b -> P r (NonEmpty a)
 sepBy1 e sep = (:|) <$> e <*> many (sep *> e)
 
-between :: (Pair -> Lexeme) -> Prod r String Token a -> Prod r String Token a
-between p e = (open p <?> show (p Open)) *> e <* (close p <?> show (p Close))
+between :: (Pair -> Lexeme) -> (Token -> a -> Token -> b) -> Prod r String Token a -> Prod r String Token b
+between p f e = f <$> (open p <?> show (p Open)) <*> e <*> (close p <?> show (p Close))
+
+-- | Include positions of the ends
+betweenInc :: (Pair -> Lexeme) -> Prod r String Token (AST Src) -> Prod r String Token (AST Src)
+betweenInc p = between p (\a x b -> prepend (pos a) $ append (pos b) $ x)
+
+-- | Exclude positions of the ends
+betweenEx :: (Pair -> Lexeme) -> Prod r String Token a -> Prod r String Token a
+betweenEx p = between p (\_ x _ -> x)
 
 open :: (Pair -> Lexeme) -> Prod r String Token Token
 open p = satisfy $ \(Token x _) -> x == p Open
@@ -166,6 +180,12 @@ someSymbol = terminal go <?> "symbol"
     go (Token (Lex.Symbol t) rc) =
       mkLocTree rc rc $ SymbolF t
     go _ = Nothing
+
+comma :: Prod r String Token Token
+comma = satisfy go <?> "comma"
+  where
+    go (Token Lex.Comma _) = True
+    go _ = False
 
 -- expr <- rule $ ann <|> lvl2
 -- lvl2 <- rule $ arr <|> lvl3
@@ -271,12 +291,6 @@ colon :: Prod r String Token Token
 colon = satisfy go <?> "type annotation"
   where
     go (Token Lex.Colon _) = True
-    go _ = False
-
-comma :: Prod r String Token Token
-comma = satisfy go <?> "comma"
-  where
-    go (Token Lex.Comma _) = True
     go _ = False
 
 equals :: Prod r String Token Token

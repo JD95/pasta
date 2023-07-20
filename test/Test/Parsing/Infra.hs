@@ -21,8 +21,9 @@ testParse :: Text -> IO (AST Src)
 testParse input = do
   tokens <- testLex input
   case parse tokens of
-    ([], report) -> assertFailure (unpack $ "parse fail: " <> displayReport tokens report)
-    (result : _, _) -> pure result
+    Left (NoParse report) -> assertFailure (unpack $ "parse fail: " <> report)
+    Left (AmbiguousParse) -> assertFailure ("ambiguous parse!")
+    Right result -> pure result
 
 testLex :: Text -> IO [Token]
 testLex input =

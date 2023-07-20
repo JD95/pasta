@@ -46,12 +46,12 @@ main = do
 
     loop :: InputT IO ()
     loop = do
-      minput <- getInputLine "🧆> "
+      minput <- Text.pack <$> getInputLine "🧆> "
       case minput of
         Nothing -> return ()
         Just ":q" -> return ()
         Just input -> do
-          lexingPhase (Text.pack input)
+          lexingPhase input
             >>= parsingPhase
             >>= refinementPhase
             >>= realizationPhase

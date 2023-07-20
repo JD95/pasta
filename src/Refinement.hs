@@ -71,6 +71,8 @@ refine = transform $ \_start _end -> \case
     HoleF <$> newVal Unbound
   _ -> undefined
 
+-- | Pulls values out of cells, filling holes and
+-- properly annotating with types
 realize :: Monad m => Expr (Rt m) -> m (Expr Plain)
 realize = transverse go
   where

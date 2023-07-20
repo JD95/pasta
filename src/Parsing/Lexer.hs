@@ -40,6 +40,7 @@ data Pair = Open | Close
 
 data Lexeme
   = Indent Pair
+  | SqrBracket Pair
   | NewLine
   | Space
   | Symbol Text
@@ -59,6 +60,8 @@ displayLexeme Space = " "
 displayLexeme (Symbol t) = t
 displayLexeme (Paren Open) = "("
 displayLexeme (Paren Close) = ")"
+displayLexeme (SqrBracket Open) = "["
+displayLexeme (SqrBracket Close) = "]"
 displayLexeme (Lambda) = "\\"
 displayLexeme (Arrow) = "->"
 displayLexeme (Colon) = ":"
@@ -118,6 +121,8 @@ token = do
     parse =
       (Paren Open <$ char '(')
         <|> (Paren Close <$ char ')')
+        <|> (SqrBracket Open <$ char '[')
+        <|> (SqrBracket Close <$ char ']')
         <|> (Lambda <$ char '\\')
         <|> symbol
         <|> (Arrow <$ chunk "->")

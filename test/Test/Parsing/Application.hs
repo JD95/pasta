@@ -7,20 +7,20 @@ import qualified AST.Expr as AST
 import AST.LocTree
 import Control.Monad (void)
 import Data.Text (Text, pack, unpack)
-import Lexer (Token (..), lexer)
-import Parser
+import Parsing.Grammar
+import Parsing.Lexer (Token (..), lexer)
 import Test.Parsing.Infra
 import Test.Tasty
 import Test.Tasty.HUnit
 
-unit_singleLine :: IO ()
-unit_singleLine = do
+unit_application_single_line :: IO ()
+unit_application_single_line = do
   result <-
     testParse $ "someFunction input1 input2"
   spine result @?= App (Symbol "someFunction") [Symbol "input1", Symbol "input2"]
 
-unit_block :: IO ()
-unit_block = do
+unit_application_block :: IO ()
+unit_application_block = do
   result <-
     testParseLines
       [ "someFunction",
@@ -29,13 +29,13 @@ unit_block = do
       ]
   spine result @?= App (Symbol "someFunction") [Symbol "input1", Symbol "input2"]
 
-unit_funcInParens :: IO ()
-unit_funcInParens = do
+unit_application_func_in_parens :: IO ()
+unit_application_func_in_parens = do
   result <- testParse "(f x) y"
   spine result @?= App (App (Symbol "f") [Symbol "x"]) [Symbol "y"]
 
-unit_funcInParensBlock :: IO ()
-unit_funcInParensBlock = do
+unit_application_func_in_parens_block :: IO ()
+unit_application_func_in_parens_block = do
   result <-
     testParseLines
       [ "(f x)",
@@ -43,13 +43,13 @@ unit_funcInParensBlock = do
       ]
   spine result @?= App (App (Symbol "f") [Symbol "x"]) [Symbol "y"]
 
-unit_inputInParens :: IO ()
-unit_inputInParens = do
+unit_application_input_in_parens :: IO ()
+unit_application_input_in_parens = do
   result <- testParse "f (x y)"
   spine result @?= App (Symbol "f") [App (Symbol "x") [Symbol "y"]]
 
-unit_inputInParensBlock :: IO ()
-unit_inputInParensBlock = do
+unit_application_input_in_parens_block :: IO ()
+unit_application_input_in_parens_block = do
   result <-
     testParseLines
       [ "f",
