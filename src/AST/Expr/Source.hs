@@ -7,12 +7,10 @@
 module AST.Expr.Source where
 
 import AST.Expr (AST, Expr (..), ExprConfig (..), ExprF (..))
-import AST.LocTree
 import Data.Functor.Classes
 import Data.Functor.Classes.Generic
 import Data.Text
 import GHC.Generics
-import Parsing.Lexer (RowCol)
 
 data Src
 

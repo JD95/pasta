@@ -5,11 +5,21 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parsing.Lexer (Pair (..), RowCol (..), Token (..), Lexeme (..), lexer, displayLexeme) where
+module Parsing.Lexer
+  ( Pair (..),
+    RowCol (..),
+    Token (..),
+    Lexeme (..),
+    LexError (..),
+    lexer,
+    displayLexeme,
+  )
+where
 
 import Control.Applicative (Alternative, (<|>))
 import Control.Monad (MonadPlus)
 import Control.Monad.State.Strict (MonadState (..), State, evalState, get, modify)
+import Data.Bifunctor
 import Data.Text (Text, pack)
 import Text.Megaparsec
   ( MonadParsec,
@@ -124,7 +134,7 @@ lexTokens = do
   let endIndents = Token (Indent Close) (RowCol r c) <$ ns
   pure $ concat ts <> endIndents
 
-lexer :: String -> Text -> Either (ParseErrorBundle Text LexError) [Token]
-lexer srcFileName = flip evalState initSt . runParserT (runLexer lexTokens) srcFileName
+lexer :: String -> Text -> Either LexError [Token]
+lexer srcFileName = first (const LexError) . flip evalState initSt . runParserT (runLexer lexTokens) srcFileName
   where
     initSt = LexSt []

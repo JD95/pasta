@@ -16,7 +16,6 @@ module AST.Expr where
 import AST.LocTree
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Kind
-import Data.Text
 import Parsing.Lexer (RowCol)
 
 class ExprConfig c where

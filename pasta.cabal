@@ -55,6 +55,7 @@ library
     , logict
     , megaparsec
     , mtl
+    , profunctors
     , recursion-schemes
     , text
     , transformers-compat

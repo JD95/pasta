@@ -10,7 +10,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Parsing.Grammar (parse, displayReport) where
+module Parsing.Grammar (ParseError, parse) where
 
 import AST.Expr (AST, ExprF (..))
 import AST.Expr.Source
@@ -20,7 +20,6 @@ import Control.Monad
 import Control.Monad.Writer.Strict
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe
-import Data.Text (Text, pack, unpack)
 import Parsing.Lexer (Lexeme, Pair (..), RowCol, Token (..))
 import qualified Parsing.Lexer as Lex
 import Text.Earley hiding (parser)
@@ -28,24 +27,32 @@ import qualified Text.Earley as E
 import qualified Text.Earley.Grammar as E
 import Prelude hiding (product)
 
+-- import Data.Text (Text, pack, unpack)
+
 type P r a = Prod r String Token a
 
-parse :: [Token] -> ([AST Src], Report String [Token])
-parse = fullParses (E.parser grammar)
+data ParseError = ParseError
 
-displayReport ::
-  (Show e, Foldable t, Functor t) =>
-  [Token] ->
-  Report e (t Token) ->
-  Text
-displayReport input (Report i ex rest) =
-  pack . unlines $
-    [ "Parse Error at " <> displayErrPos (pos (input !! (i - 1))),
-      "expected: " <> show ex,
-      "unconsumed: " <> concat (unpack . Lex.displayLexeme . lexeme <$> rest)
-    ]
-  where
-    displayErrPos (Lex.RowCol r c) = show r <> ":" <> show c
+parse :: [Token] -> Either ParseError (AST Src)
+parse input =
+  case fullParses (E.parser grammar) input of
+    ([], _) -> Left ParseError
+    (_ : _ : _, _) -> Left ParseError
+    ([src], _) -> Right src
+
+-- displayReport ::
+--   (Show e, Foldable t, Functor t) =>
+--   [Token] ->
+--   Report e (t Token) ->
+--   Text
+-- displayReport input (Report i ex rest) =
+--   pack . unlines $
+--     [ "Parse Error at " <> displayErrPos (pos (input !! (i - 1))),
+--       "expected: " <> show ex,
+--       "unconsumed: " <> concat (unpack . Lex.displayLexeme . lexeme <$> rest)
+--     ]
+--   where
+--     displayErrPos (Lex.RowCol r c) = show r <> ":" <> show c
 
 grammar :: Grammar r (Prod r String Token (AST Src))
 grammar = mdo
@@ -119,12 +126,12 @@ newline = satisfy $ \case
   (Token Lex.NewLine _) -> True
   _ -> False
 
-symbol :: Text -> Prod r String Token (AST Src)
-symbol t = terminal go <?> "symbol"
-  where
-    go (Token (Lex.Symbol s) rc) =
-      guard (t == s) *> (mkLocTree rc rc $ SymbolF t)
-    go _ = Nothing
+-- symbol :: Text -> Prod r String Token (AST Src)
+-- symbol t = terminal go <?> "symbol"
+--   where
+--     go (Token (Lex.Symbol s) rc) =
+--       guard (t == s) *> (mkLocTree rc rc $ SymbolF t)
+--     go _ = Nothing
 
 data LocRange
   = LocRange RowCol RowCol

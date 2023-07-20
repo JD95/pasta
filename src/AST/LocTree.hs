@@ -35,10 +35,10 @@ instance Functor f => Corecursive (LocTree l f) where
   embed (LocTreeF x y z) = LocTree x y z
 
 instance (Show1 f, Show l) => Show (LocTree l f) where
-  show (LocTree s e c) = undefined
+  show (LocTree _ _ _) = undefined
 
 instance (Eq1 f, Eq l) => Eq (LocTree l f) where
-  (LocTree a c e) == (LocTree b d f) = undefined
+  (LocTree _ _ _) == (LocTree _ _ _) = undefined
 
 -- | A smart constructor for LocTree which ensures locStart <= locEnd
 mkLocTree :: Ord l => l -> l -> f (LocTree l f) -> Maybe (LocTree l f)

@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -14,31 +15,66 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Refinement where
+module Refinement (Env (..), refinement, realization) where
 
 import AST.Expr
-import AST.Expr.Source
+import AST.Expr.Plain
 import AST.LocTree
 import Control.Applicative
+import Control.Monad.IO.Class
+import Control.Monad.Logic
 import Control.Monad.Reader
 import Data.Functor.Foldable
+import Data.IORef
 import Data.Kind
 import Lattice
-import Parsing.Lexer (RowCol)
 import Runtime.Prop
 import Runtime.Ref
 import System.Mem.StableName
 
-refine :: MonadRefine m => AST Src -> m (AST (Rt m))
+class
+  ( MonadReader (Env m) m,
+    Alternative m,
+    MonadRef m,
+    Monad m
+  ) =>
+  MonadRefine m
+
+newtype Refine a = Refine {runRefine :: LogicT (ReaderT (Env Refine) IO) a}
+  deriving (Functor, Applicative, Monad, MonadReader (Env Refine), Alternative, MonadIO)
+
+instance MonadRef Refine where
+  type Ref Refine = IORef
+  newRef = liftIO . newIORef
+  readRef = liftIO . readRef
+  writeRef r = liftIO . writeIORef r
+
+instance MonadRefine Refine
+
+data RefineError = RefineError
+
+refinement :: AST Plain -> Env Refine -> IO (Either RefineError (AST (Rt Refine)))
+refinement input env = do
+  runReaderT (runLogicT (runRefine $ refine input) checkResult (pure $ Left RefineError)) env
+  where
+    checkResult x _ = pure $ Right x
+
+realization :: AST (Rt Refine) -> Env Refine -> IO (Expr Plain)
+realization input env = do
+  runReaderT (runLogicT (runRefine $ realize (spine input)) checkResult (error "impossible")) env
+  where
+    checkResult x _ = pure x
+
+refine :: MonadRefine m => AST Plain -> m (AST (Rt m))
 refine = transform $ \_start _end -> \case
   (HoleF _) -> do
     HoleF <$> newVal Unbound
   _ -> undefined
 
-realize :: Monad m => Expr (Rt m) -> m (Expr Src)
+realize :: Monad m => Expr (Rt m) -> m (Expr Plain)
 realize = transverse go
   where
-    go :: ExprF (Rt m) (m a) -> m (ExprF Src a)
+    go :: ExprF (Rt m) (m a) -> m (ExprF Plain a)
     go (HoleF _) = undefined
     go _ = undefined
 
@@ -131,16 +167,6 @@ data Val m where
   Val :: (Value f, Inform f, MonadRef m) => f m (Ref m) (RtVal m) -> Val m
 
 data Env m = Env [Val m]
-
-class
-  ( MonadReader (Env m) m,
-    Alternative m,
-    MonadRef m,
-    Monad m
-  ) =>
-  MonadRefine m
-  where
-  newHoleId :: m Int
 
 {-
 
