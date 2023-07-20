@@ -29,6 +29,7 @@ library
       AST.Expr.Source
       AST.Expr.Plain
       AST.LocTree
+      AST.Tree
       Lattice
       Parsing.Lexer
       Parsing.Grammar

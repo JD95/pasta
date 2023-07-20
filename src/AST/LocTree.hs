@@ -20,6 +20,8 @@ import Data.Foldable (toList)
 import Data.Functor.Classes
 import Data.Functor.Foldable
 
+-- TODO: Rewrite LocTree logic to work against the new Tree type
+
 -- | Annotates a recursive structure with the segment of the source text it occupies
 data LocTree l f = LocTree {locStart :: l, locEnd :: l, locContent :: f (LocTree l f)}
 
