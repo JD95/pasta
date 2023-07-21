@@ -13,7 +13,7 @@
 
 module AST.Expr where
 
-import AST.LocTree
+import AST.Tree
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.Kind
 import Parsing.Lexer (RowCol)
@@ -37,4 +37,4 @@ data Expr c
 
 makeBaseFunctor ''Expr
 
-type AST x = LocTree RowCol (ExprF x)
+type AST t = Tree t (ExprF t)

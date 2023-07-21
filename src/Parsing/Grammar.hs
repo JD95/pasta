@@ -14,13 +14,15 @@ module Parsing.Grammar (ParseError (..), parse) where
 
 import AST.Expr (AST, ExprF (..))
 import AST.Expr.Source
-import AST.LocTree
+import AST.Range
+import AST.Tree
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Writer.Strict
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe
 import Data.Text (Text, pack, unpack)
+import Lens.Micro.Platform
 import Parsing.Lexer (Lexeme, Pair (..), RowCol, Token (..))
 import qualified Parsing.Lexer as Lex
 import Text.Earley hiding (parser)
@@ -95,7 +97,7 @@ product :: P r (AST Src) -> P r (AST Src)
 product e =
   between
     Lex.SqrBracket
-    (\a x b -> LocTree (pos a) (pos b) $ ProdF x)
+    (\a x b -> Tree (Src (Range (pos a) (pos b))) $ ProdF x)
     (tupleCase <|> unitCase)
   where
     item = (optional space *> e <* optional space <* optional newline)
@@ -164,10 +166,10 @@ instance Monoid LocRange where
 constr :: ExprF Src (AST Src) -> (AST Src)
 constr this =
   case runWriter $ traverse go this of
-    (body, LocRange start end) -> fromJust $ mkLocTree start end body
+    (body, LocRange start end) -> Tree (Src (Range start end)) body
     (_, LocRangeEmpty) -> undefined
   where
-    go x = writer (x, LocRange (locStart x) (locEnd x))
+    go x = writer (x, LocRange (x ^. ctx . range . start) (x ^. ctx . range . end))
 
 space :: Prod r String Token Token
 space = satisfy $ \case
@@ -178,7 +180,7 @@ someSymbol :: Prod r String Token (AST Src)
 someSymbol = terminal go <?> "symbol"
   where
     go (Token (Lex.Symbol t) rc) =
-      mkLocTree rc rc $ SymbolF t
+      Just $ Tree (Src (Range rc rc)) $ SymbolF t
     go _ = Nothing
 
 comma :: Prod r String Token Token

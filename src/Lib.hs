@@ -1,12 +1,12 @@
 module Lib
-  ( module AST.LocTree,
+  ( module AST.Range,
     module Parsing.Lexer,
     module Parsing.Grammar,
     module Runtime.Ref,
   )
 where
 
-import AST.LocTree
+import AST.Range
 import Parsing.Grammar
 import Parsing.Lexer
 import Runtime.Ref

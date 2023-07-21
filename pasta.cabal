@@ -28,7 +28,7 @@ library
       AST.Expr
       AST.Expr.Source
       AST.Expr.Plain
-      AST.LocTree
+      AST.Range
       AST.Tree
       Lattice
       Parsing.Lexer
@@ -55,6 +55,7 @@ library
     , hashable
     , logict
     , megaparsec
+    , microlens-platform
     , mtl
     , profunctors
     , recursion-schemes

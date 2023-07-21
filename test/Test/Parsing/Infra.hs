@@ -5,7 +5,7 @@ module Test.Parsing.Infra (testParse, testLex, testParseLines) where
 import AST.Expr
 import qualified AST.Expr as AST
 import AST.Expr.Source
-import AST.LocTree
+import AST.Range
 import Control.Monad (void)
 import Data.Text (Text, unlines, unpack)
 import Parsing.Grammar

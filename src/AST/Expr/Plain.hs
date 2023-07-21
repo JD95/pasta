@@ -7,14 +7,19 @@
 module AST.Expr.Plain where
 
 import AST.Expr (AST, Expr (..), ExprConfig (..), ExprF (..))
-import AST.LocTree
+import AST.Range
 import Data.Functor.Classes
 import Data.Functor.Classes.Generic
 import Data.Text
 import GHC.Generics
+import Lens.Micro.Platform
 import Parsing.Lexer (RowCol)
 
-data Plain
+data Plain = Plain Range
+  deriving (Eq, Ord, Show)
+
+instance HasRange Plain where
+  range = lens (\(Plain r) -> r) (\(Plain r) x -> Plain x)
 
 instance ExprConfig Plain where
   type LamTy Plain = Text

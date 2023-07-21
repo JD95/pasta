@@ -1,8 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
-import AST.LocTree
 import Control.Monad.IO.Class
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -46,7 +46,7 @@ main = do
 
     loop :: InputT IO ()
     loop = do
-      minput <- Text.pack <$> getInputLine "🧆> "
+      minput <- fmap Text.pack <$> getInputLine "🧆> "
       case minput of
         Nothing -> return ()
         Just ":q" -> return ()

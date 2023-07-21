@@ -4,7 +4,7 @@ module Test.Parsing.Application where
 
 import AST.Expr
 import qualified AST.Expr as AST
-import AST.LocTree
+import AST.Tree
 import Control.Monad (void)
 import Data.Text (Text, pack, unpack)
 import Parsing.Grammar

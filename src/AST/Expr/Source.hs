@@ -7,12 +7,19 @@
 module AST.Expr.Source where
 
 import AST.Expr (AST, Expr (..), ExprConfig (..), ExprF (..))
+import AST.Range
 import Data.Functor.Classes
 import Data.Functor.Classes.Generic
 import Data.Text
 import GHC.Generics
+import Lens.Micro.Platform
+import Parsing.Lexer (RowCol)
 
-data Src
+data Src = Src Range
+  deriving (Show, Eq, Ord)
+
+instance HasRange Src where
+  range = lens (\(Src r) -> r) (\(Src r) x -> Src x)
 
 instance ExprConfig Src where
   type LamTy Src = Text
