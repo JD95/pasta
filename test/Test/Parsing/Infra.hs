@@ -3,14 +3,10 @@
 module Test.Parsing.Infra (testParse, testLex, testParseLines) where
 
 import AST.Expr
-import qualified AST.Expr as AST
 import AST.Expr.Source
-import AST.Range
-import Control.Monad (void)
 import Data.Text (Text, unlines, unpack)
 import Parsing.Grammar
 import Parsing.Lexer (Token (..), lexer)
-import Test.Tasty
 import Test.Tasty.HUnit
 import Prelude hiding (unlines)
 

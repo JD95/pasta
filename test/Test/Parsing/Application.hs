@@ -3,14 +3,8 @@
 module Test.Parsing.Application where
 
 import AST.Expr
-import qualified AST.Expr as AST
 import AST.Tree
-import Control.Monad (void)
-import Data.Text (Text, pack, unpack)
-import Parsing.Grammar
-import Parsing.Lexer (Token (..), lexer)
 import Test.Parsing.Infra
-import Test.Tasty
 import Test.Tasty.HUnit
 
 unit_application_single_line :: IO ()

@@ -123,7 +123,7 @@ test-suite test
       Test.Runtime
   hs-source-dirs:
       test
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       Earley
     , ansi-terminal
