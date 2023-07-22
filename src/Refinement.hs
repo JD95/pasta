@@ -19,27 +19,22 @@ module Refinement (Env (..), refinement, realization) where
 
 import AST.Expr
 import AST.Expr.Plain
+import AST.Expr.Refined
 import AST.Range
 import AST.Tree
 import Control.Applicative
 import Control.Monad.IO.Class
 import Control.Monad.Logic
 import Control.Monad.Reader
+import Data.Foldable
 import Data.Functor.Foldable
 import Data.IORef
-import Data.Kind
-import Lattice
+import Data.Traversable
+import Lens.Micro.Platform
 import Runtime.Prop
 import Runtime.Ref
+import Runtime.Term
 import System.Mem.StableName
-
-data Rt (m :: Type -> Type) = Rt
-
-instance ExprConfig (Rt m) where
-  type LamTy (Rt m) = Val m
-  type BranchTy (Rt m) = Int
-  type HoleTy (Rt m) = Val m
-  type RefTy (Rt m) = Val m
 
 {-
 Another issue to work through: what exactly
@@ -49,79 +44,7 @@ There shouldn't be some separate tree from the
 one constructed by refinement.
 -}
 
-data Stable a = Stable (StableName a) a
-
-instance Eq (Stable a) where
-  (Stable x _) == (Stable y _) = x == y
-
-data Strict a = Strict {force :: !a}
-
-data RtVal m
-  = RtArr [RtVal m]
-  | RtProdTy (RtVal m)
-  | -- | Indexes
-    --
-    -- An index into a product type
-    RtIndex Int (RtVal m)
-  | RtSumTy (RtVal m)
-  | RtCase Int (RtVal m)
-  | -- | Lambdas
-    --
-    -- Since it doesn't make sense in general
-    -- to check if functions are equal, we pair
-    -- the generating code with a stable name to
-    -- allow merging so long as the lambdas don't
-    -- change
-    --
-    -- The closure here will maintain refs to
-    -- previous cells used in the body, thus
-    -- propagation will occur to those cells too
-    RtLam (Stable (Val m -> m (Val m)))
-  | -- | Holes are just unbound values
-    Unbound
-
-zipFail :: Alternative f => (a -> b -> f c) -> [a] -> [b] -> f [c]
-zipFail _ [] [] = pure []
-zipFail _ (_ : _) [] = empty
-zipFail _ [] (_ : _) = empty
-zipFail f (x : xs) (y : ys) =
-  (:) <$> f x y <*> zipFail f xs ys
-
-instance Lattice (RtVal m) where
-  bottom = Unbound
-  merge (Old old) (New new) =
-    case (old, new) of
-      (Unbound, Unbound) -> None
-      (Unbound, other) -> Gain other
-      --
-      (RtLam (Stable x _), RtLam (Stable y _)) ->
-        if x == y then None else Conflict
-      (RtLam (Stable _ _), _) -> Conflict
-      --
-      (RtArr xs, RtArr ys) ->
-        RtArr <$> zipFail merge (Old <$> xs) (New <$> ys)
-      (RtArr _, _) -> Conflict
-      --
-      (RtProdTy x, RtProdTy y) -> merge (Old x) (New y)
-      (RtProdTy _, _) -> Conflict
-      --
-      (RtIndex i x, RtIndex j y) ->
-        if i == j then merge (Old x) (New y) else Conflict
-      (RtIndex _ _, _) -> Conflict
-      --
-      (RtSumTy x, RtSumTy y) -> merge (Old x) (New y)
-      (RtSumTy _, _) -> Conflict
-      --
-      (RtCase i x, RtCase j y) ->
-        if i == j then merge (Old x) (New y) else Conflict
-      (RtCase _ _, _) -> Conflict
-
-  isTop _ = False
-
-data Val m where
-  Val :: (Value f, Inform f, MonadRef m) => f m (Ref m) (RtVal m) -> Val m
-
-data Env m = Env [Val m]
+data Env m = Env [Term m]
 
 class
   ( MonadReader (Env m) m,
@@ -131,45 +54,43 @@ class
   ) =>
   MonadRefine m
 
-newtype Refine a = Refine {runRefine :: LogicT (ReaderT (Env Refine) IO) a}
-  deriving (Functor, Applicative, Monad, MonadReader (Env Refine), Alternative, MonadIO)
+newtype R a = Refine {runRefine :: LogicT (ReaderT (Env R) IO) a}
+  deriving (Functor, Applicative, Monad, MonadReader (Env R), Alternative, MonadIO)
 
-instance MonadRef Refine where
-  type Ref Refine = IORef
+instance MonadRef R where
+  type Ref R = IORef
   newRef = liftIO . newIORef
   readRef = liftIO . readRef
   writeRef r = liftIO . writeIORef r
 
-instance MonadRefine Refine
+instance MonadRefine R
 
 data RefineError = RefineError
 
-refinement :: AST Plain -> Env Refine -> IO (Either RefineError (AST (Rt Refine)))
+refinement :: AST Plain -> Env R -> IO (Either RefineError (AST (Refined R)))
 refinement input env = do
   runReaderT (runLogicT (runRefine $ refine input) checkResult (pure $ Left RefineError)) env
   where
     checkResult x _ = pure $ Right x
 
-realization :: AST (Rt Refine) -> Env Refine -> IO (Expr Plain)
+realization :: AST (Refined R) -> Env R -> IO (Expr Plain)
 realization input env = do
   runReaderT (runLogicT (runRefine $ realize (spine input)) checkResult (error "impossible")) env
   where
     checkResult x _ = pure x
 
-refine :: MonadRefine m => AST Plain -> m (AST (Rt m))
-refine = transverse $ \(TreeF t x) -> case x of
-  (HoleF _) -> do
-    TreeF (Rt) . HoleF <$> newVal Unbound
-  _ -> undefined
-
--- | Pulls values out of cells, filling holes and
--- properly annotating with types
-realize :: Monad m => Expr (Rt m) -> m (Expr Plain)
-realize = transverse go
-  where
-    go :: ExprF (Rt m) (m a) -> m (ExprF Plain a)
-    go (HoleF _) = undefined
-    go _ = undefined
+refine :: MonadRefine m => AST Plain -> m (AST (Refined m))
+refine (Tree t (HoleF _)) = do
+  ty <- term Unbound
+  Tree (Refined (t ^. range) ty) . HoleF <$> term Unbound
+refine (Tree t (ProdF xs)) = do
+  elemsTy <- term Unbound
+  elems <- traverse refine xs
+  propProduct (view typeOf <$> elems) elemsTy
+  ty <- term Unbound
+  propProdTy elemsTy ty
+  pure $ Tree (Refined (t ^. range) ty) $ ProdF elems
+refine (Tree _ _) = undefined
 
 {-
 
@@ -179,34 +100,59 @@ This allows the lattice code to be pure
 
 -}
 
-newVal :: RtVal m -> m (Val m)
-newVal = undefined
+term :: RtVal m -> m (Term m)
+term = undefined
 
-propUnify :: (MonadRef m, Alternative m) => Cell m (Ref m) (RtVal m) -> Cell m (Ref m) (RtVal m) -> m ()
-propUnify x y = do
+propProdTy :: (MonadRef m, Alternative m) => Term m -> Term m -> m ()
+propProdTy (Term elemsTy) (Term ty) = do
+  push [Watched elemsTy] ty $ do
+    tys <- value elemsTy
+    pure $ RtProdTy tys
+  push [Watched ty] elemsTy $ do
+    value ty >>= \case
+      RtProdTy tys -> pure tys
+      _ -> undefined
+
+propProduct :: (MonadRef m, Alternative m) => [Term m] -> Term m -> m ()
+propProduct elems (Term prod) = do
+  for_ (zip [0 ..] elems) $ \(i, Term x) -> do
+    push [Watched x] prod $ do
+      val <- value x
+      value prod >>= \case
+        RtList current -> do
+          let (hd, tl) = splitAt i current
+          pure . RtList $ hd <> (val : drop 1 tl)
+        _ -> undefined
+    push [Watched prod] x $ do
+      value prod >>= \case
+        RtList xs -> pure $ xs !! i
+        _ -> undefined
+
+propUnify :: (MonadRef m, Alternative m) => Term m -> Term m -> m ()
+propUnify (Term x) (Term y) = do
   push [Watched x] y (value x)
   push [Watched y] x (value y)
 
-propLambda :: MonadIO m => Strict (Val m -> m (Val m)) -> m (Val m)
+propLambda :: MonadIO m => Strict (Term m -> m (Term m)) -> m (Term m)
 propLambda (Strict f) = do
   -- Construct the body of the function
   -- with the input on the stack, now info
   -- can propagate back
   stbl <- liftIO $ makeStableName f
-  newVal $ RtLam (Stable stbl f)
+  term $ RtLam (Stable stbl f)
 
-propApp :: (Alternative m, MonadRef m) => Val m -> Val m -> m (Val m)
-propApp (Val func) (Val input) = do
+propApp :: (Alternative m, MonadRef m) => Term m -> Term m -> m (Term m)
+propApp (Term func) (Term input) = do
   value func >>= \case
     RtLam (Stable _ f) -> do
       -- Network construction happens
       -- when the input is applied to the
       -- function
-      f (Val input)
+      f (Term input)
     _ -> error "Application not to a function"
 
-propCase :: (Alternative m, MonadRef m) => Val m -> [m (Val m)] -> m (Val m)
-propCase (Val subject) paths = do
+propCase :: (Alternative m, MonadRef m) => Term m -> [m (Term m)] -> m (Term m)
+propCase (Term subject) paths = do
   -- what would this be?
   output <- cell Unbound
   chosen <- cell (Nothing :: Maybe Int)
@@ -225,7 +171,16 @@ propCase (Val subject) paths = do
         -- set this up so updates can
         -- still flow, the prop for result
         -- should really only happen once
-        Val out <- paths !! n
+        Term out <- paths !! n
         push [Watched out] output (value out)
         pure Unbound
-  pure (Val output)
+  pure (Term output)
+
+-- | Pulls values out of cells, filling holes and
+-- properly annotating with types
+realize :: Monad m => Expr (Refined m) -> m (Expr Plain)
+realize = transverse go
+  where
+    go :: ExprF (Refined m) (m a) -> m (ExprF Plain a)
+    go (HoleF _) = undefined
+    go _ = undefined
