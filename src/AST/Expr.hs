@@ -23,6 +23,7 @@ class ExprConfig c where
   type BranchTy c :: Type
   type HoleTy c :: Type
   type RefTy c :: Type
+  type RelTy c :: Type
 
 data Expr c
   = Lam (LamTy c) (Expr c)
@@ -34,6 +35,9 @@ data Expr c
   | Symbol (RefTy c)
   | Hole (HoleTy c)
   | Prod [Expr c]
+  | Rel (RelTy c)
+  | And [Expr c]
+  | Prop [Expr c] (Expr c)
 
 makeBaseFunctor ''Expr
 
