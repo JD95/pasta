@@ -6,7 +6,7 @@ import Runtime.Prop
 import Runtime.Ref
 import System.Mem.StableName
 
-data Term m = Term {unTerm :: Cell m (Ref m) (RtVal m)}
+data Term m = Term {unTerm :: Cell m (RtVal m)}
 
 data RtVal m
   = RtList [RtVal m]

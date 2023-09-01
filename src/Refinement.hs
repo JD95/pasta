@@ -32,7 +32,6 @@ import Data.IORef
 import Data.Traversable
 import Lens.Micro.Platform
 import Runtime.Prop
-import Runtime.Ref
 import Runtime.Term
 import System.Mem.StableName
 
@@ -44,24 +43,17 @@ There shouldn't be some separate tree from the
 one constructed by refinement.
 -}
 
-data Env m = Env [Term m]
+data Env m = Env {stack :: [Term m], ref :: Ref m IORef}
 
 class
   ( MonadReader (Env m) m,
     Alternative m,
-    MonadRef m,
     Monad m
   ) =>
   MonadRefine m
 
 newtype R a = Refine {runRefine :: LogicT (ReaderT (Env R) IO) a}
   deriving (Functor, Applicative, Monad, MonadReader (Env R), Alternative, MonadIO)
-
-instance MonadRef R where
-  type Ref R = IORef
-  newRef = liftIO . newIORef
-  readRef = liftIO . readRef
-  writeRef r = liftIO . writeIORef r
 
 instance MonadRefine R
 
@@ -100,38 +92,49 @@ This allows the lattice code to be pure
 
 -}
 
+value :: Monad m => Term m -> m (RtVal m)
+value (Term (Cell cInfo cell)) = readValue cInfo cell
+
+watch :: Monad m => Term m -> Watched m
+watch (Term (Cell cInfo cell)) = Watched cInfo cell
+
 term :: RtVal m -> m (Term m)
 term = undefined
 
-propProdTy :: (MonadRef m, Alternative m) => Term m -> Term m -> m ()
-propProdTy (Term elemsTy) (Term ty) = do
-  push [Watched elemsTy] ty $ do
+push :: MonadRefine m => [Watched m] -> Term m -> m (RtVal m) -> m ()
+push xs (Term (Cell info target)) action = do
+  refImpl <- ref <$> ask
+  pushBase xs target action (FailAction undefined) info refImpl
+
+propProdTy :: (MonadRefine m) => Term m -> Term m -> m ()
+propProdTy elemsTy@(Term (Cell elemsTyInfo _)) ty@(Term (Cell tyInfo _)) = do
+  push [watch elemsTy] ty $ do
     tys <- value elemsTy
     pure $ RtProdTy tys
-  push [Watched ty] elemsTy $ do
+  push [watch ty] elemsTy $ do
     value ty >>= \case
       RtProdTy tys -> pure tys
       _ -> undefined
 
-propProduct :: (MonadRef m, Alternative m) => [Term m] -> Term m -> m ()
-propProduct elems (Term prod) = do
-  for_ (zip [0 ..] elems) $ \(i, Term x) -> do
-    push [Watched x] prod $ do
+propProduct :: (MonadRefine m) => [Term m] -> Term m -> m ()
+propProduct elems prod = do
+  for_ (zip [0 ..] elems) $ \(i, x) -> do
+    push [watch x] prod $ do
       val <- value x
       value prod >>= \case
         RtList current -> do
           let (hd, tl) = splitAt i current
           pure . RtList $ hd <> (val : drop 1 tl)
         _ -> undefined
-    push [Watched prod] x $ do
+    push [watch prod] x $ do
       value prod >>= \case
         RtList xs -> pure $ xs !! i
         _ -> undefined
 
-propUnify :: (MonadRef m, Alternative m) => Term m -> Term m -> m ()
-propUnify (Term x) (Term y) = do
-  push [Watched x] y (value x)
-  push [Watched y] x (value y)
+propUnify :: (MonadRefine m) => Term m -> Term m -> m ()
+propUnify (x) (y) = do
+  push [watch x] y (value x)
+  push [watch y] x (value y)
 
 propLambda :: MonadIO m => Strict (Term m -> m (Term m)) -> m (Term m)
 propLambda (Strict f) = do
@@ -141,40 +144,40 @@ propLambda (Strict f) = do
   stbl <- liftIO $ makeStableName f
   term $ RtLam (Stable stbl f)
 
-propApp :: (Alternative m, MonadRef m) => Term m -> Term m -> m (Term m)
-propApp (Term func) (Term input) = do
+propApp :: (Monad m) => Term m -> Term m -> m (Term m)
+propApp func input = do
   value func >>= \case
     RtLam (Stable _ f) -> do
       -- Network construction happens
       -- when the input is applied to the
       -- function
-      f (Term input)
+      f input
     _ -> error "Application not to a function"
 
-propCase :: (Alternative m, MonadRef m) => Term m -> [m (Term m)] -> m (Term m)
-propCase (Term subject) paths = do
-  -- what would this be?
-  output <- cell Unbound
-  chosen <- cell (Nothing :: Maybe Int)
-  push [Watched subject] chosen $ do
-    value subject >>= \case
-      RtCase n _ -> pure (Just n)
-      _ -> error "Not a case of"
-  -- This will only ever fire once
-  -- because chosen is a Maybe cell
-  push [Watched chosen] output $ do
-    value chosen >>= \case
-      Nothing -> undefined
-      Just n -> do
-        -- somehow make x available to the
-        -- chosen path
-        -- set this up so updates can
-        -- still flow, the prop for result
-        -- should really only happen once
-        Term out <- paths !! n
-        push [Watched out] output (value out)
-        pure Unbound
-  pure (Term output)
+-- propCase :: (Monad m) => Term m -> [m (Term m)] -> m (Term m)
+-- propCase subject paths = do
+--   -- what would this be?
+--   output <- term Unbound
+--   chosen <- refCell (Nothing :: Maybe Int) =<< ref <$> ask
+--   push [watch subject] chosen $ do
+--     value subject >>= \case
+--       RtCase n _ -> pure (Just n)
+--       _ -> error "Not a case of"
+--   -- This will only ever fire once
+--   -- because chosen is a Maybe cell
+--   push [watch chosen] output $ do
+--     value chosen >>= \case
+--       Nothing -> undefined
+--       Just n -> do
+--         -- somehow make x available to the
+--         -- chosen path
+--         -- set this up so updates can
+--         -- still flow, the prop for result
+--         -- should really only happen once
+--         out <- paths !! n
+--         push [watch out] output (value out)
+--         pure Unbound
+--   pure output
 
 -- | Pulls values out of cells, filling holes and
 -- properly annotating with types

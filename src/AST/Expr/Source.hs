@@ -11,6 +11,7 @@ import AST.Range
 import Data.Functor.Classes
 import Data.Functor.Classes.Generic
 import Data.Text
+import Data.Void
 import GHC.Generics
 import Lens.Micro.Platform
 import Parsing.Lexer (RowCol)
@@ -26,6 +27,7 @@ instance ExprConfig Src where
   type BranchTy Src = AST Src
   type HoleTy Src = Text
   type RefTy Src = Text
+  type RelTy Src = Void
 
 deriving instance Generic1 (ExprF Src)
 

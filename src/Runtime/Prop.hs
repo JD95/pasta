@@ -2,26 +2,21 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Runtime.Prop
   ( Watched (..),
-    Cell,
+    Cell (..),
     Pull,
-    Value (..),
     Inform (..),
-    cell,
+    Ref (..),
+    FailAction (..),
+    refCell,
+    unify,
     inform,
     informPeaceful,
-    push,
-    pull,
-    pmap,
-    rel,
-    unify,
-    apply,
-    (|>),
-    end,
-    peaceful,
+    pushBase,
   )
 where
 
@@ -29,23 +24,15 @@ import Control.Applicative (Alternative (empty))
 import Control.Monad (forM_, join)
 import Data.Traversable
 import Lattice
-import Runtime.Ref
-  ( MonadRef (..),
-    backTrackingModifyRef,
-    backTrackingWriteRef,
-  )
 
-data Watched m r where
-  Watched :: (Value f, Inform f, Lattice a) => f m r a -> Watched m r
+data Watched m where
+  Watched :: (Lattice a) => Inform cell m a -> cell -> Watched m
 
 -- | A cell that updates via pushes from others
 -- Will wait until all inputs have some information
 -- before tracking updates
-data Cell m r a
-  = Cell
-      (r a)
-      -- ^ Reference to the value held in the cell
-      (r [Trigger m a])
+data Cell m a where
+  Cell :: (Inform cell m a) -> cell -> Cell m a
 
 -- | When a cell value is updated, various triggers
 -- will also fire. The triggers perform things like firing
@@ -67,8 +54,9 @@ newtype Prop m r = Prop
 -- every update from the inputs
 data Pull m r a = Pull (r a) (m a) [r Bool] (r [Trigger m a])
 
+{-
 class Value cell where
-  value :: (Lattice a, Alternative m, MonadRef m) => cell m (Ref m) a -> m a
+  value :: (Lattice a) => cell -> m a
 
 instance Value Cell where
   value (Cell ref _) = readRef ref
@@ -98,38 +86,36 @@ instance Value Pull where
           Conflict -> empty
       else pure oldValue
 
-cell :: forall a m. MonadRef m => a -> m (Cell m (Ref m) a)
-cell val = do
+-}
+
+refCell :: forall a m r. Monad m => a -> Ref m r -> m (Cell m a)
+refCell val Ref {..} = do
   x <- newRef val
   trig <- newRef []
-  pure $ Cell x trig
+  let info = Inform (readRef . snd) (writeRef . snd) (readRef . fst) (writeRef . fst)
+  pure $ Cell info (x, trig)
 
-class Inform cell where
-  getWatchers :: cell m r a -> r [Trigger m a]
-  getValueRef :: cell m r a -> r a
+data Inform cell m a = Inform
+  { readWatchers :: cell -> m [Trigger m a],
+    writeWatchers :: cell -> [Trigger m a] -> m (),
+    readValue :: cell -> m a,
+    writeValue :: cell -> a -> m ()
+  }
 
-instance Inform Cell where
-  getWatchers (Cell _ ws) = ws
-  getValueRef (Cell r _) = r
+newtype FailAction m = FailAction {runFailAction :: m ()}
 
-instance Inform Pull where
-  getWatchers (Pull _ _ _ ws) = ws
-  getValueRef (Pull r _ _ _) = r
-
-informBase :: (Inform cell, Lattice a, Alternative m, MonadRef m) => Bool -> cell m (Ref m) a -> a -> m ()
-informBase isPeaceful target new = do
-  let ref = getValueRef target
-  let watchers = getWatchers target
-  old <- readRef ref
+informBase :: (Monad m, Lattice a) => Bool -> cell -> a -> FailAction m -> Inform cell m a -> m ()
+informBase isPeaceful target new f Inform {..} = do
+  old <- readValue target
   case merge (Old old) (New new) of
     Gain result -> do
-      backTrackingWriteRef ref result
-      kept <- fireAll result [] =<< readRef watchers
-      backTrackingWriteRef watchers kept
+      writeValue target result
+      kept <- fireAll result [] =<< readWatchers target
+      writeWatchers target kept
     None -> do
       pure ()
     Conflict ->
-      if isPeaceful then pure () else empty
+      if isPeaceful then pure () else runFailAction f
 
 fireAll :: Monad m => a -> [Trigger m a] -> [Trigger m a] -> m [Trigger m a]
 fireAll _ kept [] = pure kept
@@ -142,35 +128,43 @@ fireAll result kept (t : ts) = do
   fireAll result ts next
 
 -- | Merges info with cell, conflicts causing branch failures
-inform :: (Lattice a, Alternative m, MonadRef m) => Cell m (Ref m) a -> a -> m ()
+inform :: (Monad m, Lattice a) => cell -> a -> FailAction m -> Inform cell m a -> m ()
 inform = informBase False
 
 -- | Merges info with cell, treating conflicts as no-ops
-informPeaceful :: (Lattice a, Alternative m, MonadRef m) => Cell m (Ref m) a -> a -> m ()
+informPeaceful :: (Monad m, Lattice a) => cell -> a -> FailAction m -> Inform cell m a -> m ()
 informPeaceful = informBase True
 
-listenWhile :: (Inform f, Alternative m, MonadRef m) => (a -> Bool) -> Prop m (Ref m) -> f m (Ref m) a -> m ()
-listenWhile cond p f =
-  backTrackingModifyRef (getWatchers f) $ \others ->
-    let new = do
-          -- Fire the given propagator by
-          -- pull the action it's action
-          -- and immediately run it
-          join $ readRef (action p)
-          -- After the propagator fires
-          -- use this condition to check
-          -- if this trigger should stay
-          -- active
-          pure cond
-     in Trigger new : others
+listenWhile :: Monad m => (a -> Bool) -> Prop m r -> cell -> Inform cell m a -> Ref m r -> m ()
+listenWhile cond p cell Inform {..} Ref {..} = do
+  others <- readWatchers cell
+  let new = do
+        -- Fire the given propagator by
+        -- pull the action it's action
+        -- and immediately run it
+        join $ readRef (action p)
+        -- After the propagator fires
+        -- use this condition to check
+        -- if this trigger should stay
+        -- active
+        pure cond
+  writeWatchers cell (Trigger new : others)
 
-listenToOnce :: (Inform f, Alternative m, MonadRef m) => Prop m (Ref m) -> f m (Ref m) a -> m ()
+listenToOnce :: Monad m => Prop m r -> cell -> Inform cell m a -> Ref m r -> m ()
 listenToOnce = listenWhile (const False)
 
+data Ref m r = Ref
+  { readRef :: forall x. r x -> m x,
+    writeRef :: forall x. r x -> x -> m (),
+    newRef :: forall x. x -> m (r x)
+  }
+
 -- | Creates a push relationship between the watched cells and the target cell
-push :: (Lattice a, Alternative m, MonadRef m) => [Watched m (Ref m)] -> Cell m (Ref m) a -> m a -> m ()
-push [] target fire = inform target =<< fire
-push inputs@(Watched x : _) target@(Cell _ _) fire = do
+pushBase :: (Monad m, Lattice a) => [Watched m] -> cell -> m a -> FailAction m -> Inform cell m a -> Ref m r -> m ()
+pushBase [] target fire fail i _ = do
+  x <- fire
+  inform target x fail i
+pushBase inputs@(Watched (xInfo) x : _) target fire fail i r@(Ref {..}) = do
   -- Create action ref with temp value
   propAction <- newRef (pure ())
   -- Override with proper action now that we have the ref
@@ -178,39 +172,53 @@ push inputs@(Watched x : _) target@(Cell _ _) fire = do
 
   -- Have the first watched input trigger
   -- this propagator when it gains info
-  listenToOnce (Prop propAction) x
+  listenToOnce (Prop propAction) x xInfo r
 
   waitForInputs propAction inputs
   where
     fireInto = do
       result <- fire
-      inform target result
+      inform target result fail i
 
     waitForInputs ref [] = do
       -- Now that all the inputs have usable
       -- values, fire the propagator now and
       -- every time one of them updates
-      forM_ inputs $ \(Watched w) ->
+      forM_ inputs $ \(Watched wInfo w) ->
         -- However, once an input is saturated
         -- with information, we can stop listening
         -- it will only ever learn nothing or a contradiction
-        listenWhile (not . isTop) (Prop ref) w
-      backTrackingWriteRef ref fireInto
+        listenWhile (not . isTop) (Prop ref) w wInfo r
+      writeRef ref fireInto
       fireInto
-    waitForInputs ref (Watched y : ys) = do
-      val <- value y
+    waitForInputs ref (Watched yInfo y : ys) = do
+      val <- (readValue yInfo) y
       if LatOrd val <= LatOrd bottom
         then do
           -- No usable input yet, wait until
           -- this cell gains input then check
           -- the rest
-          listenToOnce (Prop ref) y
-          backTrackingWriteRef ref (waitForInputs ref ys)
+          listenToOnce (Prop ref) y yInfo r
+          writeRef ref (waitForInputs ref ys)
         else do
           -- This input has a usable value so
           -- go check the rest
           waitForInputs ref ys
 
+unify ::
+  (Monad m, Lattice a) =>
+  cell1 ->
+  Inform cell1 m a ->
+  cell2 ->
+  Inform cell2 m a ->
+  FailAction m ->
+  Ref m r ->
+  m ()
+unify x xInfo y yInfo fail r = do
+  pushBase [] y (readValue xInfo x) fail yInfo r
+  pushBase [] x (readValue yInfo y) fail xInfo r
+
+{-
 -- | Creates a pull relationship from the inputs into the cell
 pull :: (Alternative m, Lattice a, MonadRef m) => [Watched m (Ref m)] -> m a -> m (Pull m (Ref m) a)
 pull inputs go = do
@@ -251,15 +259,6 @@ rel f g x y = do
   push [Watched y] x $
     g <$> value y
 
-unify ::
-  (Alternative m, MonadRef m, Lattice a) =>
-  Cell m (Ref m) a ->
-  Cell m (Ref m) a ->
-  m ()
-unify x y = do
-  push [] y $ value x
-  push [] x $ value y
-
 -- | Helpful when applying things like `map`
 -- where there is a single "output" value
 --
@@ -298,3 +297,4 @@ peaceful other this = do
   otherP <- apply $ pmap Peaceful other
   push [Watched otherP] thisP $ value thisP
   apply $ pmap unPeaceful thisP
+-}
